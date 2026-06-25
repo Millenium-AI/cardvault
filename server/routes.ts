@@ -606,7 +606,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // DELETE upload — explicit cascade: parsed_rows → merge_reviews → upload
+  // DELETE upload — DB ON DELETE CASCADE handles parsed_rows, merge_reviews, price_snapshots.
   app.delete("/api/uploads/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -614,18 +614,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const u = await storage.getUpload(userId, uploadId);
       if (!u) return res.status(404).json({ error: "Not found" });
-
-      const { error: rowsError } = await supabaseAdmin
-        .from("parsed_rows")
-        .delete()
-        .eq("upload_id", uploadId);
-      if (rowsError) throw new Error(rowsError.message);
-
-      const { error: reviewError } = await supabaseAdmin
-        .from("merge_reviews")
-        .delete()
-        .eq("upload_id", uploadId);
-      if (reviewError) throw new Error(reviewError.message);
 
       await storage.deleteUpload(userId, uploadId);
 

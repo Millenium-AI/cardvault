@@ -180,9 +180,7 @@ class SupabaseStorage {
   }
 
   async deleteUpload(userId: string, id: string): Promise<void> {
-    // Cascade order: deepest children first to avoid FK violations
-    await supabaseAdmin.from('parsed_rows').delete().eq('upload_id', id).eq('user_id', userId);
-    await supabaseAdmin.from('merge_reviews').delete().eq('upload_id', id).eq('user_id', userId);
+    // DB ON DELETE CASCADE handles parsed_rows, merge_reviews, and price_snapshots.
     const { error } = await supabaseAdmin.from('uploads').delete().eq('id', id).eq('user_id', userId);
     if (error) throw new Error(error.message);
   }
@@ -260,10 +258,7 @@ class SupabaseStorage {
   }
 
   async deleteInventoryItem(userId: string, id: string): Promise<void> {
-    // Delete in dependency order — label queue and snapshots reference inventory_item_id,
-    // so they must go first to avoid FK violations and orphaned rows on the labels page.
-    await supabaseAdmin.from('label_queue_items').delete().eq('inventory_item_id', id).eq('user_id', userId);
-    await supabaseAdmin.from('price_snapshots').delete().eq('inventory_item_id', id).eq('user_id', userId);
+    // DB ON DELETE CASCADE handles label_queue_items and price_snapshots.
     const { error } = await supabaseAdmin.from('inventory_items').delete().eq('id', id).eq('user_id', userId);
     if (error) throw new Error(error.message);
   }

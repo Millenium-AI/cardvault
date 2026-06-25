@@ -102,10 +102,16 @@ export default function Login() {
     try {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) throw error;
-      if (data.user) {
+      // /api/auth/use-invite requires the Bearer token and validates
+      // userId === token.sub, so it can only run when signUp returns a session
+      // (i.e. email confirmation is disabled). When a session exists, redeem now.
+      if (data.user && data.session?.access_token) {
         await fetch(`${API_BASE}/api/auth/use-invite`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${data.session.access_token}`,
+          },
           body: JSON.stringify({ code: inviteCode, userId: data.user.id }),
         });
       }

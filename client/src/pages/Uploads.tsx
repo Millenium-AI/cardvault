@@ -304,7 +304,7 @@ export default function Uploads() {
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       setSelectedUploadId(data.upload.id);
       setShowReview(true);
-      toast({ title: "CSV parsed", description: `${data.summary.totalParsed} rows ready for review.` });
+      toast({ title: "File parsed", description: `${data.summary.totalParsed} rows ready for review.` });
     },
     onError: (e: any) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
   });
@@ -330,7 +330,11 @@ export default function Uploads() {
   });
 
   const handleFile = (file: File) => {
-    if (!file.name.endsWith(".csv")) { toast({ title: "CSV files only", variant: "destructive" }); return; }
+    const name = file.name.toLowerCase();
+    if (!name.endsWith(".csv") && !name.endsWith(".xlsx")) {
+      toast({ title: "CSV or Excel (.xlsx) files only", variant: "destructive" });
+      return;
+    }
     uploadMut.mutate(file);
   };
 
@@ -395,10 +399,10 @@ export default function Uploads() {
             >
               <Upload size={22} className="mx-auto mb-2 text-muted-foreground" />
               <div className="text-sm text-muted-foreground">
-                {uploadMut.isPending ? "Parsing…" : "Tap or drop CSV"}
+                {uploadMut.isPending ? "Parsing…" : "Tap or drop CSV or Excel"}
               </div>
-              <div className="text-xs text-muted-foreground mt-1">TCGplayer format supported</div>
-              <input ref={fileRef} type="file" accept=".csv" className="hidden"
+              <div className="text-xs text-muted-foreground mt-1">TCGplayer CSV or .xlsx supported</div>
+              <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </div>
           </div>
