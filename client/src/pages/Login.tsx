@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,43 +60,6 @@ export default function Login() {
   const [googleLoading, setGoogleLoading] = useState(false);
 
   const passwordMismatch = confirmPassword.length > 0 && password !== confirmPassword;
-
-  // For Google OAuth sign-ins: if the user is not admin and their account was
-  // just created (new Google signup without an invite), sign them back out.
-  // We no longer compare emails client-side — the server enforces admin status.
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session?.user) {
-        const user = session.user;
-        // Only apply the invite gate to brand-new Google OAuth accounts
-        if (user.app_metadata?.provider === "google") {
-          const createdAt = new Date(user.created_at).getTime();
-          const lastSignIn = new Date(user.last_sign_in_at ?? user.created_at).getTime();
-          const isNewAccount = Math.abs(createdAt - lastSignIn) < 10000;
-          if (isNewAccount) {
-            // Ask the server whether this user is admin
-            try {
-              const res = await fetch(`${API_BASE}/api/auth/me`, {
-                headers: { Authorization: `Bearer ${session.access_token}` },
-              });
-              const data = res.ok ? await res.json() : { isAdmin: false };
-              if (!data.isAdmin) {
-                await supabase.auth.signOut();
-                toast({
-                  title: "Access denied",
-                  description: "You need an invite code to create an account.",
-                  variant: "destructive",
-                });
-              }
-            } catch {
-              // Network error — allow through; server will block on next request
-            }
-          }
-        }
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, []);
 
   function switchMode(m: Mode) {
     setMode(m);
@@ -195,10 +158,15 @@ export default function Login() {
         setGoogleLoading(false);
         return;
       }
-      sessionStorage.setItem("pendingInviteCode", inviteCode.trim().toUpperCase());
+
+      // Pass the invite code in the redirectTo URL so it survives the OAuth
+      // full-page redirect. sessionStorage is wiped on redirect and cannot be used.
+      const redirectUrl = new URL(window.location.origin);
+      redirectUrl.searchParams.set("invite", inviteCode.trim().toUpperCase());
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: OAUTH_REDIRECT_URL },
+        options: { redirectTo: redirectUrl.toString() },
       });
       if (error) throw error;
     } catch (err: any) {
@@ -356,44 +324,27 @@ export default function Login() {
                   required
                 />
               </div>
-
               <div className="space-y-1.5">
                 <Label htmlFor="su-password" className="text-xs font-medium">Password</Label>
                 <PasswordInput id="su-password" value={password} onChange={setPassword} testId="input-signup-password" />
-                <p className="text-[11px] text-muted-foreground">Minimum 6 characters</p>
               </div>
-
               <div className="space-y-1.5">
                 <Label htmlFor="su-confirm" className="text-xs font-medium">Confirm Password</Label>
-                <PasswordInput
-                  id="su-confirm"
-                  value={confirmPassword}
-                  onChange={setConfirmPassword}
-                  placeholder="••••••••"
-                  testId="input-confirm-password"
-                />
+                <PasswordInput id="su-confirm" value={confirmPassword} onChange={setConfirmPassword} />
                 {passwordMismatch && (
-                  <p className="text-[11px] text-destructive font-medium">Passwords don't match</p>
+                  <p className="text-[11px] text-destructive">Passwords don't match</p>
                 )}
               </div>
-
               <Button
-                data-testid="button-signup-submit"
+                data-testid="button-auth-submit"
                 type="submit"
                 className="w-full h-10 text-sm font-medium mt-1"
-                disabled={loading || googleLoading || passwordMismatch || password.length < 6 || confirmPassword.length === 0}
+                disabled={loading || googleLoading || passwordMismatch}
               >
                 {loading ? <Loader2 size={15} className="animate-spin mr-2" /> : null}
                 Create Account
               </Button>
             </form>
-
-            <button
-              onClick={() => setSignupStep("invite")}
-              className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors text-center"
-            >
-              ← Use a different invite code
-            </button>
           </div>
         )}
 

@@ -51,11 +51,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.access_token) {
         fetchAdminStatus(session.access_token);
+
+        // After a Google OAuth signup via invite, redeem the invite code that
+        // was passed as ?invite= in the redirectTo URL. sessionStorage does not
+        // survive the full-page OAuth redirect, so the URL param is used instead.
+        if (_event === "SIGNED_IN" && session.user.app_metadata?.provider === "google") {
+          const params = new URLSearchParams(window.location.search);
+          const pendingCode = params.get("invite");
+          if (pendingCode) {
+            // Strip the param immediately so it doesn't re-fire on refresh
+            const cleanUrl = window.location.origin + window.location.hash;
+            window.history.replaceState({}, "", cleanUrl);
+
+            try {
+              await fetch("/api/auth/use-invite", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ code: pendingCode, userId: session.user.id }),
+              });
+            } catch {
+              // Non-fatal — user is still signed in
+            }
+          }
+        }
       } else {
         setIsAdmin(false);
       }
