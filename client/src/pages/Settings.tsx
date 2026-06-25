@@ -270,7 +270,7 @@ export default function Settings() {
         <div className="stat-card border-dashed">
           <div className="text-sm font-semibold text-foreground mb-1">Build Phase</div>
           <p className="text-xs text-muted-foreground">
-            This is <strong className="text-foreground">Phase 1 (MVP)</strong>. Per-card sales/removals, XLSX export, bulk queue actions, scheduled market refresh, and multi-user roles are deferred to later phases.
+            This is <strong className="text-foreground">Phase 1 (MVP)</strong>. Per-card sales/removals, scheduled market refresh, and multi-user roles are deferred to later phases.
           </p>
         </div>
       </div>
