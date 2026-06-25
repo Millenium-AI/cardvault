@@ -307,11 +307,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const content = req.file.buffer.toString("utf-8");
       const rawRows = parseCSV(content);
 
-      const uploadId = crypto.randomUUID();
       const now = new Date().toISOString();
 
+      // Let storage generate and own the upload ID
       const newUpload = await storage.createUpload(userId, {
-        id: uploadId,
         sourceType,
         game,
         originalFilename: req.file.originalname,
@@ -321,6 +320,9 @@ export function registerRoutes(httpServer: Server, app: Express) {
         parseStatus: "parsed",
         summaryJson: null,
       });
+
+      // Use the real upload ID from the database record everywhere
+      const uploadId = newUpload.id;
 
       const parsedRowData = rawRows
         .filter(r => Object.values(r).some(v => v))
@@ -397,8 +399,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const uploadRecord = await storage.getUpload(userId, uploadId);
       const game = uploadRecord?.game || "pokemon";
 
+      // Fetch all parsed rows once to avoid N+1 queries inside the loop
+      const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
+
       for (const row of (payload.newItems || [])) {
-        const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
         const parsedRow = allParsed.find(r => r.id === row.id);
         const matchMeta = {
           sourceProductId: parsedRow?.sourceProductId,
@@ -483,7 +487,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
             quantityAfterMerge: newQty,
           });
         }
-        const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
         const parsedRow = allParsed.find(r => r.id === match.rowId);
         if (parsedRow) {
           await storage.updateParsedRow(userId, parsedRow.id, { matchStatus: "matched", matchedInventoryId: existingItem.id });
