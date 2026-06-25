@@ -41,8 +41,18 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   const { toast } = useToast();
   const payload = (() => { try { return JSON.parse(review.reviewPayload || "{}"); } catch { return {}; } })();
 
+  // Inline qty overrides: { [rowId]: newQty }
+  const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
+  function setQtyOverride(rowId: string, val: number) {
+    setQtyOverrides(prev => ({ ...prev, [rowId]: val }));
+  }
+
   const approveMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/uploads/${uploadId}/approve`),
+    mutationFn: () => apiRequest("POST", `/api/uploads/${uploadId}/approve`, {
+      overrides: Object.fromEntries(
+        Object.entries(qtyOverrides).map(([id, qty]) => [id, { csvQty: qty }])
+      ),
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
@@ -125,18 +135,57 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
       </ExpandableSection>
 
       <ExpandableSection title="Quantity Updates (Matched)" count={payload.matchedItems?.length} color="bg-sky-500/10 text-sky-400">
-        <MiniTable
-          rows={payload.matchedItems || []}
-          cols={[
-            { key: "productName", label: "Product Name" },
-            { key: "number", label: "#" },
-            { key: "condition", label: "Condition" },
-            { key: "existingQty", label: "Cur Qty" },
-            { key: "addToQuantity", label: "+Qty" },
-            { key: "existingPrice", label: "Old $", render: r => r.existingPrice ? `$${r.existingPrice.toFixed(2)}` : "—" },
-            { key: "rawMarketPrice", label: "New $", render: r => r.rawMarketPrice ? `$${r.rawMarketPrice.toFixed(2)}` : "—" },
-          ]}
-        />
+        <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
+          <table className="w-full text-xs min-w-[560px]">
+            <thead>
+              <tr className="border-b border-border bg-muted/30">
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Product Name</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">#</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Cond</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Cur Qty</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">CSV Qty</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Change</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Old $</th>
+                <th className="text-left px-3 py-2 font-medium text-muted-foreground">New $</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(payload.matchedItems || []).map((row: any, i: number) => {
+                const overrideQty = qtyOverrides[row.rowId];
+                const effectiveQty = overrideQty ?? row.csvQty ?? row.existingQty;
+                const delta = effectiveQty - (row.existingQty || 0);
+                const isEdited = overrideQty !== undefined;
+                return (
+                  <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30", isEdited && "bg-amber-500/5")}>
+                    <td className="px-3 py-2 text-foreground max-w-[160px] truncate">{row.productName}</td>
+                    <td className="px-3 py-2 text-foreground whitespace-nowrap">{row.number || "—"}</td>
+                    <td className="px-3 py-2 text-foreground whitespace-nowrap">{row.condition || "—"}</td>
+                    <td className="px-3 py-2 text-foreground whitespace-nowrap">{row.existingQty ?? "—"}</td>
+                    {/* Editable CSV qty */}
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        value={effectiveQty}
+                        onChange={e => setQtyOverride(row.rowId, Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-14 h-6 px-1.5 text-xs rounded border border-border bg-background text-foreground text-center focus:border-primary outline-none"
+                      />
+                    </td>
+                    {/* Delta */}
+                    <td className="px-3 py-2 whitespace-nowrap font-medium">
+                      {delta === 0
+                        ? <span className="text-muted-foreground">no change</span>
+                        : <span className={delta > 0 ? "text-emerald-400" : "text-red-400"}>{delta > 0 ? `+${delta}` : delta}</span>
+                      }
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{row.existingPrice ? `$${Number(row.existingPrice).toFixed(2)}` : "—"}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{row.rawMarketPrice ? `$${Number(row.rawMarketPrice).toFixed(2)}` : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </ExpandableSection>
 
       <ExpandableSection title="Repricing Candidates" count={payload.repricingCandidates?.length} color="bg-primary/10 text-primary">

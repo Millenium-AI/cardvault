@@ -226,15 +226,23 @@ function checkRepricingThreshold(
 }
 
 // ─── export CSV ──────────────────────────────────────────────────────────────
+// Each card gets one row PER LABEL — quantity is expanded into separate rows
+// because Niimbot printers cannot read a quantity column, they print by line count
 function buildNiimbotCsv(items: any[]): string {
   const headers = ["Condition", "Current Market Price", "Product Name", "Number", "Internal ID"];
-  const rows = items.map(item => [
-    `"${CONDITION_SHORT[item.condition] || (item.condition || "").replace(/"/g, '""')}"`,
-    `"$${item.roundedPrintPrice || 0}"`,
-    `"${(item.productName || "").replace(/"/g, '""')}"`,
-    `"${(item.number || "").replace(/"/g, '""')}"`,
-    `"${item.inventoryItemId || item.id || ""}"`,
-  ].join(","));
+  const rows: string[] = [];
+  for (const item of items) {
+    const qty = Math.max(1, parseInt(item.quantity) || 1);
+    const row = [
+      `"${CONDITION_SHORT[item.condition] || (item.condition || "").replace(/"/g, '""')}"`,
+      `"$${item.roundedPrintPrice || 0}"`,
+      `"${(item.productName || "").replace(/"/g, '""')}"`,
+      `"${(item.number || "").replace(/"/g, '""')}"`,
+      `"${item.inventoryItemId || item.id || ""}"`,
+    ].join(",");
+    // Repeat the row once per quantity
+    for (let i = 0; i < qty; i++) rows.push(row);
+  }
   return [headers.join(","), ...rows].join("\n");
 }
 
@@ -441,22 +449,29 @@ export function registerRoutes(httpServer: Server, app: Express) {
         if (!existingItem) {
           newItems.push(row);
         } else {
+          // Quantity delta: CSV total vs current inventory
+          // If equal → no quantity change (qtyDelta = 0)
+          // If different → set to CSV total (qtyDelta = csvQty - existingQty)
+          const csvQty = row.addToQuantity || 1;
+          const existingQty = existingItem.currentQuantity || 0;
+          const qtyDelta = csvQty !== existingQty ? csvQty - existingQty : 0;
+
           const prevPrice = existingItem.currentRawMarketPrice;
           const newPrice = row.rawMarketPrice;
           if (prevPrice && newPrice) {
             const thr = await storage.getRepricingThresholds(userId);
             const { triggered, rule } = checkRepricingThreshold(newPrice, prevPrice, thr);
-            if (triggered) repricingCandidates.push({ row, existingItem, rule });
+            if (triggered) repricingCandidates.push({ row, existingItem, rule, qtyDelta, csvQty, existingQty });
           }
-          matchedItems.push({ row, existingItem });
+          matchedItems.push({ row, existingItem, qtyDelta, csvQty, existingQty });
         }
       }
 
       const reviewPayload = JSON.stringify({
         newItems: newItems.map(r => ({ id: r.id, productName: r.productName, number: r.number, condition: r.condition, rawMarketPrice: r.rawMarketPrice, roundedPrintPrice: r.roundedPrintPrice, addToQuantity: r.addToQuantity })),
-        matchedItems: matchedItems.map(({ row, existingItem }) => ({ rowId: row.id, productName: row.productName, number: row.number, condition: row.condition, rawMarketPrice: row.rawMarketPrice, roundedPrintPrice: row.roundedPrintPrice, addToQuantity: row.addToQuantity, existingId: existingItem.id, existingQty: existingItem.currentQuantity, existingPrice: existingItem.currentRawMarketPrice })),
+        matchedItems: matchedItems.map(({ row, existingItem, qtyDelta, csvQty, existingQty }) => ({ rowId: row.id, productName: row.productName, number: row.number, condition: row.condition, rawMarketPrice: row.rawMarketPrice, roundedPrintPrice: row.roundedPrintPrice, csvQty, existingQty, qtyDelta, existingId: existingItem.id, existingPrice: existingItem.currentRawMarketPrice })),
         ambiguousItems,
-        repricingCandidates: repricingCandidates.map(({ row, existingItem, rule }) => ({ rowId: row.id, productName: row.productName, priorPrice: existingItem.currentRawMarketPrice, newPrice: row.rawMarketPrice, roundedPrintPrice: row.roundedPrintPrice, percentChange: existingItem.currentRawMarketPrice ? ((row.rawMarketPrice - existingItem.currentRawMarketPrice) / existingItem.currentRawMarketPrice * 100).toFixed(1) : null, rule })),
+        repricingCandidates: repricingCandidates.map(({ row, existingItem, rule, qtyDelta, csvQty, existingQty }) => ({ rowId: row.id, productName: row.productName, priorPrice: existingItem.currentRawMarketPrice, newPrice: row.rawMarketPrice, roundedPrintPrice: row.roundedPrintPrice, percentChange: existingItem.currentRawMarketPrice ? ((row.rawMarketPrice - existingItem.currentRawMarketPrice) / existingItem.currentRawMarketPrice * 100).toFixed(1) : null, rule, csvQty, existingQty, qtyDelta })),
       });
 
       const review = await storage.createMergeReview(userId, {
@@ -481,6 +496,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
+  // Approve merge — accepts optional overrides from inline review edits
   app.post("/api/uploads/:id/approve", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -490,6 +506,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
       if (!review) return res.status(404).json({ error: "Review not found" });
       if (review.status !== "pending") return res.status(400).json({ error: "Already processed" });
 
+      // Frontend can send overrides: { overrides: { [rowId]: { csvQty: number } } }
+      const overrides: Record<string, { csvQty?: number }> = req.body?.overrides || {};
       const payload = JSON.parse(review.reviewPayload || "{}");
       const now = new Date().toISOString();
       const uploadRecord = await storage.getUpload(userId, uploadId);
@@ -543,6 +561,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
         };
       });
 
+      // Apply inline qty overrides from review edits: override matched item csvQty before RPC
+      const rpcMatchedItemsWithOverrides = (payload.matchedItems || []).map((match: any) => {
+        const override = overrides[match.rowId];
+        const targetQty = override?.csvQty ?? match.csvQty ?? match.existingQty;
+        return { ...match, csvQty: targetQty };
+      });
+
       const rpcRepricing = (payload.repricingCandidates || []).map((candidate: any) => {
         const matchedEntry = (payload.matchedItems || []).find((m: any) => m.rowId === candidate.rowId);
         return {
@@ -560,7 +585,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
         p_upload_id:     uploadId,
         p_review_id:     review.id,
         p_new_items:     rpcNewItems,
-        p_matched_items: rpcMatchedItems,
+        p_matched_items: rpcMatchedItemsWithOverrides,
         p_repricing:     rpcRepricing,
         p_now:           now,
       });
@@ -675,7 +700,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const selectedItems = allItems.filter(i => ids.includes(i.id));
       const enriched = await Promise.all(selectedItems.map(async item => {
         const inv = await storage.getInventoryItem(userId, item.inventoryItemId);
-        return { id: item.id, inventoryItemId: item.inventoryItemId, condition: inv?.condition || "", roundedPrintPrice: item.roundedPrintPrice, productName: inv?.productName || "", number: inv?.number || "" };
+        return {
+          id: item.id,
+          inventoryItemId: item.inventoryItemId,
+          condition: inv?.condition || "",
+          roundedPrintPrice: item.roundedPrintPrice,
+          productName: inv?.productName || "",
+          number: inv?.number || "",
+          quantity: inv?.currentQuantity || 1,
+        };
       }));
       const csv = buildNiimbotCsv(enriched);
       await storage.bulkUpdateLabelQueueExportStatus(userId, ids, "exported");
