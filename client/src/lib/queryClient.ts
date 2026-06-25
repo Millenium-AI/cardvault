@@ -16,6 +16,8 @@ async function getAuthHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export { getAuthHeader };
+
 export async function apiRequest(
   method: string,
   url: string,

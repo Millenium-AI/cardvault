@@ -4,8 +4,22 @@ const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // Admin client — full access, server-side only
+// Realtime WebSocket is disabled: this server only uses REST + Auth APIs.
+// On Node < 22, @supabase/realtime-js throws if no native WebSocket exists.
+// Providing a no-op class prevents the crash without affecting any functionality.
+class NoopWebSocket {
+  static CONNECTING = 0; static OPEN = 1; static CLOSING = 2; static CLOSED = 3;
+  readyState = 3;
+  constructor() {}
+  close() {}
+  send() {}
+  addEventListener() {}
+  removeEventListener() {}
+}
+
 export const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
+  realtime: { transport: NoopWebSocket as any },
 });
 
 // Bootstrap invite_codes table if it doesn't exist

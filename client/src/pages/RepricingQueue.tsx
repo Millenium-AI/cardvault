@@ -9,8 +9,6 @@ import { useToast } from "@/hooks/use-toast";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { format, parseISO } from "date-fns";
 
-const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
-
 function PctBadge({ pct }: { pct: number | null }) {
   if (pct === null || pct === undefined) return <span className="text-muted-foreground">—</span>;
   const isUp = pct > 0;
@@ -59,11 +57,7 @@ export default function RepricingQueue() {
 
   const exportMut = useMutation({
     mutationFn: async (ids: string[]) => {
-      const res = await fetch(`${API_BASE}/api/labels/export`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, queueType: "reprice" }),
-      });
+      const res = await apiRequest("POST", "/api/labels/export", { ids, queueType: "reprice" });
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

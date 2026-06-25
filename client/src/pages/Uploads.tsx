@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeader } from "@/lib/queryClient";
 import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -213,7 +213,9 @@ export default function Uploads() {
       form.append("file", file);
       form.append("game", game);
       form.append("sourceType", sourceType);
-      const res = await fetch("/api/uploads", { method: "POST", body: form });
+      const authHeader = await getAuthHeader();
+      const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
+      const res = await fetch(`${API_BASE}/api/uploads`, { method: "POST", body: form, headers: authHeader });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Upload failed"); }
       return res.json();
     },

@@ -9,8 +9,6 @@ import { useToast } from "@/hooks/use-toast";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { format, parseISO } from "date-fns";
 
-const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
-
 export default function NewLabels() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<"all" | "pending" | "exported">("pending");
@@ -40,11 +38,7 @@ export default function NewLabels() {
 
   const exportMut = useMutation({
     mutationFn: async (ids: string[]) => {
-      const res = await fetch(`${API_BASE}/api/labels/export`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, queueType: "new" }),
-      });
+      const res = await apiRequest("POST", "/api/labels/export", { ids, queueType: "new" });
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
