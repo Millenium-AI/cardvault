@@ -8,8 +8,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Copy, Plus, Check, ShieldOff } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 
-const ADMIN_EMAIL = "bonsaicollects@gmail.com";
-
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   function copy() {
@@ -27,9 +25,9 @@ function CopyButton({ text }: { text: string }) {
 
 export default function Admin() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { isAdmin } = useAuth();
 
-  if (user?.email !== ADMIN_EMAIL) {
+  if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
         <ShieldOff size={36} className="text-muted-foreground" />
@@ -74,7 +72,6 @@ export default function Admin() {
     <div className="space-y-6">
       <h1 className="text-lg font-semibold text-foreground">Admin — Invite Codes</h1>
 
-      {/* Generate panel */}
       <div className="stat-card p-4 space-y-3">
         <div className="text-sm font-medium text-foreground">Generate New Codes</div>
         <div className="flex gap-2 flex-wrap">
@@ -106,7 +103,6 @@ export default function Admin() {
           {generate.isPending ? "Generating…" : "Generate Codes"}
         </Button>
 
-        {/* Newly generated codes */}
         {newCodes.length > 0 && (
           <div className="mt-2 p-3 rounded-lg bg-primary/5 border border-primary/20 space-y-2">
             <div className="text-xs font-semibold text-primary">New codes — share these:</div>
@@ -122,7 +118,6 @@ export default function Admin() {
         )}
       </div>
 
-      {/* Unused codes */}
       <div className="stat-card p-0 overflow-hidden">
         <div className="px-4 py-2.5 border-b border-border bg-muted/40 flex items-center justify-between">
           <span className="text-xs font-medium text-muted-foreground">Available Codes</span>
@@ -149,7 +144,6 @@ export default function Admin() {
         )}
       </div>
 
-      {/* Used codes */}
       {used.length > 0 && (
         <div className="stat-card p-0 overflow-hidden">
           <div className="px-4 py-2.5 border-b border-border bg-muted/40">

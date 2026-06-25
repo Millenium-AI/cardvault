@@ -190,7 +190,11 @@ function buildNiimbotCsv(items: any[]): string {
 }
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bonsaicollects@gmail.com";
+// ADMIN_EMAIL must be set in Railway environment variables — no hardcoded fallback.
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+if (!ADMIN_EMAIL) {
+  console.warn("[WARNING] ADMIN_EMAIL environment variable is not set. Admin routes will be inaccessible.");
+}
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const auth = req.headers.authorization;
@@ -208,7 +212,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const token = auth.slice(7);
   const user = await verifyToken(token);
   if (!user) return res.status(401).json({ error: "Invalid token" });
-  if (user.email !== ADMIN_EMAIL) return res.status(403).json({ error: "Forbidden — admin only" });
+  if (!ADMIN_EMAIL || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: "Forbidden — admin only" });
   (req as any).user = user;
   next();
 }
@@ -239,6 +243,19 @@ export function registerRoutes(httpServer: Server, app: Express) {
       .eq("used", false);
     if (error) return res.status(400).json({ error: "Could not redeem code" });
     res.json({ ok: true });
+  });
+
+  // ── auth: current user + admin flag ──────────────────────────────────────
+  // The frontend calls this after login to learn whether the user is admin.
+  // ADMIN_EMAIL never leaves the server — only the boolean is returned.
+  app.get("/api/auth/me", async (req, res) => {
+    const auth = req.headers.authorization;
+    if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+    const token = auth.slice(7);
+    const user = await verifyToken(token);
+    if (!user) return res.status(401).json({ error: "Invalid token" });
+    const isAdmin = Boolean(ADMIN_EMAIL && user.email === ADMIN_EMAIL);
+    res.json({ id: user.id, email: user.email, isAdmin });
   });
 
   // ── admin: generate invite codes ─────────────────────────────────────────
@@ -309,7 +326,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const now = new Date().toISOString();
 
-      // Let storage generate and own the upload ID
       const newUpload = await storage.createUpload(userId, {
         sourceType,
         game,
@@ -321,7 +337,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
         summaryJson: null,
       });
 
-      // Use the real upload ID from the database record everywhere
       const uploadId = newUpload.id;
 
       const parsedRowData = rawRows
@@ -399,7 +414,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const uploadRecord = await storage.getUpload(userId, uploadId);
       const game = uploadRecord?.game || "pokemon";
 
-      // Fetch all parsed rows once to avoid N+1 queries inside the loop
       const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
 
       for (const row of (payload.newItems || [])) {

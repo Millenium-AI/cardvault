@@ -8,7 +8,6 @@ import { Loader2, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 
 const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
-const ADMIN_EMAIL = "bonsaicollects@gmail.com";
 
 const OAUTH_REDIRECT_URL = typeof window !== "undefined"
   ? window.location.origin
@@ -62,26 +61,41 @@ export default function Login() {
 
   const passwordMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
+  // For Google OAuth sign-ins: if the user is not admin and their account was
+  // just created (new Google signup without an invite), sign them back out.
+  // We no longer compare emails client-side — the server enforces admin status.
   useEffect(() => {
-    supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && session?.user) {
         const user = session.user;
-        const isAdmin = user.email === ADMIN_EMAIL;
-        if (!isAdmin) {
+        // Only apply the invite gate to brand-new Google OAuth accounts
+        if (user.app_metadata?.provider === "google") {
           const createdAt = new Date(user.created_at).getTime();
           const lastSignIn = new Date(user.last_sign_in_at ?? user.created_at).getTime();
           const isNewAccount = Math.abs(createdAt - lastSignIn) < 10000;
-          if (isNewAccount && user.app_metadata?.provider === "google") {
-            await supabase.auth.signOut();
-            toast({
-              title: "Access denied",
-              description: "You need an invite code to create an account.",
-              variant: "destructive",
-            });
+          if (isNewAccount) {
+            // Ask the server whether this user is admin
+            try {
+              const res = await fetch(`${API_BASE}/api/auth/me`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              const data = res.ok ? await res.json() : { isAdmin: false };
+              if (!data.isAdmin) {
+                await supabase.auth.signOut();
+                toast({
+                  title: "Access denied",
+                  description: "You need an invite code to create an account.",
+                  variant: "destructive",
+                });
+              }
+            } catch {
+              // Network error — allow through; server will block on next request
+            }
           }
         }
       }
     });
+    return () => subscription.unsubscribe();
   }, []);
 
   function switchMode(m: Mode) {
@@ -197,7 +211,6 @@ export default function Login() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
 
-        {/* Logo */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 mb-2">
             <svg viewBox="0 0 24 24" fill="none" className="w-7 h-7 text-primary" stroke="currentColor" strokeWidth="1.5">
@@ -210,7 +223,6 @@ export default function Login() {
           <p className="text-xs text-muted-foreground">Trading card inventory management</p>
         </div>
 
-        {/* Mode toggle */}
         <div className="flex rounded-lg border border-border p-1 bg-muted/30">
           <button
             onClick={() => switchMode("login")}
@@ -230,7 +242,6 @@ export default function Login() {
           </button>
         </div>
 
-        {/* SIGN IN */}
         {mode === "login" && (
           <div className="space-y-4">
             <Button
@@ -280,7 +291,6 @@ export default function Login() {
           </div>
         )}
 
-        {/* SIGN UP — Step 1: Invite code */}
         {mode === "signup" && signupStep === "invite" && (
           <form onSubmit={handleValidateInvite} className="space-y-4">
             <div className="space-y-1.5">
@@ -309,7 +319,6 @@ export default function Login() {
           </form>
         )}
 
-        {/* SIGN UP — Step 2: Credentials */}
         {mode === "signup" && signupStep === "credentials" && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary font-medium">
