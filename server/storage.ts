@@ -51,7 +51,6 @@ export interface InventoryItem {
   latestUploadId?: string | null;
   normalizedMatchKey?: string | null;
   matchMetadataJson?: string | null;
-  // #5: dedicated indexed columns — queried directly instead of JSON casting
   sourceProductId?: string | null;
   sourceTcgplayerId?: string | null;
   photoUrl?: string | null;
@@ -125,7 +124,6 @@ function genId(): string {
   return crypto.randomUUID();
 }
 
-// camelCase <-> snake_case mappers
 function toSnake(obj: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -178,6 +176,13 @@ class SupabaseStorage {
     return d ? mapRow<Upload>(d) : undefined;
   }
 
+  async deleteUpload(userId: string, id: string): Promise<void> {
+    // Delete child rows first to avoid FK constraint violations
+    await supabaseAdmin.from('merge_reviews').delete().eq('upload_id', id).eq('user_id', userId);
+    await supabaseAdmin.from('parsed_rows').delete().eq('upload_id', id).eq('user_id', userId);
+    await supabaseAdmin.from('uploads').delete().eq('id', id).eq('user_id', userId);
+  }
+
   // ── parsed rows ────────────────────────────────────────────────────────────
   async createParsedRows(userId: string, rows: Omit<ParsedRow, 'userId'>[]): Promise<void> {
     const mapped = rows.map(r => toSnake({ ...r, userId }));
@@ -214,9 +219,6 @@ class SupabaseStorage {
     return data ? mapRow<InventoryItem>(data) : undefined;
   }
 
-  // #5: Query dedicated indexed columns instead of casting match_metadata_json
-  // on every row. source_product_id and source_tcgplayer_id are now first-class
-  // columns with partial indexes on (user_id, column) WHERE column IS NOT NULL.
   async getInventoryItemByExternalIds(
     userId: string,
     productId?: string,
