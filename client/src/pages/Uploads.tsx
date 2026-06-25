@@ -107,7 +107,10 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
         </div>
         <div className="bg-sky-500/10 border border-sky-500/20 rounded-lg px-3 py-2.5">
           <div className="text-xl font-bold text-sky-400 mono">{review.matchedItemCount}</div>
-          <div className="text-xs text-muted-foreground">Qty updates</div>
+          <div className="text-xs text-muted-foreground">Qty changes</div>
+          {review.matchedNoChangeCount > 0 && (
+            <div className="text-[10px] text-muted-foreground mt-0.5">{review.matchedNoChangeCount} unchanged</div>
+          )}
         </div>
         <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2.5">
           <div className="text-xl font-bold text-primary mono">{review.repricingCandidateCount}</div>
@@ -134,7 +137,11 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
         />
       </ExpandableSection>
 
-      <ExpandableSection title="Quantity Updates (Matched)" count={payload.matchedItems?.length} color="bg-sky-500/10 text-sky-400">
+      <ExpandableSection
+        title="Quantity Changes"
+        count={(payload.matchedItems || []).filter((r: any) => (qtyOverrides[r.rowId] ?? r.qtyDelta) !== 0).length}
+        color="bg-sky-500/10 text-sky-400"
+      >
         <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
           <table className="w-full text-xs min-w-[560px]">
             <thead>
@@ -187,6 +194,26 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
           </table>
         </div>
       </ExpandableSection>
+
+      {/* No-change matched items — collapsed by default, for reference only */}
+      {(payload.matchedItems || []).some((r: any) => r.qtyDelta === 0) && (
+        <ExpandableSection
+          title="Confirmed Unchanged"
+          count={(payload.matchedItems || []).filter((r: any) => r.qtyDelta === 0).length}
+          color="bg-muted/40 text-muted-foreground"
+        >
+          <MiniTable
+            rows={(payload.matchedItems || []).filter((r: any) => r.qtyDelta === 0)}
+            cols={[
+              { key: "productName", label: "Product Name" },
+              { key: "number", label: "#" },
+              { key: "condition", label: "Cond" },
+              { key: "existingQty", label: "Qty", render: (r: any) => <span className="text-muted-foreground">{r.existingQty} (no change)</span> },
+              { key: "existingPrice", label: "Price", render: (r: any) => r.existingPrice ? `$${Number(r.existingPrice).toFixed(2)}` : "—" },
+            ]}
+          />
+        </ExpandableSection>
+      )}
 
       <ExpandableSection title="Repricing Candidates" count={payload.repricingCandidates?.length} color="bg-primary/10 text-primary">
         <MiniTable
