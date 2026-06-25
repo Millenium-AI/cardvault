@@ -588,15 +588,29 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
+  // DELETE upload — explicit cascade: parsed_rows → merge_reviews → upload
   app.delete("/api/uploads/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
       const uploadId = req.params.id;
+
       const u = await storage.getUpload(userId, uploadId);
       if (!u) return res.status(404).json({ error: "Not found" });
-      const review = await storage.getMergeReviewByUpload(userId, uploadId);
-      if (review) await storage.updateMergeReview(userId, review.id, { status: "rejected" as any });
+
+      const { error: rowsError } = await supabaseAdmin
+        .from("parsed_rows")
+        .delete()
+        .eq("upload_id", uploadId);
+      if (rowsError) throw new Error(rowsError.message);
+
+      const { error: reviewError } = await supabaseAdmin
+        .from("merge_reviews")
+        .delete()
+        .eq("upload_id", uploadId);
+      if (reviewError) throw new Error(reviewError.message);
+
       await storage.deleteUpload(userId, uploadId);
+
       res.json({ success: true });
     } catch (e: any) {
       console.error("[delete upload]", e);
@@ -626,6 +640,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.patch("/api/inventory/:id", async (req: any, res) => {
     const item = await resolveInventoryItem(req.user.id, req.params.id, res);
     if (!item) return;
+
     const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes"];
     const patch: Record<string, any> = {};
     for (const key of allowed) {
@@ -637,12 +652,35 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.updateInventoryItem(req.user.id, req.params.id, patch));
   });
 
+  // DELETE inventory item — explicit cascade: label_queue + price_snapshots first
   app.delete("/api/inventory/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const item = await storage.getInventoryItem(userId, req.params.id);
+      const itemId = req.params.id;
+
+      const item = await storage.getInventoryItem(userId, itemId);
       if (!item) return res.status(404).json({ error: "Not found" });
-      await storage.deleteInventoryItem(userId, req.params.id);
+
+      // Delete child rows first to avoid FK violations
+      const { error: labelError } = await supabaseAdmin
+        .from("label_queue")
+        .delete()
+        .eq("inventory_item_id", itemId);
+      if (labelError) throw new Error(labelError.message);
+
+      const { error: snapError } = await supabaseAdmin
+        .from("price_snapshots")
+        .delete()
+        .eq("inventory_item_id", itemId);
+      if (snapError) throw new Error(snapError.message);
+
+      const { error: deleteError } = await supabaseAdmin
+        .from("inventory_items")
+        .delete()
+        .eq("id", itemId)
+        .eq("user_id", userId);
+      if (deleteError) throw new Error(deleteError.message);
+
       res.json({ success: true });
     } catch (e: any) {
       console.error("[delete inventory]", e);
