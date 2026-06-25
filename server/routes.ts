@@ -612,6 +612,20 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
+  // ── Delete an upload and all its child data ──────────────────────────────
+  app.delete("/api/uploads/:id", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const upload = await storage.getUpload(userId, req.params.id);
+      if (!upload) return res.status(404).json({ error: "Not found" });
+      await storage.deleteUpload(userId, req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error(e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/inventory", async (req: any, res) => {
     const { game, condition, status, search } = req.query as Record<string, string>;
     const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });
