@@ -4,7 +4,22 @@ import multer from "multer";
 import { storage } from "./storage";
 import { supabaseAdmin, verifyToken } from "./supabase";
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+// ── #7: File type + size validation ──────────────────────────────────────────
+// Only accept CSV files, max 10 MB.
+const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const isCsv =
+    file.mimetype === "text/csv" ||
+    file.mimetype === "application/vnd.ms-excel" ||
+    file.originalname.toLowerCase().endsWith(".csv");
+  if (isCsv) cb(null, true);
+  else cb(new Error("Only CSV files are accepted"));
+};
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: csvFilter,
+});
 
 // ─── CSV parser ──────────────────────────────────────────────────────────────
 function normalizeCondition(raw: string): string {
@@ -246,8 +261,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ── auth: current user + admin flag ──────────────────────────────────────
-  // The frontend calls this after login to learn whether the user is admin.
-  // ADMIN_EMAIL never leaves the server — only the boolean is returned.
   app.get("/api/auth/me", async (req, res) => {
     const auth = req.headers.authorization;
     if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
@@ -315,8 +328,16 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(review);
   });
 
-  // Upload CSV
-  app.post("/api/uploads", upload.single("file"), async (req: any, res) => {
+  // ── #7: Upload CSV — multer error handler surfaces validation errors cleanly
+  app.post("/api/uploads", (req: any, res: any, next: any) => {
+    upload.single("file")(req, res, (err: any) => {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({ error: "File too large — maximum size is 10 MB" });
+      }
+      if (err) return res.status(400).json({ error: err.message });
+      next();
+    });
+  }, async (req: any, res: any) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
       const userId = req.user.id;
@@ -326,12 +347,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const now = new Date().toISOString();
 
+      // ── #8: Do NOT store raw CSV in the DB — store only metadata ─────────
       const newUpload = await storage.createUpload(userId, {
         sourceType,
         game,
         originalFilename: req.file.originalname,
         uploadedAt: now,
-        rawFileContent: content,
+        rawFileContent: null,   // intentionally omitted — data lives in parsed_rows
         totalRows: rawRows.length,
         parseStatus: "parsed",
         summaryJson: null,
@@ -415,9 +437,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const game = uploadRecord?.game || "pokemon";
 
       const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
+      // Build an in-memory map so we never query inside a loop (#6 N+1 fix carried forward)
+      const parsedById = new Map(allParsed.map(r => [r.id, r]));
 
       for (const row of (payload.newItems || [])) {
-        const parsedRow = allParsed.find(r => r.id === row.id);
+        const parsedRow = parsedById.get(row.id);
         const matchMeta = {
           sourceProductId: parsedRow?.sourceProductId,
           sourceTcgplayerId: parsedRow?.sourceTcgplayerId,
@@ -501,7 +525,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
             quantityAfterMerge: newQty,
           });
         }
-        const parsedRow = allParsed.find(r => r.id === match.rowId);
+        const parsedRow = parsedById.get(match.rowId);
         if (parsedRow) {
           await storage.updateParsedRow(userId, parsedRow.id, { matchStatus: "matched", matchedInventoryId: existingItem.id });
         }
@@ -587,23 +611,43 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.getSnapshotsByItem(req.user.id, req.params.id));
   });
 
-  // ── label queue ───────────────────────────────────────────────────────────
+  // ── #6: Label queue — N+1 fix ─────────────────────────────────────────────
+  // Fetch all inventory items for the user once, build a Map, then join in memory.
+  // This reduces DB round-trips from O(n) per label to 2 total queries.
   app.get("/api/labels/new", async (req: any, res) => {
-    const items = await storage.listLabelQueueItems(req.user.id, "new");
-    const enriched = await Promise.all(items.map(async item => {
-      const inv = await storage.getInventoryItem(req.user.id, item.inventoryItemId);
-      return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
-    }));
-    res.json(enriched);
+    try {
+      const userId = req.user.id;
+      const [items, allInventory] = await Promise.all([
+        storage.listLabelQueueItems(userId, "new"),
+        storage.listInventoryItems(userId),
+      ]);
+      const invMap = new Map(allInventory.map(i => [i.id, i]));
+      const enriched = items.map(item => {
+        const inv = invMap.get(item.inventoryItemId);
+        return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
+      });
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/labels/reprice", async (req: any, res) => {
-    const items = await storage.listLabelQueueItems(req.user.id, "reprice");
-    const enriched = await Promise.all(items.map(async item => {
-      const inv = await storage.getInventoryItem(req.user.id, item.inventoryItemId);
-      return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
-    }));
-    res.json(enriched);
+    try {
+      const userId = req.user.id;
+      const [items, allInventory] = await Promise.all([
+        storage.listLabelQueueItems(userId, "reprice"),
+        storage.listInventoryItems(userId),
+      ]);
+      const invMap = new Map(allInventory.map(i => [i.id, i]));
+      const enriched = items.map(item => {
+        const inv = invMap.get(item.inventoryItemId);
+        return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
+      });
+      res.json(enriched);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.patch("/api/labels/:id", async (req: any, res) => {
@@ -663,21 +707,37 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // ── price snapshot history & movers ──────────────────────────────────────
+  // ── #9: Snapshot history — paginated ─────────────────────────────────────
+  // Accepts ?page=1&limit=90 (default 90 days). Frontend chart only needs ~90 points.
   app.get("/api/snapshots/history", async (req: any, res) => {
     try {
       const userId = req.user.id;
+      const limit = Math.min(parseInt(req.query.limit as string) || 90, 365);
+      const page = Math.max(parseInt(req.query.page as string) || 1, 1);
+
       const items = await storage.listInventoryItems(userId);
       const allSnapshots = (await Promise.all(
         items.map(item => storage.getSnapshotsByItem(userId, item.id).then(snaps => snaps.map(s => ({ ...s, qty: s.quantityAfterMerge }))))
       )).flat();
+
       const byDate: Record<string, number> = {};
       for (const snap of allSnapshots) {
         const day = snap.snapshotDate.slice(0, 10);
         byDate[day] = (byDate[day] || 0) + snap.rawMarketPrice * snap.qty;
       }
-      const result = Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }));
-      res.json(result);
+
+      const sorted = Object.entries(byDate)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }));
+
+      const total = sorted.length;
+      const start = (page - 1) * limit;
+      const paginated = sorted.slice(start, start + limit);
+
+      res.json({
+        data: paginated,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
