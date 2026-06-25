@@ -1,7 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 
-// VITE_ vars are set via .env files locally but Railway needs them as build vars.
-// Anon key is safe to hardcode — it's a public key, not a secret.
 const SUPABASE_URL =
   (import.meta.env.VITE_SUPABASE_URL as string) ||
   "https://qivbhfznfroajwgaowsl.supabase.co";
@@ -13,9 +11,11 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
+    // detectSessionInUrl must be true so Supabase can parse the access_token
+    // from the URL after OAuth redirect lands on the root (non-hash) URL.
     detectSessionInUrl: true,
-    // Use sessionStorage — persists across SPA navigation within the same tab,
-    // cleared when the tab closes. Works on Railway (no iframe restrictions).
-    storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
+    // localStorage persists the session across tab navigations and reloads.
+    // This is safe on Railway (no iframe sandboxing).
+    storage: typeof window !== "undefined" ? window.localStorage : undefined,
   },
 });

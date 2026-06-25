@@ -10,8 +10,13 @@ import { SiGoogle } from "react-icons/si";
 const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
 const ADMIN_EMAIL = "bonsaicollects@gmail.com";
 
+// The OAuth redirect must land on the bare origin (no hash) so Supabase can
+// parse #access_token from the URL before wouter's hash router consumes the hash.
+const OAUTH_REDIRECT_URL = typeof window !== "undefined"
+  ? window.location.origin
+  : "";
+
 type Mode = "login" | "signup";
-// Signup has two steps: enter invite code first, then credentials
 type SignupStep = "invite" | "credentials";
 
 export default function Login() {
@@ -26,7 +31,6 @@ export default function Login() {
   const [googleLoading, setGoogleLoading] = useState(false);
 
   // After Google OAuth redirect — check if user is brand new (not pre-existing)
-  // If new and not admin, boot them out immediately
   useEffect(() => {
     supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && session?.user) {
@@ -34,13 +38,11 @@ export default function Login() {
         const isAdmin = user.email === ADMIN_EMAIL;
 
         if (!isAdmin) {
-          // Detect new account: created_at and last_sign_in_at are equal (within 10s)
           const createdAt = new Date(user.created_at).getTime();
           const lastSignIn = new Date(user.last_sign_in_at ?? user.created_at).getTime();
           const isNewAccount = Math.abs(createdAt - lastSignIn) < 10000;
 
           if (isNewAccount && user.app_metadata?.provider === "google") {
-            // New Google user with no invite — delete and reject
             await supabase.auth.signOut();
             toast({
               title: "Access denied",
@@ -53,7 +55,6 @@ export default function Login() {
     });
   }, []);
 
-  // Reset signup step when switching modes
   function switchMode(m: Mode) {
     setMode(m);
     setSignupStep("invite");
@@ -62,7 +63,6 @@ export default function Login() {
     setPassword("");
   }
 
-  // Step 1: validate invite code before showing signup form
   async function handleValidateInvite(e: React.FormEvent) {
     e.preventDefault();
     setInviteValidating(true);
@@ -77,7 +77,6 @@ export default function Login() {
         toast({ title: "Invalid invite code", description: err.error, variant: "destructive" });
         return;
       }
-      // Code valid — proceed to credentials step
       setSignupStep("credentials");
     } catch {
       toast({ title: "Error", description: "Could not validate invite code.", variant: "destructive" });
@@ -86,7 +85,6 @@ export default function Login() {
     }
   }
 
-  // Step 2: create account with email+password
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -109,7 +107,6 @@ export default function Login() {
     }
   }
 
-  // Sign in with email+password
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -123,12 +120,13 @@ export default function Login() {
     }
   }
 
-  // Google login — only for existing users (admin always allowed)
+  // Admin Google login — redirectTo root so hash router doesn't eat the OAuth token
   async function handleGoogle() {
     setGoogleLoading(true);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
+        options: { redirectTo: OAUTH_REDIRECT_URL },
       });
       if (error) throw error;
     } catch (err: any) {
@@ -137,7 +135,7 @@ export default function Login() {
     }
   }
 
-  // Google signup — validate invite code first, store in sessionStorage for post-redirect
+  // Google signup — validate invite code first, then OAuth with redirectTo root
   async function handleGoogleSignup() {
     setGoogleLoading(true);
     try {
@@ -155,6 +153,7 @@ export default function Login() {
       sessionStorage.setItem("pendingInviteCode", inviteCode.trim().toUpperCase());
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
+        options: { redirectTo: OAUTH_REDIRECT_URL },
       });
       if (error) throw error;
     } catch (err: any) {
@@ -196,10 +195,9 @@ export default function Login() {
           </button>
         </div>
 
-        {/* ── SIGN IN ── */}
+        {/* SIGN IN */}
         {mode === "login" && (
           <div className="space-y-4">
-            {/* Google sign in */}
             <Button
               variant="outline"
               className="w-full h-10 gap-2.5 text-sm"
@@ -257,7 +255,7 @@ export default function Login() {
           </div>
         )}
 
-        {/* ── SIGN UP — Step 1: Invite code ── */}
+        {/* SIGN UP — Step 1: Invite code */}
         {mode === "signup" && signupStep === "invite" && (
           <form onSubmit={handleValidateInvite} className="space-y-4">
             <div className="space-y-1.5">
@@ -288,16 +286,14 @@ export default function Login() {
           </form>
         )}
 
-        {/* ── SIGN UP — Step 2: Credentials ── */}
+        {/* SIGN UP — Step 2: Credentials */}
         {mode === "signup" && signupStep === "credentials" && (
           <div className="space-y-4">
-            {/* Invite code confirmed badge */}
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary font-medium">
               <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
               Invite code accepted — <span className="font-mono">{inviteCode}</span>
             </div>
 
-            {/* Google signup option */}
             <Button
               variant="outline"
               className="w-full h-10 gap-2.5 text-sm"
