@@ -7,11 +7,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 
-const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
-const OAUTH_REDIRECT_URL = typeof window !== "undefined"
-  ? window.location.origin
-  : "";
+const OAUTH_REDIRECT_URL = import.meta.env.VITE_APP_URL ?? (
+  typeof window !== "undefined" ? window.location.origin : ""
+);
 
 type Mode = "login" | "signup";
 type SignupStep = "invite" | "credentials";
