@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square } from "lucide-react";
+import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, Download } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -457,6 +457,30 @@ export default function Inventory() {
     bulkDeleteMut.mutate(ids);
   }
 
+  // ── Excel export ───────────────────────────────────────────────────────────
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      // apiRequest attaches the Bearer token from the auth context.
+      const res = await apiRequest("GET", "/api/inventory/export");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cardvault-inventory-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast({ title: "Error", description: "Failed to export inventory.", variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div>
       {/* Header */}
@@ -522,6 +546,17 @@ export default function Inventory() {
             <SelectItem value="name">Name A-Z</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          data-testid="button-export-inventory"
+          variant="outline"
+          size="sm"
+          className="h-9 text-xs gap-1.5"
+          onClick={handleExport}
+          disabled={exporting}
+        >
+          <Download size={13} />
+          {exporting ? "Exporting…" : "Export Excel"}
+        </Button>
       </div>
 
       {/* ── Bulk actions toolbar ── */}

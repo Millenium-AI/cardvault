@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import multer from "multer";
+import * as XLSX from "xlsx";
 import { storage } from "./storage";
 import { supabaseAdmin, verifyToken } from "./supabase";
 
@@ -9,8 +10,10 @@ const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCa
   const ok =
     file.mimetype === "text/csv" ||
     file.mimetype === "application/vnd.ms-excel" ||
-    file.originalname.toLowerCase().endsWith(".csv");
-  ok ? cb(null, true) : cb(new Error("Only CSV files are accepted"));
+    file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    file.originalname.toLowerCase().endsWith(".csv") ||
+    file.originalname.toLowerCase().endsWith(".xlsx");
+  ok ? cb(null, true) : cb(new Error("Only CSV or XLSX files are accepted"));
 };
 
 const upload = multer({
@@ -379,9 +382,24 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const userId = req.user.id;
       const { game = "pokemon", sourceType = "tcgplayer" } = req.body;
 
+      const isXlsx =
+        req.file.originalname.toLowerCase().endsWith(".xlsx") ||
+        req.file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
       let rawRows: Record<string, string>[];
       try {
-        rawRows = parseCSV(req.file.buffer.toString("utf-8"));
+        if (isXlsx) {
+          const wb = XLSX.read(req.file.buffer, { type: "buffer" });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "" });
+          rawRows = rows.map(row => {
+            const out: Record<string, string> = {};
+            for (const [k, v] of Object.entries(row)) out[k] = String(v);
+            return out;
+          });
+        } else {
+          rawRows = parseCSV(req.file.buffer.toString("utf-8"));
+        }
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
@@ -632,6 +650,41 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }));
   });
 
+  // Export full active inventory as an .xlsx file — defined before /:id so the
+  // param route doesn't shadow it.
+  app.get("/api/inventory/export", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const items = await storage.listInventoryItems(userId);
+
+      const rows = items.map(item => ({
+        "Product Name": item.productName,
+        "Number": item.number ?? "",
+        "Condition": item.condition ?? "",
+        "Game": item.game,
+        "Quantity": item.currentQuantity,
+        "Market Price": item.currentRawMarketPrice ?? "",
+        "Print Price": item.currentRoundedPrintPrice ?? "",
+        "Status": item.status,
+        "First Seen": item.firstSeenAt,
+        "Last Seen": item.lastSeenAt,
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Inventory");
+      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+      const timestamp = new Date().toISOString().slice(0, 10);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="cardvault-inventory-${timestamp}.xlsx"`);
+      res.send(buffer);
+    } catch (e: any) {
+      console.error("[export inventory]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/inventory/:id", async (req: any, res) => {
     const item = await resolveInventoryItem(req.user.id, req.params.id, res);
     if (item) res.json(item);
@@ -652,7 +705,23 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.updateInventoryItem(req.user.id, req.params.id, patch));
   });
 
-  // DELETE inventory item — explicit cascade: label_queue + price_snapshots first
+  // Bulk delete — defined before /:id so "bulk" isn't captured as an :id param.
+  app.delete("/api/inventory/bulk", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { ids } = req.body as { ids: string[] };
+      if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
+
+      await Promise.all(ids.map(id => storage.deleteInventoryItem(userId, id)));
+
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[bulk delete inventory]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // DELETE inventory item — storage.deleteInventoryItem handles the cascade
   app.delete("/api/inventory/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -661,25 +730,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const item = await storage.getInventoryItem(userId, itemId);
       if (!item) return res.status(404).json({ error: "Not found" });
 
-      // Delete child rows first to avoid FK violations
-      const { error: labelError } = await supabaseAdmin
-        .from("label_queue")
-        .delete()
-        .eq("inventory_item_id", itemId);
-      if (labelError) throw new Error(labelError.message);
-
-      const { error: snapError } = await supabaseAdmin
-        .from("price_snapshots")
-        .delete()
-        .eq("inventory_item_id", itemId);
-      if (snapError) throw new Error(snapError.message);
-
-      const { error: deleteError } = await supabaseAdmin
-        .from("inventory_items")
-        .delete()
-        .eq("id", itemId)
-        .eq("user_id", userId);
-      if (deleteError) throw new Error(deleteError.message);
+      await storage.deleteInventoryItem(userId, itemId);
 
       res.json({ success: true });
     } catch (e: any) {

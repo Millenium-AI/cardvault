@@ -1,9 +1,9 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, doublePrecision, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // ─── uploads ────────────────────────────────────────────────────────────────
-export const uploads = sqliteTable("uploads", {
+export const uploads = pgTable("uploads", {
   id: text("id").primaryKey(),
   sourceType: text("source_type").notNull().default("tcgplayer"),
   game: text("game").notNull().default("pokemon"),
@@ -21,14 +21,14 @@ export type InsertUpload = z.infer<typeof insertUploadSchema>;
 export type Upload = typeof uploads.$inferSelect;
 
 // ─── parsed_rows ─────────────────────────────────────────────────────────────
-export const parsedRows = sqliteTable("parsed_rows", {
+export const parsedRows = pgTable("parsed_rows", {
   id: text("id").primaryKey(),
   uploadId: text("upload_id").notNull(),
   rowIndex: integer("row_index").notNull(),
   productName: text("product_name").notNull(),
   number: text("number"),
   condition: text("condition"),
-  rawMarketPrice: real("raw_market_price"),
+  rawMarketPrice: doublePrecision("raw_market_price"),
   roundedPrintPrice: integer("rounded_print_price"),
   addToQuantity: integer("add_to_quantity").notNull().default(1),
   normalizedMatchKey: text("normalized_match_key"),
@@ -49,14 +49,14 @@ export type InsertParsedRow = z.infer<typeof insertParsedRowSchema>;
 export type ParsedRow = typeof parsedRows.$inferSelect;
 
 // ─── inventory_items ─────────────────────────────────────────────────────────
-export const inventoryItems = sqliteTable("inventory_items", {
+export const inventoryItems = pgTable("inventory_items", {
   id: text("id").primaryKey(),
   game: text("game").notNull().default("pokemon"),
   productName: text("product_name").notNull(),
   number: text("number"),
   condition: text("condition"),
   currentQuantity: integer("current_quantity").notNull().default(0),
-  currentRawMarketPrice: real("current_raw_market_price"),
+  currentRawMarketPrice: doublePrecision("current_raw_market_price"),
   currentRoundedPrintPrice: integer("current_rounded_print_price"),
   latestUploadId: text("latest_upload_id"),
   normalizedMatchKey: text("normalized_match_key"),
@@ -72,12 +72,12 @@ export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 
 // ─── price_snapshots ──────────────────────────────────────────────────────────
-export const priceSnapshots = sqliteTable("price_snapshots", {
+export const priceSnapshots = pgTable("price_snapshots", {
   id: text("id").primaryKey(),
   inventoryItemId: text("inventory_item_id").notNull(),
   uploadId: text("upload_id").notNull(),
   snapshotDate: text("snapshot_date").notNull(),
-  rawMarketPrice: real("raw_market_price").notNull(),
+  rawMarketPrice: doublePrecision("raw_market_price").notNull(),
   roundedPrintPrice: integer("rounded_print_price").notNull(),
   quantityAfterMerge: integer("quantity_after_merge").notNull(),
 });
@@ -87,7 +87,7 @@ export type InsertPriceSnapshot = z.infer<typeof insertPriceSnapshotSchema>;
 export type PriceSnapshot = typeof priceSnapshots.$inferSelect;
 
 // ─── merge_reviews ────────────────────────────────────────────────────────────
-export const mergeReviews = sqliteTable("merge_reviews", {
+export const mergeReviews = pgTable("merge_reviews", {
   id: text("id").primaryKey(),
   uploadId: text("upload_id").notNull(),
   status: text("status").notNull().default("pending"), // pending|approved|rejected
@@ -105,17 +105,17 @@ export type InsertMergeReview = z.infer<typeof insertMergeReviewSchema>;
 export type MergeReview = typeof mergeReviews.$inferSelect;
 
 // ─── label_queue_items ────────────────────────────────────────────────────────
-export const labelQueueItems = sqliteTable("label_queue_items", {
+export const labelQueueItems = pgTable("label_queue_items", {
   id: text("id").primaryKey(),
   inventoryItemId: text("inventory_item_id").notNull(),
   queueType: text("queue_type").notNull(), // new|reprice
   sourceUploadId: text("source_upload_id"),
-  priorRawPrice: real("prior_raw_price"),
-  currentRawPrice: real("current_raw_price"),
+  priorRawPrice: doublePrecision("prior_raw_price"),
+  currentRawPrice: doublePrecision("current_raw_price"),
   roundedPrintPrice: integer("rounded_print_price"),
-  percentChange: real("percent_change"),
+  percentChange: doublePrecision("percent_change"),
   thresholdRule: text("threshold_rule"), // >100/5%, 50-100/7%, <50/10%
-  isSelectedForExport: integer("is_selected_for_export", { mode: "boolean" }).notNull().default(true),
+  isSelectedForExport: boolean("is_selected_for_export").notNull().default(true),
   exportStatus: text("export_status").notNull().default("pending"), // pending|exported|skipped
   createdAt: text("created_at").notNull(),
   reviewedAt: text("reviewed_at"),
@@ -126,25 +126,25 @@ export type InsertLabelQueueItem = z.infer<typeof insertLabelQueueItemSchema>;
 export type LabelQueueItem = typeof labelQueueItems.$inferSelect;
 
 // ─── app_settings ────────────────────────────────────────────────────────────
-export const appSettings = sqliteTable("app_settings", {
+export const appSettings = pgTable("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 });
 
 // ─── show_ledgers ─────────────────────────────────────────────────────────────
-export const showLedgers = sqliteTable("show_ledgers", {
+export const showLedgers = pgTable("show_ledgers", {
   id: text("id").primaryKey(),
   showName: text("show_name").notNull(),
   location: text("location"),
   showDate: text("show_date").notNull(),
-  startingInventoryMarketValue: real("starting_inventory_market_value"),
-  endingInventoryMarketValue: real("ending_inventory_market_value"),
-  purchasedInventoryCostBasis: real("purchased_inventory_cost_basis"),
-  purchasedInventoryMarketValue: real("purchased_inventory_market_value"),
-  cashSalesIn: real("cash_sales_in"),
-  cashSpentOnBuys: real("cash_spent_on_buys"),
-  otherCashOut: real("other_cash_out"),
-  expensesTotal: real("expenses_total"),
+  startingInventoryMarketValue: doublePrecision("starting_inventory_market_value"),
+  endingInventoryMarketValue: doublePrecision("ending_inventory_market_value"),
+  purchasedInventoryCostBasis: doublePrecision("purchased_inventory_cost_basis"),
+  purchasedInventoryMarketValue: doublePrecision("purchased_inventory_market_value"),
+  cashSalesIn: doublePrecision("cash_sales_in"),
+  cashSpentOnBuys: doublePrecision("cash_spent_on_buys"),
+  otherCashOut: doublePrecision("other_cash_out"),
+  expensesTotal: doublePrecision("expenses_total"),
   notes: text("notes"),
   createdAt: text("created_at").notNull(),
 });
