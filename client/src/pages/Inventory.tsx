@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X } from "lucide-react";
+import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -151,7 +151,6 @@ function ExpandedDetail({
 
   return (
     <div className="space-y-3" onClick={wrap}>
-      {/* Metadata chips */}
       {(meta.sourcePrinting || meta.sourceRarity || item.notes) && (
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
           {meta.sourcePrinting && (
@@ -168,7 +167,6 @@ function ExpandedDetail({
 
       <PriceHistory itemId={item.id} />
 
-      {/* Footer: TCGplayer link + Edit toggle */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         {item.tcgplayerUrl ? (
           <a
@@ -197,23 +195,45 @@ function ExpandedDetail({
 }
 
 // ── Mobile card ───────────────────────────────────────────────────────────────
-function InventoryCard({ item }: { item: any }) {
+function InventoryCard({
+  item,
+  selected,
+  onSelect,
+  selectMode,
+}: {
+  item: any;
+  selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  selectMode: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
   const totalValue = (item.currentRawMarketPrice || 0) * item.currentQuantity;
 
   function toggle() {
+    if (selectMode) { onSelect(item.id, !selected); return; }
     const next = !expanded;
     setExpanded(next);
     if (!next) setEditing(false);
   }
 
   return (
-    <div data-testid={`card-inventory-${item.id}`} className="stat-card p-3 space-y-2">
-      {/* Header row */}
+    <div
+      data-testid={`card-inventory-${item.id}`}
+      className={`stat-card p-3 space-y-2 transition-colors ${selected ? "ring-1 ring-primary bg-primary/5" : ""}`}
+    >
       <div className="flex gap-3">
-        {/* Small thumbnail — always visible */}
+        {/* Checkbox in select mode */}
+        {selectMode && (
+          <button
+            onClick={e => { e.stopPropagation(); onSelect(item.id, !selected); }}
+            className="shrink-0 self-center text-muted-foreground hover:text-primary transition-colors"
+          >
+            {selected ? <CheckSquare size={16} className="text-primary" /> : <Square size={16} />}
+          </button>
+        )}
+
         {item.photoUrl ? (
           <img src={item.photoUrl} alt="" crossOrigin="anonymous"
             className="w-12 h-[67px] rounded object-contain bg-muted shrink-0" />
@@ -237,7 +257,6 @@ function InventoryCard({ item }: { item: any }) {
         </button>
       </div>
 
-      {/* Stats row */}
       <div className="flex items-center justify-end gap-4">
         <div className="text-right">
           <div className="text-[10px] text-muted-foreground">Market</div>
@@ -253,13 +272,11 @@ function InventoryCard({ item }: { item: any }) {
         </div>
       </div>
 
-      {/* Total value */}
       <div className="text-xs text-muted-foreground text-right">
         Total: <span className="font-mono text-foreground">${totalValue.toFixed(2)}</span>
       </div>
 
-      {/* Expanded */}
-      {expanded && (
+      {expanded && !selectMode && (
         <div className="pt-2 border-t border-border">
           <ExpandedDetail item={item} meta={meta} editing={editing} setEditing={setEditing} />
         </div>
@@ -269,12 +286,23 @@ function InventoryCard({ item }: { item: any }) {
 }
 
 // ── Desktop row ───────────────────────────────────────────────────────────────
-function InventoryRow({ item }: { item: any }) {
+function InventoryRow({
+  item,
+  selected,
+  onSelect,
+  selectMode,
+}: {
+  item: any;
+  selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  selectMode: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
 
   function toggle() {
+    if (selectMode) { onSelect(item.id, !selected); return; }
     const next = !expanded;
     setExpanded(next);
     if (!next) setEditing(false);
@@ -284,11 +312,23 @@ function InventoryRow({ item }: { item: any }) {
     <>
       <tr
         data-testid={`row-inventory-${item.id}`}
-        className="border-b border-border/50 hover:bg-accent/30 cursor-pointer"
+        className={`border-b border-border/50 cursor-pointer transition-colors ${
+          selected ? "bg-primary/10 hover:bg-primary/15" : "hover:bg-accent/30"
+        }`}
         onClick={toggle}
       >
-        <td className="px-3 py-2.5 w-7">
-          <ChevronDown size={13} className={`text-muted-foreground transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />
+        {/* Checkbox column */}
+        <td className="px-3 py-2.5 w-7" onClick={e => e.stopPropagation()}>
+          {selectMode ? (
+            <button
+              onClick={() => onSelect(item.id, !selected)}
+              className="text-muted-foreground hover:text-primary transition-colors"
+            >
+              {selected ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} />}
+            </button>
+          ) : (
+            <ChevronDown size={13} className={`text-muted-foreground transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />
+          )}
         </td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-3">
@@ -324,7 +364,7 @@ function InventoryRow({ item }: { item: any }) {
         </td>
       </tr>
 
-      {expanded && (
+      {expanded && !selectMode && (
         <tr className="border-b border-border/50 bg-muted/20">
           <td colSpan={8} className="px-4 py-3">
             <ExpandedDetail item={item} meta={meta} editing={editing} setEditing={setEditing} stopProp />
@@ -337,10 +377,15 @@ function InventoryRow({ item }: { item: any }) {
 
 // ── Inventory page ────────────────────────────────────────────────────────────
 export default function Inventory() {
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [game, setGame] = useState("all");
   const [condition, setCondition] = useState("all");
   const [sortBy, setSortBy] = useState("lastSeenAt");
+
+  // ── Bulk selection state ───────────────────────────────────────────────────
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const { data: items = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inventory", game, condition, search],
@@ -365,6 +410,53 @@ export default function Inventory() {
   const totalValue = items.reduce((s: number, i: any) => s + (i.currentRawMarketPrice || 0) * i.currentQuantity, 0);
   const totalUnits = items.reduce((s: number, i: any) => s + i.currentQuantity, 0);
 
+  // ── Selection helpers ──────────────────────────────────────────────────────
+  function handleSelect(id: string, checked: boolean) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      checked ? next.add(id) : next.delete(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelectedIds(new Set(sorted.map((i: any) => i.id)));
+  }
+
+  function deselectAll() {
+    setSelectedIds(new Set());
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  const allSelected = sorted.length > 0 && selectedIds.size === sorted.length;
+  const someSelected = selectedIds.size > 0;
+
+  // ── Bulk delete mutation ───────────────────────────────────────────────────
+  const bulkDeleteMut = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const res = await apiRequest("DELETE", "/api/inventory/bulk", { ids });
+      return res.json();
+    },
+    onSuccess: (_, ids) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      toast({ title: "Deleted", description: `${ids.length} item${ids.length !== 1 ? "s" : ""} removed from inventory.` });
+      exitSelectMode();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete items.", variant: "destructive" });
+    },
+  });
+
+  function handleBulkDelete() {
+    if (!someSelected) return;
+    const ids = Array.from(selectedIds);
+    bulkDeleteMut.mutate(ids);
+  }
+
   return (
     <div>
       {/* Header */}
@@ -382,7 +474,7 @@ export default function Inventory() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         <div className="relative flex-1 min-w-[150px]">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -432,13 +524,82 @@ export default function Inventory() {
         </Select>
       </div>
 
+      {/* ── Bulk actions toolbar ── */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        {!selectMode ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => setSelectMode(true)}
+          >
+            <CheckSquare size={13} />
+            Bulk Actions
+          </Button>
+        ) : (
+          <>
+            {/* Select / Deselect All */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={allSelected ? deselectAll : selectAll}
+            >
+              {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
+              {allSelected ? "Deselect All" : "Select All"}
+            </Button>
+
+            {/* Delete */}
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              disabled={!someSelected || bulkDeleteMut.isPending}
+              onClick={handleBulkDelete}
+            >
+              <Trash2 size={13} />
+              {bulkDeleteMut.isPending
+                ? "Deleting…"
+                : someSelected
+                ? `Delete (${selectedIds.size})`
+                : "Delete"}
+            </Button>
+
+            {/* Cancel */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs gap-1.5 text-muted-foreground"
+              onClick={exitSelectMode}
+            >
+              <X size={13} />
+              Cancel
+            </Button>
+
+            {someSelected && (
+              <span className="text-xs text-muted-foreground ml-1">
+                {selectedIds.size} selected
+              </span>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Mobile */}
       <div className="sm:hidden space-y-2">
         {isLoading
           ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-lg" />)
           : sorted.length === 0
           ? <div className="py-12 text-center text-muted-foreground text-sm">No inventory — upload a CSV to get started</div>
-          : sorted.map((item: any) => <InventoryCard key={item.id} item={item} />)
+          : sorted.map((item: any) => (
+              <InventoryCard
+                key={item.id}
+                item={item}
+                selected={selectedIds.has(item.id)}
+                onSelect={handleSelect}
+                selectMode={selectMode}
+              />
+            ))
         }
       </div>
 
@@ -448,7 +609,21 @@ export default function Inventory() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <th className="w-7" />
+                {/* Header checkbox cell — select/deselect all */}
+                <th className="w-7 px-3 py-2.5">
+                  {selectMode && (
+                    <button
+                      onClick={allSelected ? deselectAll : selectAll}
+                      className="text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      {allSelected
+                        ? <CheckSquare size={14} className="text-primary" />
+                        : someSelected
+                        ? <CheckSquare size={14} className="text-primary/50" />
+                        : <Square size={14} />}
+                    </button>
+                  )}
+                </th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Card</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Cond</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Game</th>
@@ -467,7 +642,15 @@ export default function Inventory() {
                   ))
                 : sorted.length === 0
                 ? <tr><td colSpan={8} className="px-3 py-12 text-center text-muted-foreground text-sm">No inventory — upload a CSV to get started</td></tr>
-                : sorted.map((item: any) => <InventoryRow key={item.id} item={item} />)
+                : sorted.map((item: any) => (
+                    <InventoryRow
+                      key={item.id}
+                      item={item}
+                      selected={selectedIds.has(item.id)}
+                      onSelect={handleSelect}
+                      selectMode={selectMode}
+                    />
+                  ))
               }
             </tbody>
           </table>
