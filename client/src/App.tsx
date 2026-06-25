@@ -67,21 +67,19 @@ function AppRoutes() {
   }
 
   return (
-    <Router hook={useHashLocation}>
-      <AppShell>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/uploads" component={Uploads} />
-          <Route path="/inventory" component={Inventory} />
-          <Route path="/new-labels" component={NewLabels} />
-          <Route path="/repricing" component={RepricingQueue} />
-          <Route path="/shows" component={Shows} />
-          <Route path="/settings" component={Settings} />
-          <Route path="/admin" component={Admin} />
-          <Route component={NotFound} />
-        </Switch>
-      </AppShell>
-    </Router>
+    <AppShell>
+      <Switch>
+        <Route path="/" component={Dashboard} />
+        <Route path="/uploads" component={Uploads} />
+        <Route path="/inventory" component={Inventory} />
+        <Route path="/new-labels" component={NewLabels} />
+        <Route path="/repricing" component={RepricingQueue} />
+        <Route path="/shows" component={Shows} />
+        <Route path="/settings" component={Settings} />
+        <Route path="/admin" component={Admin} />
+        <Route component={NotFound} />
+      </Switch>
+    </AppShell>
   );
 }
 
@@ -90,8 +88,10 @@ export default function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <AppRoutes />
-          <Toaster />
+          <Router hook={useHashLocation}>
+            <AppRoutes />
+            <Toaster />
+          </Router>
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>
