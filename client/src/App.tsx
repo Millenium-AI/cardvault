@@ -16,6 +16,40 @@ import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
+import { Component, ReactNode } from "react";
+
+class ErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  state = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-8">
+          <p className="text-destructive font-medium text-sm">
+            Something went wrong. Try refreshing.
+          </p>
+          <pre className="text-xs text-muted-foreground max-w-lg overflow-auto">
+            {(this.state.error as Error | null)?.message}
+          </pre>
+          <button
+            className="text-xs text-primary underline"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AppRoutes() {
   const { session, loading } = useAuth();
@@ -53,11 +87,13 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <AppRoutes />
-        <Toaster />
-      </AuthProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <AppRoutes />
+          <Toaster />
+        </AuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
