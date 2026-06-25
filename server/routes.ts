@@ -1,7 +1,8 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import multer from "multer";
 import { storage } from "./storage";
+import { supabaseAdmin, verifyToken } from "./supabase";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -190,7 +191,84 @@ function buildNiimbotCsv(items: any[]): string {
   return [headers.join(","), ...rows].join("\n");
 }
 
+// ─── Auth middleware ────────────────────────────────────────────────────────
+const ADMIN_EMAIL = "bonsaicollects@gmail.com";
+
+async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+  const token = auth.slice(7);
+  const user = await verifyToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  (req as any).user = user;
+  next();
+}
+
+async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
+  const token = auth.slice(7);
+  const user = await verifyToken(token);
+  if (!user) return res.status(401).json({ error: "Invalid token" });
+  if (user.email !== ADMIN_EMAIL) return res.status(403).json({ error: "Forbidden — admin only" });
+  (req as any).user = user;
+  next();
+}
+
 export function registerRoutes(httpServer: Server, app: Express) {
+  // ── auth: validate invite code ────────────────────────────────────────────
+  app.post("/api/auth/validate-invite", async (req, res) => {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: "Code required" });
+    const { data, error } = await supabaseAdmin
+      .from("invite_codes")
+      .select("*")
+      .eq("code", code.trim().toUpperCase())
+      .eq("used", false)
+      .single();
+    if (error || !data) return res.status(400).json({ error: "Invalid or already used invite code" });
+    res.json({ valid: true });
+  });
+
+  // ── auth: mark invite code used after signup ──────────────────────────────
+  app.post("/api/auth/use-invite", async (req, res) => {
+    const { code, userId } = req.body;
+    if (!code || !userId) return res.status(400).json({ error: "Missing params" });
+    const { error } = await supabaseAdmin
+      .from("invite_codes")
+      .update({ used: true, used_by: userId, used_at: new Date().toISOString() })
+      .eq("code", code.trim().toUpperCase())
+      .eq("used", false);
+    if (error) return res.status(400).json({ error: "Could not redeem code" });
+    res.json({ ok: true });
+  });
+
+  // ── admin: generate invite codes (admin only) ───────────────────────────
+  app.post("/api/admin/invite-codes", requireAdmin, async (req: any, res) => {
+    const { count = 5, note = "" } = req.body;
+    const codes = Array.from({ length: Math.min(count, 50) }, () => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    });
+    const rows = codes.map(code => ({ code, note, used: false }));
+    const { data, error } = await supabaseAdmin.from("invite_codes").insert(rows).select();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ codes: data });
+  });
+
+  // ── admin: list invite codes (admin only) ──────────────────────────────
+  app.get("/api/admin/invite-codes", requireAdmin, async (_req, res) => {
+    const { data, error } = await supabaseAdmin
+      .from("invite_codes")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  // ── protect all remaining /api/* routes ───────────────────────────────────
+  app.use("/api", requireAuth);
+
   // ── dashboard stats ──────────────────────────────────────────────────────
   app.get("/api/dashboard/stats", (_req, res) => {
     try {
