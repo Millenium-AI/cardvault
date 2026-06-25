@@ -4,8 +4,7 @@ import multer from "multer";
 import { storage } from "./storage";
 import { supabaseAdmin, verifyToken } from "./supabase";
 
-// ── #7: File type + size validation ──────────────────────────────────────────
-// Only accept CSV files, max 10 MB.
+// ── File type + size validation ───────────────────────────────────────────────
 const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const isCsv =
     file.mimetype === "text/csv" ||
@@ -17,11 +16,11 @@ const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCa
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: csvFilter,
 });
 
-// ─── CSV parser ──────────────────────────────────────────────────────────────
+// ─── CSV parser ───────────────────────────────────────────────────────────────
 function normalizeCondition(raw: string): string {
   const s = (raw || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (s.includes("near mint") || s === "nm") return "Near Mint";
@@ -70,30 +69,22 @@ function ceilPrice(price: number | null | undefined): number {
   return Math.ceil(price);
 }
 
-// ── #8: Robust CSV parser — BOM stripping, duplicate-header detection, empty-file guard ──
 function normalizeHeader(h: string): string {
   return h
-    .replace(/^\uFEFF/, "")   // strip UTF-8 BOM if it survived to a single header token
-    .replace(/^"|"$/g, "")    // strip surrounding quotes
+    .replace(/^\uFEFF/, "")
+    .replace(/^"|"$/g, "")
     .trim();
 }
 
 function parseCSV(content: string): Record<string, string>[] {
-  // Strip UTF-8 BOM from the very start of the file content
   const cleaned = content.replace(/^\uFEFF/, "");
-
   const lines = cleaned.split(/\r?\n/);
-
-  // Reject empty or header-only files early with a clear error
   const nonEmptyLines = lines.filter(l => l.trim().length > 0);
   if (nonEmptyLines.length < 2) {
     throw new Error("The CSV is empty or contains only a header row with no data.");
   }
-
   const rawHeaders = parseCsvLine(lines[0]);
   const headers = rawHeaders.map(normalizeHeader);
-
-  // Detect duplicate headers — last-value-wins silently corrupts data
   const seen = new Set<string>();
   const duplicates: string[] = [];
   for (const h of headers) {
@@ -107,7 +98,6 @@ function parseCSV(content: string): Record<string, string>[] {
       `Please remove duplicate columns and re-upload.`
     );
   }
-
   const rows: Record<string, string>[] = [];
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -201,7 +191,7 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
   };
 }
 
-// ─── repricing threshold check ───────────────────────────────────────────────
+// ─── repricing threshold check ────────────────────────────────────────────────
 const CONDITION_SHORT: Record<string, string> = {
   "Near Mint": "NM",
   "Lightly Played": "LP",
@@ -225,9 +215,7 @@ function checkRepricingThreshold(
   return { triggered: false, rule: "" };
 }
 
-// ─── export CSV ──────────────────────────────────────────────────────────────
-// Each card gets one row PER LABEL — quantity is expanded into separate rows
-// because Niimbot printers cannot read a quantity column, they print by line count
+// ─── Niimbot label CSV export ─────────────────────────────────────────────────
 function buildNiimbotCsv(items: any[]): string {
   const headers = ["Condition", "Current Market Price", "Product Name", "Number", "Internal ID"];
   const rows: string[] = [];
@@ -240,7 +228,6 @@ function buildNiimbotCsv(items: any[]): string {
       `"${(item.number || "").replace(/"/g, '""')}"`,
       `"${item.inventoryItemId || item.id || ""}"`,
     ].join(",");
-    // Repeat the row once per quantity
     for (let i = 0; i < qty; i++) rows.push(row);
   }
   return [headers.join(","), ...rows].join("\n");
@@ -385,6 +372,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.getParsedRowsByUpload(req.user.id, req.params.id));
   });
 
+  // FIX #2: GET /api/uploads/:id/review — returns the MergeReview row.
+  // Client was previously storing the raw Response object from apiRequest();
+  // the route itself is correct — the bug was entirely on the client side
+  // (queryFn not calling .json()). Route unchanged.
   app.get("/api/uploads/:id/review", async (req: any, res) => {
     const review = await storage.getMergeReviewByUpload(req.user.id, req.params.id);
     if (!review) return res.status(404).json({ error: "Not found" });
@@ -464,19 +455,49 @@ export function registerRoutes(httpServer: Server, app: Express) {
         }
       }
 
+      // matchedNoChangeCount is stored in summaryJson only — the merge_reviews
+      // table does not have this column, so do NOT pass it to createMergeReview.
+      const matchedNoChangeCount = matchedItems.filter(m => m.qtyDelta === 0).length;
+
       const reviewPayload = JSON.stringify({
         newItems: newItems.map(r => ({ id: r.id, productName: r.productName, number: r.number, condition: r.condition, rawMarketPrice: r.rawMarketPrice, roundedPrintPrice: r.roundedPrintPrice, addToQuantity: r.addToQuantity })),
-        matchedItems: matchedItems.map(({ row, existingItem, qtyDelta, csvQty, existingQty }) => ({ rowId: row.id, productName: row.productName, number: row.number, condition: row.condition, rawMarketPrice: row.rawMarketPrice, roundedPrintPrice: row.roundedPrintPrice, csvQty, existingQty, qtyDelta, existingId: existingItem.id, existingPrice: existingItem.currentRawMarketPrice })),
+        matchedItems: matchedItems.map(({ row, existingItem, qtyDelta, csvQty, existingQty }) => ({
+          rowId: row.id,
+          productName: row.productName,
+          number: row.number,
+          condition: row.condition,
+          rawMarketPrice: row.rawMarketPrice,
+          roundedPrintPrice: row.roundedPrintPrice,
+          csvQty,
+          existingQty,
+          qtyDelta,
+          existingId: existingItem.id,
+          existingPrice: existingItem.currentRawMarketPrice,
+        })),
         ambiguousItems,
-        repricingCandidates: repricingCandidates.map(({ row, existingItem, rule, qtyDelta, csvQty, existingQty }) => ({ rowId: row.id, productName: row.productName, priorPrice: existingItem.currentRawMarketPrice, newPrice: row.rawMarketPrice, roundedPrintPrice: row.roundedPrintPrice, percentChange: existingItem.currentRawMarketPrice ? ((row.rawMarketPrice - existingItem.currentRawMarketPrice) / existingItem.currentRawMarketPrice * 100).toFixed(1) : null, rule, csvQty, existingQty, qtyDelta })),
+        repricingCandidates: repricingCandidates.map(({ row, existingItem, rule, csvQty, existingQty }) => ({
+          rowId: row.id,
+          productName: row.productName,
+          priorPrice: existingItem.currentRawMarketPrice,
+          newPrice: row.rawMarketPrice,
+          roundedPrintPrice: row.roundedPrintPrice,
+          percentChange: existingItem.currentRawMarketPrice
+            ? ((row.rawMarketPrice - existingItem.currentRawMarketPrice) / existingItem.currentRawMarketPrice * 100).toFixed(1)
+            : null,
+          rule,
+          csvQty,
+          existingQty,
+        })),
       });
 
+      // FIX #3 (part 1): Do NOT include matchedNoChangeCount here — that field
+      // does not exist on the MergeReview type or the merge_reviews DB table.
+      // It lives in summaryJson on the upload row instead.
       const review = await storage.createMergeReview(userId, {
         uploadId,
         status: "pending",
         newItemCount: newItems.length,
         matchedItemCount: matchedItems.filter(m => m.qtyDelta !== 0).length,
-        matchedNoChangeCount: matchedItems.filter(m => m.qtyDelta === 0).length,
         repricingCandidateCount: repricingCandidates.length,
         duplicateWarningCount: ambiguousItems.length,
         reviewPayload,
@@ -484,7 +505,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
         reviewedBy: null,
       });
 
-      const summary = { newItems: newItems.length, matchedItems: matchedItems.length, repricingCandidates: repricingCandidates.length, ambiguousItems: ambiguousItems.length, totalParsed: validRows.length, totalRaw: rawRows.length };
+      const summary = {
+        newItems: newItems.length,
+        matchedItems: matchedItems.length,
+        matchedNoChangeCount,
+        repricingCandidates: repricingCandidates.length,
+        ambiguousItems: ambiguousItems.length,
+        totalParsed: validRows.length,
+        totalRaw: rawRows.length,
+      };
       await storage.updateUpload(userId, uploadId, { summaryJson: JSON.stringify(summary), parseStatus: "parsed" });
 
       res.json({ upload: newUpload, review, summary });
@@ -494,7 +523,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // Approve merge — accepts optional overrides from inline review edits
+  // FIX #3 (part 2): Approve merge
+  // - Reads overrides keyed by rowId: { [rowId]: { csvQty: number } }
+  // - Applies override qty before building the RPC payload
+  // - Passes newQty as the absolute target (not a delta) to match approve_upload RPC signature
   app.post("/api/uploads/:id/approve", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -504,7 +536,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
       if (!review) return res.status(404).json({ error: "Review not found" });
       if (review.status !== "pending") return res.status(400).json({ error: "Already processed" });
 
-      // Frontend can send overrides: { overrides: { [rowId]: { csvQty: number } } }
       const overrides: Record<string, { csvQty?: number }> = req.body?.overrides || {};
       const payload = JSON.parse(review.reviewPayload || "{}");
       const now = new Date().toISOString();
@@ -529,7 +560,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
           const rawPayload = JSON.parse(parsedRow?.sourcePayload || "{}");
           photoUrl = rawPayload._photoUrl || rawPayload["Photo URL"] || null;
         } catch {}
-
         return {
           inventoryItemId: crypto.randomUUID(),
           parsedRowId: parsedRow?.id ?? null,
@@ -548,18 +578,14 @@ export function registerRoutes(httpServer: Server, app: Express) {
         };
       });
 
-      // FIX: Build the matched items RPC payload in a single pass.
-      // Apply any qty overrides from the review UI, then compute newQty from
-      // existingQty + delta so the RPC receives the fully resolved shape it needs.
       const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => {
         const override = overrides[match.rowId];
-        // If the user edited the qty in the review panel, use that value; otherwise use csvQty
+        // Use override qty if user edited it in the review panel, else use csvQty from payload
         const targetQty = override?.csvQty ?? match.csvQty ?? match.existingQty ?? 0;
         return {
           parsedRowId: parsedById.get(match.rowId)?.id ?? null,
           existingId: match.existingId,
-          // newQty is the absolute target quantity (not a delta)
-          newQty: targetQty,
+          newQty: targetQty,  // absolute quantity, not a delta
           rawMarketPrice: match.rawMarketPrice ?? null,
           roundedPrintPrice: match.roundedPrintPrice ?? null,
         };
@@ -608,12 +634,12 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // ── Delete an upload and all its child data ──────────────────────────────
+  // FIX #1: Delete upload — cascades through merge_reviews and parsed_rows in storage.deleteUpload
   app.delete("/api/uploads/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const upload = await storage.getUpload(userId, req.params.id);
-      if (!upload) return res.status(404).json({ error: "Not found" });
+      const u = await storage.getUpload(userId, req.params.id);
+      if (!u) return res.status(404).json({ error: "Not found" });
       await storage.deleteUpload(userId, req.params.id);
       res.json({ success: true });
     } catch (e: any) {
@@ -761,28 +787,23 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // ── Snapshot history — returns a flat array (no pagination wrapper)
   app.get("/api/snapshots/history", async (req: any, res) => {
     try {
       const userId = req.user.id;
       const limit = Math.min(parseInt(req.query.limit as string) || 90, 365);
-
       const items = await storage.listInventoryItems(userId);
       const allSnapshots = (await Promise.all(
         items.map(item => storage.getSnapshotsByItem(userId, item.id).then(snaps => snaps.map(s => ({ ...s, qty: s.quantityAfterMerge }))))
       )).flat();
-
       const byDate: Record<string, number> = {};
       for (const snap of allSnapshots) {
         const day = snap.snapshotDate.slice(0, 10);
         byDate[day] = (byDate[day] || 0) + snap.rawMarketPrice * snap.qty;
       }
-
       const sorted = Object.entries(byDate)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }))
         .slice(-limit);
-
       res.json(sorted);
     } catch (e: any) {
       res.status(500).json({ error: e.message });

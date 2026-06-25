@@ -47,11 +47,16 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   }
 
   const approveMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/uploads/${uploadId}/approve`, {
-      overrides: Object.fromEntries(
-        Object.entries(qtyOverrides).map(([id, qty]) => [id, { csvQty: qty }])
-      ),
-    }),
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/uploads/${uploadId}/approve`, {
+        overrides: Object.fromEntries(
+          Object.entries(qtyOverrides).map(([id, qty]) => [id, { csvQty: qty }])
+        ),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Approve failed");
+      return data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
@@ -63,7 +68,12 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   });
 
   const rejectMut = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/uploads/${uploadId}/reject`),
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/uploads/${uploadId}/reject`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Reject failed");
+      return data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       toast({ title: "Upload rejected" });
@@ -99,27 +109,20 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
     <div className="space-y-4">
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {/* New Items */}
         <div className="flex flex-col gap-1 rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3">
-          <div className="text-2xl font-bold tabular-nums text-emerald-400 leading-none">{review.newItemCount}</div>
+          <div className="text-2xl font-bold tabular-nums text-emerald-400 leading-none">{review.newItemCount ?? 0}</div>
           <div className="text-xs font-medium text-muted-foreground">New items</div>
         </div>
-        {/* Qty Changes */}
         <div className="flex flex-col gap-1 rounded-xl border border-sky-500/20 bg-sky-500/8 px-4 py-3">
-          <div className="text-2xl font-bold tabular-nums text-sky-400 leading-none">{review.matchedItemCount}</div>
+          <div className="text-2xl font-bold tabular-nums text-sky-400 leading-none">{review.matchedItemCount ?? 0}</div>
           <div className="text-xs font-medium text-muted-foreground">Qty changes</div>
-          {review.matchedNoChangeCount > 0 && (
-            <div className="text-[10px] text-muted-foreground/70 mt-0.5">{review.matchedNoChangeCount} unchanged</div>
-          )}
         </div>
-        {/* Reprice Alerts */}
         <div className="flex flex-col gap-1 rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-3">
-          <div className="text-2xl font-bold tabular-nums text-amber-400 leading-none">{review.repricingCandidateCount}</div>
+          <div className="text-2xl font-bold tabular-nums text-amber-400 leading-none">{review.repricingCandidateCount ?? 0}</div>
           <div className="text-xs font-medium text-muted-foreground">Reprice alerts</div>
         </div>
-        {/* Warnings */}
         <div className="flex flex-col gap-1 rounded-xl border border-red-500/20 bg-red-500/8 px-4 py-3">
-          <div className="text-2xl font-bold tabular-nums text-red-400 leading-none">{review.duplicateWarningCount}</div>
+          <div className="text-2xl font-bold tabular-nums text-red-400 leading-none">{review.duplicateWarningCount ?? 0}</div>
           <div className="text-xs font-medium text-muted-foreground">Warnings</div>
         </div>
       </div>
@@ -133,8 +136,8 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
               { key: "productName", label: "Product Name" },
               { key: "number", label: "#" },
               { key: "condition", label: "Condition" },
-              { key: "rawMarketPrice", label: "Market $", render: r => r.rawMarketPrice ? `$${r.rawMarketPrice.toFixed(2)}` : "—" },
-              { key: "roundedPrintPrice", label: "Print $", render: r => r.roundedPrintPrice ? `$${r.roundedPrintPrice}` : "—" },
+              { key: "rawMarketPrice", label: "Market $", render: (r: any) => r.rawMarketPrice ? `$${Number(r.rawMarketPrice).toFixed(2)}` : "—" },
+              { key: "roundedPrintPrice", label: "Print $", render: (r: any) => r.roundedPrintPrice ? `$${r.roundedPrintPrice}` : "—" },
               { key: "addToQuantity", label: "Qty" },
             ]}
           />
@@ -142,7 +145,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
 
         <ExpandableSection
           title="Quantity Changes"
-          count={(payload.matchedItems || []).filter((r: any) => (qtyOverrides[r.rowId] ?? r.qtyDelta) !== 0).length}
+          count={(payload.matchedItems || []).filter((r: any) => (qtyOverrides[r.rowId] ?? r.csvQty ?? r.existingQty) !== r.existingQty).length}
           color="bg-sky-500/10 text-sky-400"
         >
           <div className="overflow-x-auto">
@@ -157,7 +160,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
               <tbody>
                 {(payload.matchedItems || []).map((row: any, i: number) => {
                   const overrideQty = qtyOverrides[row.rowId];
-                  const effectiveQty = overrideQty ?? row.csvQty ?? row.existingQty;
+                  const effectiveQty = overrideQty ?? row.csvQty ?? row.existingQty ?? 0;
                   const delta = effectiveQty - (row.existingQty || 0);
                   const isEdited = overrideQty !== undefined;
                   return (
@@ -215,9 +218,9 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
             rows={payload.repricingCandidates || []}
             cols={[
               { key: "productName", label: "Product Name" },
-              { key: "priorPrice", label: "Prior $", render: r => r.priorPrice ? `$${Number(r.priorPrice).toFixed(2)}` : "—" },
-              { key: "newPrice", label: "New $", render: r => r.newPrice ? `$${Number(r.newPrice).toFixed(2)}` : "—" },
-              { key: "percentChange", label: "Change", render: r => r.percentChange ? `${r.percentChange}%` : "—" },
+              { key: "priorPrice", label: "Prior $", render: (r: any) => r.priorPrice ? `$${Number(r.priorPrice).toFixed(2)}` : "—" },
+              { key: "newPrice", label: "New $", render: (r: any) => r.newPrice ? `$${Number(r.newPrice).toFixed(2)}` : "—" },
+              { key: "percentChange", label: "Change", render: (r: any) => r.percentChange ? `${r.percentChange}%` : "—" },
               { key: "rule", label: "Rule" },
             ]}
           />
@@ -269,18 +272,16 @@ export default function Uploads() {
 
   const { data: uploads = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
 
-  // FIX #2: queryFn must return the parsed JSON, not the raw Response.
-  // Previously `apiRequest` returned a Response and the query stored that object,
-  // so selectedReview was always a Response (truthy) but had no review fields.
+  // FIX #2: queryFn awaits .json() so the query stores the parsed review object,
+  // not the raw Response. Previously the Response object was truthy so the review
+  // panel rendered but had none of the expected fields.
   const { data: selectedReview, isLoading: reviewLoading } = useQuery<any>({
     queryKey: ["/api/uploads", selectedUploadId, "review"],
     queryFn: async () => {
       if (!selectedUploadId) return null;
       const res = await apiRequest("GET", `/api/uploads/${selectedUploadId}/review`);
-      // apiRequest returns a raw fetch Response — we must call .json() here
       const data = await res.json();
-      // If the server returned an error object, throw so the query enters error state
-      if (data?.error) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Failed to load review");
       return data;
     },
     enabled: !!selectedUploadId,
@@ -308,7 +309,7 @@ export default function Uploads() {
     onError: (e: any) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
   });
 
-  // FIX #1: Delete upload mutation
+  // FIX #1: Delete upload — cascades through merge_reviews and parsed_rows
   const deleteMut = useMutation({
     mutationFn: async (uploadId: string) => {
       const res = await apiRequest("DELETE", `/api/uploads/${uploadId}`);
@@ -318,6 +319,7 @@ export default function Uploads() {
     },
     onSuccess: (_data, uploadId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      // Clear the review panel if we just deleted the selected upload
       if (selectedUploadId === uploadId) {
         setSelectedUploadId(null);
         setShowReview(false);
@@ -418,10 +420,13 @@ export default function Uploads() {
                       selectedUploadId === u.id ? "border-primary/40 bg-primary/5" : "border-border hover:bg-accent"
                     )}
                   >
-                    {/* Clickable area */}
+                    {/* Clickable row area */}
                     <button
                       data-testid={`upload-row-${u.id}`}
-                      onClick={() => { setSelectedUploadId(u.id === selectedUploadId ? null : u.id); setShowReview(true); }}
+                      onClick={() => {
+                        setSelectedUploadId(u.id === selectedUploadId ? null : u.id);
+                        setShowReview(true);
+                      }}
                       className="flex-1 text-left min-w-0"
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -439,7 +444,8 @@ export default function Uploads() {
                         <span className="flex items-center gap-0.5"><Clock size={9} />{formatDate(u.uploadedAt)}</span>
                       </div>
                     </button>
-                    {/* Delete button */}
+
+                    {/* FIX #1: Delete button */}
                     <button
                       aria-label="Delete upload"
                       onClick={e => {
@@ -449,7 +455,7 @@ export default function Uploads() {
                         }
                       }}
                       disabled={deleteMut.isPending && deleteMut.variables === u.id}
-                      className="shrink-0 mt-0.5 p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      className="shrink-0 mt-0.5 p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
                     >
                       <Trash2 size={13} />
                     </button>
@@ -460,7 +466,7 @@ export default function Uploads() {
           </div>
         </div>
 
-        {/* Review panel */}
+        {/* Right: review panel */}
         <div className="lg:col-span-2">
           {!selectedUploadId || !showReview ? (
             <div className="stat-card h-40 lg:h-64 flex items-center justify-center text-muted-foreground text-sm">
@@ -469,16 +475,20 @@ export default function Uploads() {
           ) : reviewLoading ? (
             <div className="stat-card space-y-3">
               <Skeleton className="h-5 w-40" />
-              <div className="grid grid-cols-2 gap-3">{Array.from({length:4}).map((_,i)=><Skeleton key={i} className="h-16"/>)}</div>
+              <div className="grid grid-cols-2 gap-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
             </div>
           ) : selectedReview ? (
             <div className="stat-card">
               <div className="text-sm font-semibold mb-4">Merge Review</div>
-              <ReviewDetail review={selectedReview} uploadId={selectedUploadId} onDone={() => { setShowReview(false); setSelectedUploadId(null); }} />
+              <ReviewDetail
+                review={selectedReview}
+                uploadId={selectedUploadId}
+                onDone={() => { setShowReview(false); setSelectedUploadId(null); }}
+              />
             </div>
           ) : (
             <div className="stat-card h-40 flex items-center justify-center text-muted-foreground text-sm">
-              No review data
+              No review data for this upload
             </div>
           )}
         </div>
