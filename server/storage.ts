@@ -213,16 +213,24 @@ class SupabaseStorage {
 
   async getInventoryItemByExternalIds(userId: string, productId?: string, tcgplayerId?: string): Promise<InventoryItem | undefined> {
     if (!productId && !tcgplayerId) return undefined;
-    const { data } = await supabaseAdmin.from('inventory_items').select('*').eq('user_id', userId).eq('status', 'active');
-    for (const item of (data || [])) {
-      if (!item.match_metadata_json) continue;
-      try {
-        const meta = JSON.parse(item.match_metadata_json);
-        if (productId && meta.sourceProductId === productId) return mapRow<InventoryItem>(item);
-        if (tcgplayerId && meta.sourceTcgplayerId === tcgplayerId) return mapRow<InventoryItem>(item);
-      } catch {}
+
+    // Build filter: cast text column to jsonb and check the relevant key in Postgres
+    // instead of fetching all rows and filtering in JS.
+    let query = supabaseAdmin
+      .from('inventory_items')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .not('match_metadata_json', 'is', null);
+
+    if (productId) {
+      query = query.filter('match_metadata_json::jsonb->>\'sourceProductId\'', 'eq', productId);
+    } else if (tcgplayerId) {
+      query = query.filter('match_metadata_json::jsonb->>\'sourceTcgplayerId\'', 'eq', tcgplayerId);
     }
-    return undefined;
+
+    const { data } = await query.limit(1).maybeSingle();
+    return data ? mapRow<InventoryItem>(data) : undefined;
   }
 
   async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string }): Promise<InventoryItem[]> {
