@@ -223,7 +223,6 @@ class SupabaseStorage {
   async getInventoryItemByExternalIds(userId: string, productId?: string, tcgplayerId?: string): Promise<InventoryItem | undefined> {
     if (!productId && !tcgplayerId) return undefined;
 
-    // Try productId first, fall through to tcgplayerId
     for (const [col, val] of [['source_product_id', productId], ['source_tcgplayer_id', tcgplayerId]] as const) {
       if (!val) continue;
       const { data } = await supabaseAdmin.from('inventory_items').select('*')
@@ -258,6 +257,15 @@ class SupabaseStorage {
   async updateInventoryItem(userId: string, id: string, data: Partial<InventoryItem>): Promise<InventoryItem | undefined> {
     const { data: d } = await supabaseAdmin.from('inventory_items').update(toSnake(stripMeta(data as any))).eq('id', id).eq('user_id', userId).select().single();
     return d ? toCamel<InventoryItem>(d) : undefined;
+  }
+
+  async deleteInventoryItem(userId: string, id: string): Promise<void> {
+    // Clean up label queue entries first to avoid orphaned rows on the labels page
+    await supabaseAdmin.from('label_queue_items').delete().eq('inventory_item_id', id).eq('user_id', userId);
+    // Clean up price snapshots
+    await supabaseAdmin.from('price_snapshots').delete().eq('inventory_item_id', id).eq('user_id', userId);
+    const { error } = await supabaseAdmin.from('inventory_items').delete().eq('id', id).eq('user_id', userId);
+    if (error) throw new Error(error.message);
   }
 
   // ── price snapshots ────────────────────────────────────────────────────────

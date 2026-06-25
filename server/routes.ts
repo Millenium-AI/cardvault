@@ -124,7 +124,6 @@ function parseCSV(content: string): Record<string, string>[] {
 }
 
 function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, uploadId: string): any {
-  // Pick first non-empty value from candidate column names
   const k = (...candidates: string[]): string => {
     for (const c of candidates) {
       const found = Object.keys(raw).find(key => key.toLowerCase() === c.toLowerCase());
@@ -240,7 +239,6 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   });
 }
 
-// Rate limiter for invite code use
 const useInviteAttempts = new Map<string, number[]>();
 function useInviteRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -590,22 +588,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // ── DELETE upload — cascades through child records ────────────────────────
   app.delete("/api/uploads/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
       const uploadId = req.params.id;
-
       const u = await storage.getUpload(userId, uploadId);
       if (!u) return res.status(404).json({ error: "Not found" });
-
-      // Delete children first to avoid FK violations if storage.deleteUpload
-      // doesn't cascade. Order matters: rows → review → upload.
       const review = await storage.getMergeReviewByUpload(userId, uploadId);
       if (review) await storage.updateMergeReview(userId, review.id, { status: "rejected" as any });
-
-      await storage.deleteUpload(userId, uploadId); // assumes this cascades parsed_rows + merge_reviews, or they're cleaned above
-
+      await storage.deleteUpload(userId, uploadId);
       res.json({ success: true });
     } catch (e: any) {
       console.error("[delete upload]", e);
@@ -635,7 +626,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.patch("/api/inventory/:id", async (req: any, res) => {
     const item = await resolveInventoryItem(req.user.id, req.params.id, res);
     if (!item) return;
-
     const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes"];
     const patch: Record<string, any> = {};
     for (const key of allowed) {
@@ -645,6 +635,19 @@ export function registerRoutes(httpServer: Server, app: Express) {
       patch.currentRoundedPrintPrice = Math.ceil(patch.currentRawMarketPrice);
     }
     res.json(await storage.updateInventoryItem(req.user.id, req.params.id, patch));
+  });
+
+  app.delete("/api/inventory/:id", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const item = await storage.getInventoryItem(userId, req.params.id);
+      if (!item) return res.status(404).json({ error: "Not found" });
+      await storage.deleteInventoryItem(userId, req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[delete inventory]", e);
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/inventory/:id/snapshots", async (req: any, res) => {
