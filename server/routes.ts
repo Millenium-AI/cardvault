@@ -70,10 +70,44 @@ function ceilPrice(price: number | null | undefined): number {
   return Math.ceil(price);
 }
 
+// ── #8: Robust CSV parser — BOM stripping, duplicate-header detection, empty-file guard ──
+function normalizeHeader(h: string): string {
+  return h
+    .replace(/^\uFEFF/, "")   // strip UTF-8 BOM if it survived to a single header token
+    .replace(/^"|"$/g, "")    // strip surrounding quotes
+    .trim();
+}
+
 function parseCSV(content: string): Record<string, string>[] {
-  const lines = content.split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+  // Strip UTF-8 BOM from the very start of the file content
+  const cleaned = content.replace(/^\uFEFF/, "");
+
+  const lines = cleaned.split(/\r?\n/);
+
+  // Reject empty or header-only files early with a clear error
+  const nonEmptyLines = lines.filter(l => l.trim().length > 0);
+  if (nonEmptyLines.length < 2) {
+    throw new Error("The CSV is empty or contains only a header row with no data.");
+  }
+
+  const rawHeaders = parseCsvLine(lines[0]);
+  const headers = rawHeaders.map(normalizeHeader);
+
+  // Detect duplicate headers — last-value-wins silently corrupts data
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  for (const h of headers) {
+    const key = h.toLowerCase();
+    if (seen.has(key)) duplicates.push(h);
+    else seen.add(key);
+  }
+  if (duplicates.length > 0) {
+    throw new Error(
+      `The CSV contains duplicate column headers: ${duplicates.map(d => `"${d}"`).join(", ")}. ` +
+      `Please remove duplicate columns and re-upload.`
+    );
+  }
+
   const rows: Record<string, string>[] = [];
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -363,7 +397,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const userId = req.user.id;
       const { game = "pokemon", sourceType = "tcgplayer" } = req.body;
       const content = req.file.buffer.toString("utf-8");
-      const rawRows = parseCSV(content);
+
+      let rawRows: Record<string, string>[];
+      try {
+        rawRows = parseCSV(content);
+      } catch (parseErr: any) {
+        return res.status(400).json({ error: parseErr.message });
+      }
 
       const now = new Date().toISOString();
 
