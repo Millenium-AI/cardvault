@@ -4,14 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowRight } from "lucide-react";
+import { Loader2, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 
 const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
 const ADMIN_EMAIL = "bonsaicollects@gmail.com";
 
-// The OAuth redirect must land on the bare origin (no hash) so Supabase can
-// parse #access_token from the URL before wouter's hash router consumes the hash.
 const OAUTH_REDIRECT_URL = typeof window !== "undefined"
   ? window.location.origin
   : "";
@@ -19,34 +17,65 @@ const OAUTH_REDIRECT_URL = typeof window !== "undefined"
 type Mode = "login" | "signup";
 type SignupStep = "invite" | "credentials";
 
+function PasswordInput({ id, value, onChange, placeholder, testId }: {
+  id: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; testId?: string;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        data-testid={testId}
+        type={show ? "text" : "password"}
+        placeholder={placeholder ?? "••••••••"}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="h-9 text-sm pr-9"
+        required
+        minLength={6}
+      />
+      <button
+        type="button"
+        onClick={() => setShow(s => !s)}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+        tabIndex={-1}
+        aria-label={show ? "Hide password" : "Show password"}
+      >
+        {show ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+    </div>
+  );
+}
+
 export default function Login() {
   const { toast } = useToast();
   const [mode, setMode] = useState<Mode>("login");
   const [signupStep, setSignupStep] = useState<SignupStep>("invite");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [inviteValidating, setInviteValidating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
-  // After Google OAuth redirect — check if user is brand new (not pre-existing)
+  const passwordMismatch = confirmPassword.length > 0 && password !== confirmPassword;
+
   useEffect(() => {
     supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === "SIGNED_IN" && session?.user) {
         const user = session.user;
         const isAdmin = user.email === ADMIN_EMAIL;
-
         if (!isAdmin) {
           const createdAt = new Date(user.created_at).getTime();
           const lastSignIn = new Date(user.last_sign_in_at ?? user.created_at).getTime();
           const isNewAccount = Math.abs(createdAt - lastSignIn) < 10000;
-
           if (isNewAccount && user.app_metadata?.provider === "google") {
             await supabase.auth.signOut();
             toast({
               title: "Access denied",
-              description: "You need an invite code to create an account. Contact the app owner.",
+              description: "You need an invite code to create an account.",
               variant: "destructive",
             });
           }
@@ -61,6 +90,7 @@ export default function Login() {
     setInviteCode("");
     setEmail("");
     setPassword("");
+    setConfirmPassword("");
   }
 
   async function handleValidateInvite(e: React.FormEvent) {
@@ -87,11 +117,14 @@ export default function Login() {
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
+    if (password !== confirmPassword) {
+      toast({ title: "Passwords don't match", description: "Please make sure both passwords are identical.", variant: "destructive" });
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) throw error;
-
       if (data.user) {
         await fetch(`${API_BASE}/api/auth/use-invite`, {
           method: "POST",
@@ -120,7 +153,6 @@ export default function Login() {
     }
   }
 
-  // Admin Google login — redirectTo root so hash router doesn't eat the OAuth token
   async function handleGoogle() {
     setGoogleLoading(true);
     try {
@@ -135,7 +167,6 @@ export default function Login() {
     }
   }
 
-  // Google signup — validate invite code first, then OAuth with redirectTo root
   async function handleGoogleSignup() {
     setGoogleLoading(true);
     try {
@@ -183,13 +214,17 @@ export default function Login() {
         <div className="flex rounded-lg border border-border p-1 bg-muted/30">
           <button
             onClick={() => switchMode("login")}
-            className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${mode === "login" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${
+              mode === "login" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
           >
             Sign In
           </button>
           <button
             onClick={() => switchMode("signup")}
-            className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${mode === "signup" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${
+              mode === "signup" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
           >
             Sign Up
           </button>
@@ -230,17 +265,7 @@ export default function Login() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="password" className="text-xs font-medium">Password</Label>
-                <Input
-                  id="password"
-                  data-testid="input-password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className="h-9 text-sm"
-                  required
-                  minLength={6}
-                />
+                <PasswordInput id="password" value={password} onChange={setPassword} testId="input-password" />
               </div>
               <Button
                 data-testid="button-auth-submit"
@@ -278,9 +303,7 @@ export default function Login() {
               className="w-full h-10 text-sm font-medium gap-2"
               disabled={inviteValidating || inviteCode.length < 6}
             >
-              {inviteValidating
-                ? <Loader2 size={15} className="animate-spin" />
-                : <ArrowRight size={15} />}
+              {inviteValidating ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
               {inviteValidating ? "Validating…" : "Continue"}
             </Button>
           </form>
@@ -324,25 +347,32 @@ export default function Login() {
                   required
                 />
               </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="su-password" className="text-xs font-medium">Password</Label>
-                <Input
-                  id="su-password"
-                  data-testid="input-signup-password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className="h-9 text-sm"
-                  required
-                  minLength={6}
-                />
+                <PasswordInput id="su-password" value={password} onChange={setPassword} testId="input-signup-password" />
+                <p className="text-[11px] text-muted-foreground">Minimum 6 characters</p>
               </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="su-confirm" className="text-xs font-medium">Confirm Password</Label>
+                <PasswordInput
+                  id="su-confirm"
+                  value={confirmPassword}
+                  onChange={setConfirmPassword}
+                  placeholder="••••••••"
+                  testId="input-confirm-password"
+                />
+                {passwordMismatch && (
+                  <p className="text-[11px] text-destructive font-medium">Passwords don't match</p>
+                )}
+              </div>
+
               <Button
                 data-testid="button-signup-submit"
                 type="submit"
                 className="w-full h-10 text-sm font-medium mt-1"
-                disabled={loading || googleLoading}
+                disabled={loading || googleLoading || passwordMismatch || password.length < 6 || confirmPassword.length === 0}
               >
                 {loading ? <Loader2 size={15} className="animate-spin mr-2" /> : null}
                 Create Account
