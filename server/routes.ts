@@ -645,18 +645,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const userId = req.user.id;
       const items = await storage.listInventoryItems(userId);
 
-      const rows = items.map(item => ({
-        "Product Name": item.productName,
-        "Number": item.number ?? "",
-        "Condition": item.condition ?? "",
-        "Game": item.game,
-        "Quantity": item.currentQuantity,
-        "Market Price": item.currentRawMarketPrice ?? "",
-        "Print Price": item.currentRoundedPrintPrice ?? "",
-        "Status": item.status,
-        "First Seen": item.firstSeenAt,
-        "Last Seen": item.lastSeenAt,
-      }));
+      const rows = items.flatMap(item => {
+        const qty = Math.max(1, item.currentQuantity || 1);
+        const row = {
+          "Name": item.productName,
+          "Condition": CONDITION_SHORT[item.condition ?? ""] || (item.condition ?? ""),
+          "Price": `$${item.currentRoundedPrintPrice || 0}`,
+        };
+        return Array(qty).fill(row);
+      });
 
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
