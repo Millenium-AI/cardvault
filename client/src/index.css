@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* CardVault — black & green ops terminal theme */
+    --background: 0 0% 4%;
+    --foreground: 120 8% 88%;
+    --card: 0 0% 7%;
+    --card-foreground: 120 8% 88%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 120 8% 88%;
+    --primary: 142 71% 45%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 11%;
+    --secondary-foreground: 120 6% 65%;
+    --muted: 0 0% 9%;
+    --muted-foreground: 120 5% 48%;
+    --accent: 0 0% 12%;
+    --accent-foreground: 120 8% 88%;
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 120 8% 88%;
+    --border: 0 0% 14%;
+    --input: 0 0% 14%;
+    --ring: 142 71% 45%;
+    --radius: 0.5rem;
+    --chart-1: 142 71% 45%;
+    --chart-2: 142 71% 35%;
+    --chart-3: 142 71% 55%;
+    --chart-4: 160 60% 45%;
+    --chart-5: 100 50% 40%;
+
+    /* Semantic extras */
+    --color-success: 142 71% 45%;
+    --color-warning: 48 96% 53%;
+    --color-danger: 0 62% 50%;
+    --color-info: 160 60% 45%;
+    --sidebar-bg: 0 0% 3%;
+    --sidebar-border: 0 0% 10%;
+    --sidebar-hover: 0 0% 8%;
+    --sidebar-active: 0 0% 11%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+  ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+}
+
+@layer utilities {
+  .stat-card {
+    @apply rounded-lg border border-border bg-card p-4;
+  }
+  .page-header {
+    @apply flex items-center justify-between mb-6;
+  }
+  .page-title {
+    @apply text-xl font-semibold text-foreground;
+  }
+  /* Condition badges — green tones for good conditions, red for bad */
+  .badge-nm { @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/25; }
+  .badge-lp { @apply bg-green-600/15 text-green-400 border border-green-600/25; }
+  .badge-mp { @apply bg-yellow-600/15 text-yellow-400 border border-yellow-600/25; }
+  .badge-hp { @apply bg-red-500/15 text-red-400 border border-red-500/25; }
+  .badge-d  { @apply bg-red-700/20 text-red-400 border border-red-700/30; }
+  .price-up { @apply text-emerald-400; }
+  .price-down { @apply text-red-400; }
+  .table-row-hover { @apply hover:bg-accent/40 transition-colors; }
+}

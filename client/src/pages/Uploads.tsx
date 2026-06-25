@@ -1,0 +1,369 @@
+import { useState, useRef } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import { format, parseISO } from "date-fns";
+
+const statusColors: Record<string, string> = {
+  pending: "text-primary bg-primary/10",
+  parsed: "text-sky-400 bg-sky-400/10",
+  merged: "text-emerald-400 bg-emerald-400/10",
+  failed: "text-red-400 bg-red-400/10",
+  rejected: "text-muted-foreground bg-muted",
+};
+
+function ExpandableSection({ title, count, color, children }: any) {
+  const [open, setOpen] = useState(false);
+  if (!count) return null;
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-3 py-3 hover:bg-accent transition-colors text-sm"
+      >
+        <div className="flex items-center gap-2">
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          <span className="font-medium text-foreground">{title}</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>{count}</span>
+        </div>
+      </button>
+      {open && <div className="border-t border-border overflow-x-auto">{children}</div>}
+    </div>
+  );
+}
+
+function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: string; onDone: () => void }) {
+  const { toast } = useToast();
+  const payload = (() => { try { return JSON.parse(review.reviewPayload || "{}"); } catch { return {}; } })();
+
+  const approveMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/uploads/${uploadId}/approve`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/labels/new"] });
+      toast({ title: "Merge approved", description: "Inventory updated successfully." });
+      onDone();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/uploads/${uploadId}/reject`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      toast({ title: "Upload rejected" });
+      onDone();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  // Scrollable mini-table for expandable sections
+  const MiniTable = ({ rows, cols }: { rows: any[]; cols: { key: string; label: string; render?: (v: any) => any }[] }) => (
+    <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
+      <table className="w-full text-xs min-w-[480px]">
+        <thead>
+          <tr className="border-b border-border bg-muted/30">
+            {cols.map(c => <th key={c.key} className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{c.label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-accent/30">
+              {cols.map(c => (
+                <td key={c.key} className="px-3 py-2 text-foreground whitespace-nowrap">
+                  {c.render ? c.render(row) : row[c.key] ?? "—"}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="space-y-3">
+      {/* Summary grid — 2 cols on mobile, 4 on sm */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2.5">
+          <div className="text-xl font-bold text-emerald-400 mono">{review.newItemCount}</div>
+          <div className="text-xs text-muted-foreground">New items</div>
+        </div>
+        <div className="bg-sky-500/10 border border-sky-500/20 rounded-lg px-3 py-2.5">
+          <div className="text-xl font-bold text-sky-400 mono">{review.matchedItemCount}</div>
+          <div className="text-xs text-muted-foreground">Qty updates</div>
+        </div>
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2.5">
+          <div className="text-xl font-bold text-primary mono">{review.repricingCandidateCount}</div>
+          <div className="text-xs text-muted-foreground">Reprice alerts</div>
+        </div>
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
+          <div className="text-xl font-bold text-red-400 mono">{review.duplicateWarningCount}</div>
+          <div className="text-xs text-muted-foreground">Warnings</div>
+        </div>
+      </div>
+
+      {/* Expandable tables */}
+      <ExpandableSection title="New Items" count={payload.newItems?.length} color="bg-emerald-500/10 text-emerald-400">
+        <MiniTable
+          rows={payload.newItems || []}
+          cols={[
+            { key: "productName", label: "Product Name" },
+            { key: "number", label: "#" },
+            { key: "condition", label: "Condition" },
+            { key: "rawMarketPrice", label: "Market $", render: r => r.rawMarketPrice ? `$${r.rawMarketPrice.toFixed(2)}` : "—" },
+            { key: "roundedPrintPrice", label: "Print $", render: r => r.roundedPrintPrice ? `$${r.roundedPrintPrice}` : "—" },
+            { key: "addToQuantity", label: "Qty" },
+          ]}
+        />
+      </ExpandableSection>
+
+      <ExpandableSection title="Quantity Updates (Matched)" count={payload.matchedItems?.length} color="bg-sky-500/10 text-sky-400">
+        <MiniTable
+          rows={payload.matchedItems || []}
+          cols={[
+            { key: "productName", label: "Product Name" },
+            { key: "number", label: "#" },
+            { key: "condition", label: "Condition" },
+            { key: "existingQty", label: "Cur Qty" },
+            { key: "addToQuantity", label: "+Qty" },
+            { key: "existingPrice", label: "Old $", render: r => r.existingPrice ? `$${r.existingPrice.toFixed(2)}` : "—" },
+            { key: "rawMarketPrice", label: "New $", render: r => r.rawMarketPrice ? `$${r.rawMarketPrice.toFixed(2)}` : "—" },
+          ]}
+        />
+      </ExpandableSection>
+
+      <ExpandableSection title="Repricing Candidates" count={payload.repricingCandidates?.length} color="bg-primary/10 text-primary">
+        <MiniTable
+          rows={payload.repricingCandidates || []}
+          cols={[
+            { key: "productName", label: "Product Name" },
+            { key: "priorPrice", label: "Prior $", render: r => r.priorPrice ? `$${Number(r.priorPrice).toFixed(2)}` : "—" },
+            { key: "newPrice", label: "New $", render: r => r.newPrice ? `$${Number(r.newPrice).toFixed(2)}` : "—" },
+            { key: "percentChange", label: "Change", render: r => r.percentChange ? `${r.percentChange}%` : "—" },
+            { key: "rule", label: "Rule" },
+          ]}
+        />
+      </ExpandableSection>
+
+      {/* Action buttons */}
+      {review.status === "pending" && (
+        <div className="flex gap-2 pt-1">
+          <Button
+            data-testid="button-approve-merge"
+            onClick={() => approveMut.mutate()}
+            disabled={approveMut.isPending}
+            className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white h-10"
+          >
+            <CheckCircle size={15} className="mr-2" />
+            {approveMut.isPending ? "Merging…" : "Approve Merge"}
+          </Button>
+          <Button
+            data-testid="button-reject-merge"
+            variant="outline"
+            onClick={() => rejectMut.mutate()}
+            disabled={rejectMut.isPending}
+            className="flex-1 sm:flex-none border-red-500/30 text-red-400 hover:bg-red-500/10 h-10"
+          >
+            <XCircle size={15} className="mr-2" />
+            Reject
+          </Button>
+        </div>
+      )}
+      {review.status !== "pending" && (
+        <div className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium", statusColors[review.status] || "text-muted-foreground")}>
+          {review.status === "approved" || review.status === "merged" ? <CheckCircle size={14} /> : <XCircle size={14} />}
+          {review.status.charAt(0).toUpperCase() + review.status.slice(1)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Uploads() {
+  const [game, setGame] = useState("one-piece");
+  const [sourceType, setSourceType] = useState("tcgplayer");
+  const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showReview, setShowReview] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  const { data: uploads = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
+
+  const { data: selectedReview, isLoading: reviewLoading } = useQuery<any>({
+    queryKey: ["/api/uploads", selectedUploadId, "review"],
+    queryFn: async () => {
+      if (!selectedUploadId) return null;
+      const res = await apiRequest("GET", `/api/uploads/${selectedUploadId}/review`);
+      return res.json();
+    },
+    enabled: !!selectedUploadId,
+  });
+
+  const uploadMut = useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("game", game);
+      form.append("sourceType", sourceType);
+      const res = await fetch("/api/uploads", { method: "POST", body: form });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Upload failed"); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      setSelectedUploadId(data.upload.id);
+      setShowReview(true);
+      toast({ title: "CSV parsed", description: `${data.summary.totalParsed} rows ready for review.` });
+    },
+    onError: (e: any) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+  });
+
+  const handleFile = (file: File) => {
+    if (!file.name.endsWith(".csv")) { toast({ title: "CSV files only", variant: "destructive" }); return; }
+    uploadMut.mutate(file);
+  };
+
+  const formatDate = (d: string) => {
+    try { return format(parseISO(d), "M/d/yy HH:mm"); } catch { return d; }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-semibold text-foreground">Uploads</h1>
+      </div>
+
+      {/* On mobile: review panel slides in above history when an upload is selected */}
+      <div className="flex flex-col lg:grid lg:grid-cols-3 gap-4">
+
+        {/* Left column */}
+        <div className="space-y-4">
+          {/* Upload form */}
+          <div className="stat-card space-y-3">
+            <div className="text-sm font-semibold">Upload CSV</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Game</label>
+                <Select value={game} onValueChange={setGame}>
+                  <SelectTrigger data-testid="select-game" className="text-xs h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="one-piece">One Piece</SelectItem>
+                    <SelectItem value="pokemon">Pokémon</SelectItem>
+                    <SelectItem value="sorcery">Sorcery</SelectItem>
+                    <SelectItem value="mtg">MTG</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Source</label>
+                <Select value={sourceType} onValueChange={setSourceType}>
+                  <SelectTrigger data-testid="select-source" className="text-xs h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tcgplayer">TCGplayer</SelectItem>
+                    <SelectItem value="collectr">Collectr</SelectItem>
+                    <SelectItem value="manual">Manual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div
+              data-testid="upload-dropzone"
+              onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={e => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+              onClick={() => fileRef.current?.click()}
+              className={cn(
+                "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors active:scale-[0.98]",
+                isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-accent/30"
+              )}
+            >
+              <Upload size={22} className="mx-auto mb-2 text-muted-foreground" />
+              <div className="text-sm text-muted-foreground">
+                {uploadMut.isPending ? "Parsing…" : "Tap or drop CSV"}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">TCGplayer format supported</div>
+              <input ref={fileRef} type="file" accept=".csv" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+            </div>
+          </div>
+
+          {/* Upload history */}
+          <div className="stat-card">
+            <div className="text-sm font-semibold mb-3">Upload History</div>
+            {isLoading ? (
+              <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+            ) : uploads.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-4 text-center">No uploads yet</div>
+            ) : (
+              <div className="space-y-1">
+                {uploads.map((u: any) => (
+                  <button
+                    key={u.id}
+                    data-testid={`upload-row-${u.id}`}
+                    onClick={() => { setSelectedUploadId(u.id === selectedUploadId ? null : u.id); setShowReview(true); }}
+                    className={cn(
+                      "w-full text-left px-3 py-2.5 rounded-md border transition-colors",
+                      selectedUploadId === u.id ? "border-primary/40 bg-primary/5" : "border-border hover:bg-accent"
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <FileText size={12} className="text-muted-foreground shrink-0" />
+                        <span className="text-xs font-medium text-foreground truncate">{u.originalFilename}</span>
+                      </div>
+                      <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium shrink-0", statusColors[u.parseStatus] || "")}>
+                        {u.parseStatus}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+                      <span>{u.game}</span><span>·</span>
+                      <span>{u.totalRows} rows</span><span>·</span>
+                      <span className="flex items-center gap-0.5"><Clock size={9} />{formatDate(u.uploadedAt)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Review panel — full width on mobile when shown */}
+        <div className="lg:col-span-2">
+          {!selectedUploadId || !showReview ? (
+            <div className="stat-card h-40 lg:h-64 flex items-center justify-center text-muted-foreground text-sm">
+              Select an upload to review
+            </div>
+          ) : reviewLoading ? (
+            <div className="stat-card space-y-3">
+              <Skeleton className="h-5 w-40" />
+              <div className="grid grid-cols-2 gap-2">{Array.from({length:4}).map((_,i)=><Skeleton key={i} className="h-14"/>)}</div>
+            </div>
+          ) : selectedReview ? (
+            <div className="stat-card">
+              <div className="text-sm font-semibold mb-4">Merge Review</div>
+              <ReviewDetail review={selectedReview} uploadId={selectedUploadId} onDone={() => { setShowReview(false); setSelectedUploadId(null); }} />
+            </div>
+          ) : (
+            <div className="stat-card h-40 flex items-center justify-center text-muted-foreground text-sm">
+              No review data
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
