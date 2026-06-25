@@ -4,14 +4,13 @@ import multer from "multer";
 import { storage } from "./storage";
 import { supabaseAdmin, verifyToken } from "./supabase";
 
-// ── File type + size validation ───────────────────────────────────────────────
+// ── File validation ───────────────────────────────────────────────────────────
 const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  const isCsv =
+  const ok =
     file.mimetype === "text/csv" ||
     file.mimetype === "application/vnd.ms-excel" ||
     file.originalname.toLowerCase().endsWith(".csv");
-  if (isCsv) cb(null, true);
-  else cb(new Error("Only CSV files are accepted"));
+  ok ? cb(null, true) : cb(new Error("Only CSV files are accepted"));
 };
 
 const upload = multer({
@@ -20,7 +19,7 @@ const upload = multer({
   fileFilter: csvFilter,
 });
 
-// ─── CSV parser ───────────────────────────────────────────────────────────────
+// ── CSV parsing ───────────────────────────────────────────────────────────────
 function normalizeCondition(raw: string): string {
   const s = (raw || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (s.includes("near mint") || s === "nm") return "Near Mint";
@@ -65,52 +64,11 @@ function buildMatchKey(
 }
 
 function ceilPrice(price: number | null | undefined): number {
-  if (!price || isNaN(price)) return 0;
-  return Math.ceil(price);
+  return price && !isNaN(price) ? Math.ceil(price) : 0;
 }
 
 function normalizeHeader(h: string): string {
-  return h
-    .replace(/^\uFEFF/, "")
-    .replace(/^"|"$/g, "")
-    .trim();
-}
-
-function parseCSV(content: string): Record<string, string>[] {
-  const cleaned = content.replace(/^\uFEFF/, "");
-  const lines = cleaned.split(/\r?\n/);
-  const nonEmptyLines = lines.filter(l => l.trim().length > 0);
-  if (nonEmptyLines.length < 2) {
-    throw new Error("The CSV is empty or contains only a header row with no data.");
-  }
-  const rawHeaders = parseCsvLine(lines[0]);
-  const headers = rawHeaders.map(normalizeHeader);
-  const seen = new Set<string>();
-  const duplicates: string[] = [];
-  for (const h of headers) {
-    const key = h.toLowerCase();
-    if (seen.has(key)) duplicates.push(h);
-    else seen.add(key);
-  }
-  if (duplicates.length > 0) {
-    throw new Error(
-      `The CSV contains duplicate column headers: ${duplicates.map(d => `"${d}"`).join(", ")}. ` +
-      `Please remove duplicate columns and re-upload.`
-    );
-  }
-  const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const values = parseCsvLine(line);
-    if (values.length === 0) continue;
-    const row: Record<string, string> = {};
-    headers.forEach((h, idx) => {
-      row[h] = (values[idx] || "").trim().replace(/^"|"$/g, "");
-    });
-    rows.push(row);
-  }
-  return rows;
+  return h.replace(/^\uFEFF/, "").replace(/^"|"$/g, "").trim();
 }
 
 function parseCsvLine(line: string): string[] {
@@ -133,65 +91,90 @@ function parseCsvLine(line: string): string[] {
   return result;
 }
 
+function parseCSV(content: string): Record<string, string>[] {
+  const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const nonEmpty = lines.filter(l => l.trim().length > 0);
+  if (nonEmpty.length < 2) throw new Error("The CSV is empty or contains only a header row with no data.");
+
+  const headers = parseCsvLine(lines[0]).map(normalizeHeader);
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  for (const h of headers) {
+    const key = h.toLowerCase();
+    seen.has(key) ? duplicates.push(h) : seen.add(key);
+  }
+  if (duplicates.length > 0) {
+    throw new Error(
+      `The CSV contains duplicate column headers: ${duplicates.map(d => `"${d}"`).join(", ")}. ` +
+      `Please remove duplicate columns and re-upload.`
+    );
+  }
+
+  return lines
+    .slice(1)
+    .filter(l => l.trim())
+    .map(line => {
+      const values = parseCsvLine(line);
+      const row: Record<string, string> = {};
+      headers.forEach((h, i) => {
+        row[h] = (values[i] || "").trim().replace(/^"|"$/g, "");
+      });
+      return row;
+    });
+}
+
 function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, uploadId: string): any {
-  const k = (candidates: string[]): string => {
+  // Pick first non-empty value from candidate column names
+  const k = (...candidates: string[]): string => {
     for (const c of candidates) {
-      const found = Object.keys(raw).find(k => k.toLowerCase() === c.toLowerCase());
+      const found = Object.keys(raw).find(key => key.toLowerCase() === c.toLowerCase());
       if (found && raw[found]) return raw[found];
     }
     return "";
   };
 
-  const productName = k(["Product Name", "Name", "Card Name", "product_name"]);
-  const number = k(["Number", "Card Number", "Collector Number", "number"]);
-  const condition = normalizeCondition(k(["Condition", "condition", "Cond"]));
-  const rawPriceStr = k(["TCG Market Price", "Market Price", "TCGplayer Market Price", "Price", "market_price"]);
-  const rawMarketPrice = parseFloat(rawPriceStr.replace(/[^0-9.]/g, "")) || null;
-  const roundedPrintPrice = ceilPrice(rawMarketPrice);
-  const addToQuantityStr = k(["Add to Quantity", "add_to_quantity"]);
-  const totalQuantityStr = k(["Total Quantity", "total_quantity", "Quantity", "Qty", "quantity"]);
-  const addToQuantity = parseInt(addToQuantityStr) || parseInt(totalQuantityStr) || 1;
-
-  const sourceProductId = k(["Product ID", "product_id"]);
-  const sourceTcgplayerId = k(["TCGplayer Id", "TCGplayer ID", "tcgplayer_id", "TCGplayerId"]);
-  const sourceProductLine = k(["Product Line", "product_line", "Game"]);
-  const sourceSetName = k(["Set Name", "set_name", "Set", "Expansion"]);
-  const sourcePrinting = k(["Printing", "printing", "Foil", "Edition"]);
-  const sourceRarity = k(["Rarity", "rarity"]);
-  const photoUrl = k(["Photo URL", "photo_url", "Image URL"]);
-
-  const matchKey = buildMatchKey(productName, number, condition, sourcePrinting, sourceSetName, game);
-  const id = crypto.randomUUID();
+  const productName     = k("Product Name", "Name", "Card Name", "product_name");
+  const number          = k("Number", "Card Number", "Collector Number", "number");
+  const condition       = normalizeCondition(k("Condition", "condition", "Cond"));
+  const rawMarketPrice  = parseFloat(k("TCG Market Price", "Market Price", "TCGplayer Market Price", "Price", "market_price").replace(/[^0-9.]/g, "")) || null;
+  const addToQuantity   = parseInt(k("Add to Quantity", "add_to_quantity")) || parseInt(k("Total Quantity", "total_quantity", "Quantity", "Qty", "quantity")) || 1;
+  const sourceProductId     = k("Product ID", "product_id") || null;
+  const sourceTcgplayerId   = k("TCGplayer Id", "TCGplayer ID", "tcgplayer_id", "TCGplayerId") || null;
+  const sourceProductLine   = k("Product Line", "product_line", "Game") || null;
+  const sourceSetName       = k("Set Name", "set_name", "Set", "Expansion") || null;
+  const sourcePrinting      = k("Printing", "printing", "Foil", "Edition") || null;
+  const sourceRarity        = k("Rarity", "rarity") || null;
+  const photoUrl            = k("Photo URL", "photo_url", "Image URL") || null;
 
   const flags: string[] = [];
   if (!productName) flags.push("missing_product_name");
   if (!rawMarketPrice) flags.push("missing_market_price");
 
   return {
-    id,
+    id: crypto.randomUUID(),
     uploadId,
     rowIndex,
     productName: productName || "(unknown)",
     number: number || null,
     condition: condition || null,
     rawMarketPrice,
-    roundedPrintPrice,
+    roundedPrintPrice: ceilPrice(rawMarketPrice),
     addToQuantity,
-    normalizedMatchKey: matchKey,
-    sourceProductId: sourceProductId || null,
-    sourceTcgplayerId: sourceTcgplayerId || null,
-    sourceProductLine: sourceProductLine || null,
-    sourceSetName: sourceSetName || null,
-    sourcePrinting: sourcePrinting || null,
-    sourceRarity: sourceRarity || null,
-    sourcePayload: JSON.stringify({ ...raw, _photoUrl: photoUrl || null }),
+    normalizedMatchKey: buildMatchKey(productName, number, condition, sourcePrinting, sourceSetName, game),
+    sourceProductId,
+    sourceTcgplayerId,
+    sourceProductLine,
+    sourceSetName,
+    sourcePrinting,
+    sourceRarity,
+    sourcePayload: JSON.stringify({ ...raw, _photoUrl: photoUrl }),
     parseFlags: flags.length ? JSON.stringify(flags) : null,
     matchStatus: "pending",
     matchedInventoryId: null,
   };
 }
 
-// ─── repricing threshold check ────────────────────────────────────────────────
+// ── Repricing ─────────────────────────────────────────────────────────────────
 const CONDITION_SHORT: Record<string, string> = {
   "Near Mint": "NM",
   "Lightly Played": "LP",
@@ -201,10 +184,11 @@ const CONDITION_SHORT: Record<string, string> = {
 };
 
 function checkRepricingThreshold(
-  newPrice: number, oldPrice: number,
+  newPrice: number,
+  oldPrice: number,
   thresholds: { over100Pct: number; mid50to100Pct: number; under50Pct: number }
 ): { triggered: boolean; rule: string } {
-  if (!oldPrice || oldPrice === 0) return { triggered: false, rule: "" };
+  if (!oldPrice) return { triggered: false, rule: "" };
   const pct = Math.abs((newPrice - oldPrice) / oldPrice) * 100;
   if (newPrice > 100 && pct > thresholds.over100Pct)
     return { triggered: true, rule: `>$100 / >${thresholds.over100Pct}%` };
@@ -215,11 +199,10 @@ function checkRepricingThreshold(
   return { triggered: false, rule: "" };
 }
 
-// ─── Niimbot label CSV export ─────────────────────────────────────────────────
+// ── Niimbot CSV export ────────────────────────────────────────────────────────
 function buildNiimbotCsv(items: any[]): string {
   const headers = ["Condition", "Current Market Price", "Product Name", "Number", "Internal ID"];
-  const rows: string[] = [];
-  for (const item of items) {
+  const rows = items.flatMap(item => {
     const qty = Math.max(1, parseInt(item.quantity) || 1);
     const row = [
       `"${CONDITION_SHORT[item.condition] || (item.condition || "").replace(/"/g, '""')}"`,
@@ -228,21 +211,20 @@ function buildNiimbotCsv(items: any[]): string {
       `"${(item.number || "").replace(/"/g, '""')}"`,
       `"${item.inventoryItemId || item.id || ""}"`,
     ].join(",");
-    for (let i = 0; i < qty; i++) rows.push(row);
-  }
+    return Array(qty).fill(row);
+  });
   return [headers.join(","), ...rows].join("\n");
 }
 
-// ─── Auth middleware ──────────────────────────────────────────────────────────
+// ── Auth ──────────────────────────────────────────────────────────────────────
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 if (!ADMIN_EMAIL) {
-  console.warn("[WARNING] ADMIN_EMAIL environment variable is not set. Admin routes will be inaccessible.");
+  console.warn("[WARNING] ADMIN_EMAIL is not set. Admin routes will be inaccessible.");
 }
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-  const token = auth.slice(7);
+  const token = req.headers.authorization?.slice(7);
+  if (!token) return res.status(401).json({ error: "Unauthorized" });
   const user = await verifyToken(token);
   if (!user) return res.status(401).json({ error: "Invalid token" });
   (req as any).user = user;
@@ -250,31 +232,48 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 async function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-  const token = auth.slice(7);
-  const user = await verifyToken(token);
-  if (!user) return res.status(401).json({ error: "Invalid token" });
-  if (!ADMIN_EMAIL || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: "Forbidden — admin only" });
-  (req as any).user = user;
-  next();
+  await requireAuth(req, res, async () => {
+    const user = (req as any).user;
+    if (!ADMIN_EMAIL || user.email !== ADMIN_EMAIL)
+      return res.status(403).json({ error: "Forbidden — admin only" });
+    next();
+  });
 }
 
+// Rate limiter for invite code use
 const useInviteAttempts = new Map<string, number[]>();
-const USE_INVITE_WINDOW_MS = 15 * 60 * 1000;
-const USE_INVITE_MAX_ATTEMPTS = 5;
-
 function useInviteRateLimited(ip: string): boolean {
   const now = Date.now();
-  const windowStart = now - USE_INVITE_WINDOW_MS;
-  const attempts = (useInviteAttempts.get(ip) || []).filter(t => t > windowStart);
-  if (attempts.length >= USE_INVITE_MAX_ATTEMPTS) return true;
-  attempts.push(now);
-  useInviteAttempts.set(ip, attempts);
+  const window = 15 * 60 * 1000;
+  const attempts = (useInviteAttempts.get(ip) || []).filter(t => t > now - window);
+  if (attempts.length >= 5) return true;
+  useInviteAttempts.set(ip, [...attempts, now]);
   return false;
 }
 
+// ── Shared helpers ────────────────────────────────────────────────────────────
+async function enrichLabelItems(userId: string, queueType: string) {
+  const [items, allInventory] = await Promise.all([
+    storage.listLabelQueueItems(userId, queueType),
+    storage.listInventoryItems(userId),
+  ]);
+  const invMap = new Map(allInventory.map(i => [i.id, i]));
+  return items.map(item => {
+    const inv = invMap.get(item.inventoryItemId);
+    return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
+  });
+}
+
+async function resolveInventoryItem(userId: string, id: string, res: Response) {
+  const item = await storage.getInventoryItem(userId, id);
+  if (!item) res.status(404).json({ error: "Not found" });
+  return item;
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
 export function registerRoutes(httpServer: Server, app: Express) {
+
+  // Public auth routes
   app.post("/api/auth/validate-invite", async (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: "Code required" });
@@ -289,24 +288,18 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/auth/use-invite", async (req, res) => {
-    const ip = (req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown").split(",")[0].trim();
-    if (useInviteRateLimited(ip)) {
-      return res.status(429).json({ error: "Too many requests. Please try again later." });
-    }
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Unauthorized" });
-    }
-    const token = authHeader.slice(7);
+    const ip = ((req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+    if (useInviteRateLimited(ip)) return res.status(429).json({ error: "Too many requests. Please try again later." });
+
+    const token = req.headers.authorization?.slice(7);
+    if (!token) return res.status(401).json({ error: "Unauthorized" });
     const user = await verifyToken(token);
-    if (!user) {
-      return res.status(401).json({ error: "Invalid or expired token" });
-    }
+    if (!user) return res.status(401).json({ error: "Invalid or expired token" });
+
     const { code, userId } = req.body;
     if (!code || !userId) return res.status(400).json({ error: "Missing params" });
-    if (userId !== user.id) {
-      return res.status(403).json({ error: "Forbidden — userId mismatch" });
-    }
+    if (userId !== user.id) return res.status(403).json({ error: "Forbidden — userId mismatch" });
+
     const { error } = await supabaseAdmin
       .from("invite_codes")
       .update({ used: true, used_by: userId, used_at: new Date().toISOString() })
@@ -317,47 +310,44 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.get("/api/auth/me", async (req, res) => {
-    const auth = req.headers.authorization;
-    if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
-    const token = auth.slice(7);
+    const token = req.headers.authorization?.slice(7);
+    if (!token) return res.status(401).json({ error: "Unauthorized" });
     const user = await verifyToken(token);
     if (!user) return res.status(401).json({ error: "Invalid token" });
-    const isAdmin = Boolean(ADMIN_EMAIL && user.email === ADMIN_EMAIL);
-    res.json({ id: user.id, email: user.email, isAdmin });
+    res.json({ id: user.id, email: user.email, isAdmin: Boolean(ADMIN_EMAIL && user.email === ADMIN_EMAIL) });
   });
 
+  // Admin routes
   app.post("/api/admin/invite-codes", requireAdmin, async (req: any, res) => {
     const { count = 5, note = "" } = req.body;
-    const codes = Array.from({ length: Math.min(count, 50) }, () => {
-      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-    });
-    const rows = codes.map(code => ({ code, note, used: false }));
-    const { data, error } = await supabaseAdmin.from("invite_codes").insert(rows).select();
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const codes = Array.from({ length: Math.min(count, 50) }, () =>
+      Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+    );
+    const { data, error } = await supabaseAdmin.from("invite_codes").insert(codes.map(code => ({ code, note, used: false }))).select();
     if (error) return res.status(500).json({ error: error.message });
     res.json({ codes: data });
   });
 
   app.get("/api/admin/invite-codes", requireAdmin, async (_req, res) => {
-    const { data, error } = await supabaseAdmin
-      .from("invite_codes")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data, error } = await supabaseAdmin.from("invite_codes").select("*").order("created_at", { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
   });
 
+  // All routes below require auth
   app.use("/api", requireAuth);
 
+  // Dashboard
   app.get("/api/dashboard/stats", async (req: any, res) => {
     try {
-      const stats = await storage.getDashboardStats(req.user.id);
-      res.json(stats);
+      res.json(await storage.getDashboardStats(req.user.id));
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
+  // Uploads
   app.get("/api/uploads", async (req: any, res) => {
     res.json(await storage.listUploads(req.user.id));
   });
@@ -372,10 +362,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.getParsedRowsByUpload(req.user.id, req.params.id));
   });
 
-  // FIX #2: GET /api/uploads/:id/review — returns the MergeReview row.
-  // Client was previously storing the raw Response object from apiRequest();
-  // the route itself is correct — the bug was entirely on the client side
-  // (queryFn not calling .json()). Route unchanged.
   app.get("/api/uploads/:id/review", async (req: any, res) => {
     const review = await storage.getMergeReviewByUpload(req.user.id, req.params.id);
     if (!review) return res.status(404).json({ error: "Not found" });
@@ -384,9 +370,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   app.post("/api/uploads", (req: any, res: any, next: any) => {
     upload.single("file")(req, res, (err: any) => {
-      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE")
         return res.status(400).json({ error: "File too large — maximum size is 10 MB" });
-      }
       if (err) return res.status(400).json({ error: err.message });
       next();
     });
@@ -395,20 +380,17 @@ export function registerRoutes(httpServer: Server, app: Express) {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
       const userId = req.user.id;
       const { game = "pokemon", sourceType = "tcgplayer" } = req.body;
-      const content = req.file.buffer.toString("utf-8");
 
       let rawRows: Record<string, string>[];
       try {
-        rawRows = parseCSV(content);
-      } catch (parseErr: any) {
-        return res.status(400).json({ error: parseErr.message });
+        rawRows = parseCSV(req.file.buffer.toString("utf-8"));
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
       }
 
       const now = new Date().toISOString();
-
       const newUpload = await storage.createUpload(userId, {
-        sourceType,
-        game,
+        sourceType, game,
         originalFilename: req.file.originalname,
         uploadedAt: now,
         rawFileContent: null,
@@ -418,7 +400,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
       });
 
       const uploadId = newUpload.id;
-
       const parsedRowData = rawRows
         .filter(r => Object.values(r).some(v => v))
         .map((r, i) => mapCsvRow(r, game, i, uploadId));
@@ -432,77 +413,60 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const repricingCandidates: any[] = [];
 
       for (const row of validRows) {
-        let existingItem = await storage.getInventoryItemByExternalIds(userId, row.sourceProductId || undefined, row.sourceTcgplayerId || undefined);
-        if (!existingItem && row.normalizedMatchKey) {
-          existingItem = await storage.getInventoryItemByMatchKey(userId, row.normalizedMatchKey);
+        let existing = await storage.getInventoryItemByExternalIds(userId, row.sourceProductId ?? undefined, row.sourceTcgplayerId ?? undefined);
+        if (!existing && row.normalizedMatchKey) {
+          existing = await storage.getInventoryItemByMatchKey(userId, row.normalizedMatchKey);
         }
 
-        if (!existingItem) {
+        if (!existing) {
           newItems.push(row);
         } else {
           const csvQty = row.addToQuantity || 1;
-          const existingQty = existingItem.currentQuantity || 0;
+          const existingQty = existing.currentQuantity || 0;
           const qtyDelta = csvQty !== existingQty ? csvQty - existingQty : 0;
 
-          const prevPrice = existingItem.currentRawMarketPrice;
-          const newPrice = row.rawMarketPrice;
-          if (prevPrice && newPrice) {
+          if (existing.currentRawMarketPrice && row.rawMarketPrice) {
             const thr = await storage.getRepricingThresholds(userId);
-            const { triggered, rule } = checkRepricingThreshold(newPrice, prevPrice, thr);
-            if (triggered) repricingCandidates.push({ row, existingItem, rule, qtyDelta, csvQty, existingQty });
+            const { triggered, rule } = checkRepricingThreshold(row.rawMarketPrice, existing.currentRawMarketPrice, thr);
+            if (triggered) repricingCandidates.push({ row, existingItem: existing, rule, qtyDelta, csvQty, existingQty });
           }
-          matchedItems.push({ row, existingItem, qtyDelta, csvQty, existingQty });
+          matchedItems.push({ row, existingItem: existing, qtyDelta, csvQty, existingQty });
         }
       }
 
-      // matchedNoChangeCount is stored in summaryJson only — the merge_reviews
-      // table does not have this column, so do NOT pass it to createMergeReview.
       const matchedNoChangeCount = matchedItems.filter(m => m.qtyDelta === 0).length;
 
       const reviewPayload = JSON.stringify({
-        newItems: newItems.map(r => ({ id: r.id, productName: r.productName, number: r.number, condition: r.condition, rawMarketPrice: r.rawMarketPrice, roundedPrintPrice: r.roundedPrintPrice, addToQuantity: r.addToQuantity })),
+        newItems: newItems.map(r => ({
+          id: r.id, productName: r.productName, number: r.number,
+          condition: r.condition, rawMarketPrice: r.rawMarketPrice,
+          roundedPrintPrice: r.roundedPrintPrice, addToQuantity: r.addToQuantity,
+        })),
         matchedItems: matchedItems.map(({ row, existingItem, qtyDelta, csvQty, existingQty }) => ({
-          rowId: row.id,
-          productName: row.productName,
-          number: row.number,
-          condition: row.condition,
-          rawMarketPrice: row.rawMarketPrice,
-          roundedPrintPrice: row.roundedPrintPrice,
-          csvQty,
-          existingQty,
-          qtyDelta,
-          existingId: existingItem.id,
-          existingPrice: existingItem.currentRawMarketPrice,
+          rowId: row.id, productName: row.productName, number: row.number,
+          condition: row.condition, rawMarketPrice: row.rawMarketPrice,
+          roundedPrintPrice: row.roundedPrintPrice, csvQty, existingQty, qtyDelta,
+          existingId: existingItem.id, existingPrice: existingItem.currentRawMarketPrice,
         })),
         ambiguousItems,
         repricingCandidates: repricingCandidates.map(({ row, existingItem, rule, csvQty, existingQty }) => ({
-          rowId: row.id,
-          productName: row.productName,
-          priorPrice: existingItem.currentRawMarketPrice,
-          newPrice: row.rawMarketPrice,
+          rowId: row.id, productName: row.productName,
+          priorPrice: existingItem.currentRawMarketPrice, newPrice: row.rawMarketPrice,
           roundedPrintPrice: row.roundedPrintPrice,
           percentChange: existingItem.currentRawMarketPrice
             ? ((row.rawMarketPrice - existingItem.currentRawMarketPrice) / existingItem.currentRawMarketPrice * 100).toFixed(1)
             : null,
-          rule,
-          csvQty,
-          existingQty,
+          rule, csvQty, existingQty,
         })),
       });
 
-      // FIX #3 (part 1): Do NOT include matchedNoChangeCount here — that field
-      // does not exist on the MergeReview type or the merge_reviews DB table.
-      // It lives in summaryJson on the upload row instead.
       const review = await storage.createMergeReview(userId, {
-        uploadId,
-        status: "pending",
+        uploadId, status: "pending",
         newItemCount: newItems.length,
         matchedItemCount: matchedItems.filter(m => m.qtyDelta !== 0).length,
         repricingCandidateCount: repricingCandidates.length,
         duplicateWarningCount: ambiguousItems.length,
-        reviewPayload,
-        reviewedAt: null,
-        reviewedBy: null,
+        reviewPayload, reviewedAt: null, reviewedBy: null,
       });
 
       const summary = {
@@ -523,10 +487,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // FIX #3 (part 2): Approve merge
-  // - Reads overrides keyed by rowId: { [rowId]: { csvQty: number } }
-  // - Applies override qty before building the RPC payload
-  // - Passes newQty as the absolute target (not a delta) to match approve_upload RPC signature
   app.post("/api/uploads/:id/approve", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -546,23 +506,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const parsedById = new Map(allParsed.map(r => [r.id, r]));
 
       const rpcNewItems = (payload.newItems || []).map((row: any) => {
-        const parsedRow = parsedById.get(row.id);
-        const matchMeta = {
-          sourceProductId: parsedRow?.sourceProductId ?? null,
-          sourceTcgplayerId: parsedRow?.sourceTcgplayerId ?? null,
-          sourceSetName: parsedRow?.sourceSetName ?? null,
-          sourcePrinting: parsedRow?.sourcePrinting ?? null,
-          sourceProductLine: parsedRow?.sourceProductLine ?? null,
-          sourceRarity: parsedRow?.sourceRarity ?? null,
-        };
+        const parsed = parsedById.get(row.id);
         let photoUrl: string | null = null;
         try {
-          const rawPayload = JSON.parse(parsedRow?.sourcePayload || "{}");
-          photoUrl = rawPayload._photoUrl || rawPayload["Photo URL"] || null;
+          const src = JSON.parse(parsed?.sourcePayload || "{}");
+          photoUrl = src._photoUrl || src["Photo URL"] || null;
         } catch {}
         return {
           inventoryItemId: crypto.randomUUID(),
-          parsedRowId: parsedRow?.id ?? null,
+          parsedRowId: parsed?.id ?? null,
           game,
           productName: row.productName,
           number: row.number ?? null,
@@ -570,47 +522,51 @@ export function registerRoutes(httpServer: Server, app: Express) {
           addToQuantity: row.addToQuantity ?? 1,
           rawMarketPrice: row.rawMarketPrice ?? null,
           roundedPrintPrice: row.roundedPrintPrice ?? null,
-          normalizedMatchKey: parsedRow?.normalizedMatchKey ?? null,
-          matchMetadataJson: JSON.stringify(matchMeta),
-          sourceProductId: parsedRow?.sourceProductId ?? null,
-          sourceTcgplayerId: parsedRow?.sourceTcgplayerId ?? null,
+          normalizedMatchKey: parsed?.normalizedMatchKey ?? null,
+          matchMetadataJson: JSON.stringify({
+            sourceProductId: parsed?.sourceProductId ?? null,
+            sourceTcgplayerId: parsed?.sourceTcgplayerId ?? null,
+            sourceSetName: parsed?.sourceSetName ?? null,
+            sourcePrinting: parsed?.sourcePrinting ?? null,
+            sourceProductLine: parsed?.sourceProductLine ?? null,
+            sourceRarity: parsed?.sourceRarity ?? null,
+          }),
+          sourceProductId: parsed?.sourceProductId ?? null,
+          sourceTcgplayerId: parsed?.sourceTcgplayerId ?? null,
           photoUrl,
         };
       });
 
-      const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => {
-        const override = overrides[match.rowId];
-        // Use override qty if user edited it in the review panel, else use csvQty from payload
-        const targetQty = override?.csvQty ?? match.csvQty ?? match.existingQty ?? 0;
-        return {
-          parsedRowId: parsedById.get(match.rowId)?.id ?? null,
-          existingId: match.existingId,
-          newQty: targetQty,  // absolute quantity, not a delta
-          rawMarketPrice: match.rawMarketPrice ?? null,
-          roundedPrintPrice: match.roundedPrintPrice ?? null,
-        };
-      });
+      const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => ({
+        parsedRowId: parsedById.get(match.rowId)?.id ?? null,
+        existingId: match.existingId,
+        newQty: overrides[match.rowId]?.csvQty ?? match.csvQty ?? match.existingQty ?? 0,
+        rawMarketPrice: match.rawMarketPrice ?? null,
+        roundedPrintPrice: match.roundedPrintPrice ?? null,
+      }));
 
-      const rpcRepricing = (payload.repricingCandidates || []).map((candidate: any) => {
-        const matchedEntry = (payload.matchedItems || []).find((m: any) => m.rowId === candidate.rowId);
-        return {
-          existingId: matchedEntry?.existingId ?? null,
-          priorPrice: candidate.priorPrice ?? null,
-          newPrice: candidate.newPrice ?? null,
-          roundedPrintPrice: candidate.roundedPrintPrice ?? null,
-          percentChange: parseFloat(candidate.percentChange) || null,
-          rule: candidate.rule ?? null,
-        };
-      }).filter((r: any) => r.existingId !== null);
+      const rpcRepricing = (payload.repricingCandidates || [])
+        .map((candidate: any) => {
+          const matched = (payload.matchedItems || []).find((m: any) => m.rowId === candidate.rowId);
+          return {
+            existingId: matched?.existingId ?? null,
+            priorPrice: candidate.priorPrice ?? null,
+            newPrice: candidate.newPrice ?? null,
+            roundedPrintPrice: candidate.roundedPrintPrice ?? null,
+            percentChange: parseFloat(candidate.percentChange) || null,
+            rule: candidate.rule ?? null,
+          };
+        })
+        .filter((r: any) => r.existingId !== null);
 
       const { error: rpcError } = await supabaseAdmin.rpc("approve_upload", {
-        p_user_id:       userId,
-        p_upload_id:     uploadId,
-        p_review_id:     review.id,
-        p_new_items:     rpcNewItems,
+        p_user_id: userId,
+        p_upload_id: uploadId,
+        p_review_id: review.id,
+        p_new_items: rpcNewItems,
         p_matched_items: rpcMatchedItems,
-        p_repricing:     rpcRepricing,
-        p_now:           now,
+        p_repricing: rpcRepricing,
+        p_now: now,
       });
 
       if (rpcError) {
@@ -634,43 +590,52 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // FIX #1: Delete upload — cascades through merge_reviews and parsed_rows in storage.deleteUpload
+  // ── DELETE upload — cascades through child records ────────────────────────
   app.delete("/api/uploads/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const u = await storage.getUpload(userId, req.params.id);
+      const uploadId = req.params.id;
+
+      const u = await storage.getUpload(userId, uploadId);
       if (!u) return res.status(404).json({ error: "Not found" });
-      await storage.deleteUpload(userId, req.params.id);
+
+      // Delete children first to avoid FK violations if storage.deleteUpload
+      // doesn't cascade. Order matters: rows → review → upload.
+      const review = await storage.getMergeReviewByUpload(userId, uploadId);
+      if (review) await storage.updateMergeReview(userId, review.id, { status: "rejected" as any });
+
+      await storage.deleteUpload(userId, uploadId); // assumes this cascades parsed_rows + merge_reviews, or they're cleaned above
+
       res.json({ success: true });
     } catch (e: any) {
-      console.error(e);
+      console.error("[delete upload]", e);
       res.status(500).json({ error: e.message });
     }
   });
 
+  // Inventory
   app.get("/api/inventory", async (req: any, res) => {
     const { game, condition, status, search } = req.query as Record<string, string>;
     const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });
-    const enriched = items.map(item => {
+    res.json(items.map(item => {
       let tcgplayerUrl: string | null = null;
       try {
         const meta = JSON.parse(item.matchMetadataJson || "{}");
         if (meta.sourceProductId) tcgplayerUrl = `https://www.tcgplayer.com/product/${meta.sourceProductId}`;
       } catch {}
       return { ...item, tcgplayerUrl };
-    });
-    res.json(enriched);
+    }));
   });
 
   app.get("/api/inventory/:id", async (req: any, res) => {
-    const item = await storage.getInventoryItem(req.user.id, req.params.id);
-    if (!item) return res.status(404).json({ error: "Not found" });
-    res.json(item);
+    const item = await resolveInventoryItem(req.user.id, req.params.id, res);
+    if (item) res.json(item);
   });
 
   app.patch("/api/inventory/:id", async (req: any, res) => {
-    const item = await storage.getInventoryItem(req.user.id, req.params.id);
-    if (!item) return res.status(404).json({ error: "Not found" });
+    const item = await resolveInventoryItem(req.user.id, req.params.id, res);
+    if (!item) return;
+
     const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes"];
     const patch: Record<string, any> = {};
     for (const key of allowed) {
@@ -679,48 +644,22 @@ export function registerRoutes(httpServer: Server, app: Express) {
     if (patch.currentRawMarketPrice !== undefined) {
       patch.currentRoundedPrintPrice = Math.ceil(patch.currentRawMarketPrice);
     }
-    const updated = await storage.updateInventoryItem(req.user.id, req.params.id, patch);
-    res.json(updated);
+    res.json(await storage.updateInventoryItem(req.user.id, req.params.id, patch));
   });
 
   app.get("/api/inventory/:id/snapshots", async (req: any, res) => {
     res.json(await storage.getSnapshotsByItem(req.user.id, req.params.id));
   });
 
+  // Labels
   app.get("/api/labels/new", async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const [items, allInventory] = await Promise.all([
-        storage.listLabelQueueItems(userId, "new"),
-        storage.listInventoryItems(userId),
-      ]);
-      const invMap = new Map(allInventory.map(i => [i.id, i]));
-      const enriched = items.map(item => {
-        const inv = invMap.get(item.inventoryItemId);
-        return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
-      });
-      res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
+    try { res.json(await enrichLabelItems(req.user.id, "new")); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   app.get("/api/labels/reprice", async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const [items, allInventory] = await Promise.all([
-        storage.listLabelQueueItems(userId, "reprice"),
-        storage.listInventoryItems(userId),
-      ]);
-      const invMap = new Map(allInventory.map(i => [i.id, i]));
-      const enriched = items.map(item => {
-        const inv = invMap.get(item.inventoryItemId);
-        return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
-      });
-      res.json(enriched);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
+    try { res.json(await enrichLabelItems(req.user.id, "reprice")); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   app.patch("/api/labels/:id", async (req: any, res) => {
@@ -734,29 +673,32 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const userId = req.user.id;
       const { ids, queueType } = req.body as { ids: string[]; queueType: string };
       const allItems = await storage.listLabelQueueItems(userId, queueType);
-      const selectedItems = allItems.filter(i => ids.includes(i.id));
-      const enriched = await Promise.all(selectedItems.map(async item => {
-        const inv = await storage.getInventoryItem(userId, item.inventoryItemId);
-        return {
-          id: item.id,
-          inventoryItemId: item.inventoryItemId,
-          condition: inv?.condition || "",
-          roundedPrintPrice: item.roundedPrintPrice,
-          productName: inv?.productName || "",
-          number: inv?.number || "",
-          quantity: inv?.currentQuantity || 1,
-        };
-      }));
-      const csv = buildNiimbotCsv(enriched);
+      const enriched = await Promise.all(
+        allItems
+          .filter(i => ids.includes(i.id))
+          .map(async item => {
+            const inv = await storage.getInventoryItem(userId, item.inventoryItemId);
+            return {
+              id: item.id,
+              inventoryItemId: item.inventoryItemId,
+              condition: inv?.condition || "",
+              roundedPrintPrice: item.roundedPrintPrice,
+              productName: inv?.productName || "",
+              number: inv?.number || "",
+              quantity: inv?.currentQuantity || 1,
+            };
+          })
+      );
       await storage.bulkUpdateLabelQueueExportStatus(userId, ids, "exported");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="niimbot-labels-${queueType}-${Date.now()}.csv"`);
-      res.send(csv);
+      res.send(buildNiimbotCsv(enriched));
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
+  // Shows
   app.get("/api/shows", async (req: any, res) => {
     res.json(await storage.listShowLedgers(req.user.id));
   });
@@ -768,12 +710,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/shows", async (req: any, res) => {
-    try {
-      const show = await storage.createShowLedger(req.user.id, req.body);
-      res.json(show);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
-    }
+    try { res.json(await storage.createShowLedger(req.user.id, req.body)); }
+    catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   app.patch("/api/shows/:id", async (req: any, res) => {
@@ -787,24 +725,26 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
+  // Snapshots
   app.get("/api/snapshots/history", async (req: any, res) => {
     try {
       const userId = req.user.id;
       const limit = Math.min(parseInt(req.query.limit as string) || 90, 365);
       const items = await storage.listInventoryItems(userId);
-      const allSnapshots = (await Promise.all(
+      const allSnaps = (await Promise.all(
         items.map(item => storage.getSnapshotsByItem(userId, item.id).then(snaps => snaps.map(s => ({ ...s, qty: s.quantityAfterMerge }))))
       )).flat();
       const byDate: Record<string, number> = {};
-      for (const snap of allSnapshots) {
-        const day = snap.snapshotDate.slice(0, 10);
-        byDate[day] = (byDate[day] || 0) + snap.rawMarketPrice * snap.qty;
+      for (const s of allSnaps) {
+        const day = s.snapshotDate.slice(0, 10);
+        byDate[day] = (byDate[day] || 0) + s.rawMarketPrice * s.qty;
       }
-      const sorted = Object.entries(byDate)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }))
-        .slice(-limit);
-      res.json(sorted);
+      res.json(
+        Object.entries(byDate)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }))
+          .slice(-limit)
+      );
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -818,10 +758,9 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const movers: any[] = [];
       for (const item of items) {
         const snaps = (await storage.getSnapshotsByItem(userId, item.id)).filter(s => s.snapshotDate >= oneWeekAgo);
-        if (snaps.length < 2) continue;
+        if (snaps.length < 2 || !snaps[snaps.length - 1].rawMarketPrice) continue;
         const oldest = snaps[snaps.length - 1];
         const newest = snaps[0];
-        if (!oldest.rawMarketPrice) continue;
         const pct = ((newest.rawMarketPrice - oldest.rawMarketPrice) / oldest.rawMarketPrice) * 100;
         movers.push({ id: item.id, productName: item.productName, number: item.number, condition: item.condition, oldPrice: oldest.rawMarketPrice, newPrice: newest.rawMarketPrice, pctChange: Math.round(pct * 10) / 10 });
       }
@@ -832,6 +771,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
+  // Settings
   app.get("/api/settings/thresholds", async (req: any, res) => {
     res.json(await storage.getRepricingThresholds(req.user.id));
   });
@@ -839,9 +779,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.put("/api/settings/thresholds", async (req: any, res) => {
     try {
       const { over100Pct, mid50to100Pct, under50Pct } = req.body;
-      if (typeof over100Pct !== "number" || over100Pct <= 0 || typeof mid50to100Pct !== "number" || mid50to100Pct <= 0 || typeof under50Pct !== "number" || under50Pct <= 0) {
+      if ([over100Pct, mid50to100Pct, under50Pct].some(v => typeof v !== "number" || v <= 0))
         return res.status(400).json({ error: "All thresholds must be positive numbers" });
-      }
       await storage.setRepricingThresholds(req.user.id, { over100Pct, mid50to100Pct, under50Pct });
       res.json(await storage.getRepricingThresholds(req.user.id));
     } catch (e: any) {
@@ -851,8 +790,17 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   app.get("/api/settings/presets", (_req, res) => {
     res.json({
-      tcgplayer: { productName: ["Product Name"], number: ["Number"], condition: ["Condition"], marketPrice: ["TCG Market Price", "Market Price"], quantity: ["Add to Quantity", "Quantity"], productId: ["Product ID"], tcgplayerId: ["TCGplayer ID"], setName: ["Set Name"], printing: ["Printing"], rarity: ["Rarity"], productLine: ["Product Line"] },
-      generic: { productName: ["Name", "Card Name"], number: ["Card Number", "Collector Number"], condition: ["Condition", "Cond"], marketPrice: ["Price", "Market Price"], quantity: ["Qty", "Quantity"] },
+      tcgplayer: {
+        productName: ["Product Name"], number: ["Number"], condition: ["Condition"],
+        marketPrice: ["TCG Market Price", "Market Price"], quantity: ["Add to Quantity", "Quantity"],
+        productId: ["Product ID"], tcgplayerId: ["TCGplayer ID"], setName: ["Set Name"],
+        printing: ["Printing"], rarity: ["Rarity"], productLine: ["Product Line"],
+      },
+      generic: {
+        productName: ["Name", "Card Name"], number: ["Card Number", "Collector Number"],
+        condition: ["Condition", "Cond"], marketPrice: ["Price", "Market Price"],
+        quantity: ["Qty", "Quantity"],
+      },
     });
   });
 }
