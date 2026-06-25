@@ -10,9 +10,18 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// Use getSession() first (fast, from storage), fall back to refreshSession() if
+// the access_token is missing or expired so we always get a valid Bearer token.
 async function getAuthHeader(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  let { data } = await supabase.auth.getSession();
+  let token = data.session?.access_token;
+
+  // If no token in storage, try a live refresh from Supabase
+  if (!token) {
+    const refreshed = await supabase.auth.refreshSession();
+    token = refreshed.data.session?.access_token;
+  }
+
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
