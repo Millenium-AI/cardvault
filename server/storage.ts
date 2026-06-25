@@ -260,9 +260,9 @@ class SupabaseStorage {
   }
 
   async deleteInventoryItem(userId: string, id: string): Promise<void> {
-    // Clean up label queue entries first to avoid orphaned rows on the labels page
+    // Delete in dependency order — label queue and snapshots reference inventory_item_id,
+    // so they must go first to avoid FK violations and orphaned rows on the labels page.
     await supabaseAdmin.from('label_queue_items').delete().eq('inventory_item_id', id).eq('user_id', userId);
-    // Clean up price snapshots
     await supabaseAdmin.from('price_snapshots').delete().eq('inventory_item_id', id).eq('user_id', userId);
     const { error } = await supabaseAdmin.from('inventory_items').delete().eq('id', id).eq('user_id', userId);
     if (error) throw new Error(error.message);
