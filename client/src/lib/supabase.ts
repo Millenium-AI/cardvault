@@ -1,11 +1,14 @@
+// client/src/lib/supabase.ts  (reusable)
+
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL =
-  (import.meta.env.VITE_SUPABASE_URL as string) ||
-  "https://qivbhfznfroajwgaowsl.supabase.co";
-const SUPABASE_ANON_KEY =
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpdmJoZnpuZnJvYWp3Z2Fvd3NsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNDg1MDYsImV4cCI6MjA5NzkyNDUwNn0.mY9fD2fCUj5O1oFYFMzb8KYEBFOEqQl8Bp8u2slvdZA";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+// Fail fast instead of using hardcoded fallbacks
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY env vars");
+}
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
