@@ -25,9 +25,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   async function fetchAdminStatus(token: string) {
+    // Timeout after 5s so a slow/down API never leaves loading=true forever
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
       const res = await fetch("/api/auth/me", {
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       });
       if (res.ok) {
         const data = await res.json();
@@ -36,7 +40,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAdmin(false);
       }
     } catch {
+      // Network error, timeout, or abort — non-fatal, default to not admin
       setIsAdmin(false);
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -49,6 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setLoading(false);
       }
+    }).catch(() => {
+      // If getSession itself fails, still unblock the UI
+      setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
