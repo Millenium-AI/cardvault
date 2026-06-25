@@ -13,7 +13,9 @@ import {
   type ShowLedger, type InsertShowLedger,
 } from "@shared/schema";
 
-const sqliteDb = new Database("data.db");
+// Use /app/data/data.db on Railway (persistent volume at /app/data), fallback to local
+const DB_PATH = process.env.NODE_ENV === "production" ? "/app/data/data.db" : "data.db";
+const sqliteDb = new Database(DB_PATH);
 sqliteDb.pragma("journal_mode = WAL");
 const db = drizzle(sqliteDb);
 
