@@ -232,6 +232,25 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// ─── #3: use-invite rate limiter ─────────────────────────────────────────────
+// Simple in-memory store: tracks attempt timestamps per IP.
+// Allows max 5 attempts per IP per 15-minute window.
+// This is sufficient for a low-traffic invite-only app.
+// For high-traffic apps, replace with Redis or a DB-backed store.
+const useInviteAttempts = new Map<string, number[]>();
+const USE_INVITE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const USE_INVITE_MAX_ATTEMPTS = 5;
+
+function useInviteRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const windowStart = now - USE_INVITE_WINDOW_MS;
+  const attempts = (useInviteAttempts.get(ip) || []).filter(t => t > windowStart);
+  if (attempts.length >= USE_INVITE_MAX_ATTEMPTS) return true;
+  attempts.push(now);
+  useInviteAttempts.set(ip, attempts);
+  return false;
+}
+
 export function registerRoutes(httpServer: Server, app: Express) {
   // ── auth: validate invite code ────────────────────────────────────────────
   app.post("/api/auth/validate-invite", async (req, res) => {
@@ -247,10 +266,42 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ valid: true });
   });
 
-  // ── auth: mark invite code used after signup ──────────────────────────────
+  // ── #3: auth: mark invite code used after signup ──────────────────────────
+  // Security hardening applied:
+  //   1. Requires a valid Bearer token — the caller must be an authenticated user.
+  //   2. The userId in the request body MUST match the token's sub claim.
+  //      This prevents any user from redeeming a code on behalf of another user.
+  //   3. IP-based rate limiting: max 5 attempts per 15-minute window.
+  //      This blocks automated abuse even if an attacker has a valid token.
   app.post("/api/auth/use-invite", async (req, res) => {
+    // 1. Rate limit by IP
+    const ip = (req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+    if (useInviteRateLimited(ip)) {
+      return res.status(429).json({ error: "Too many requests. Please try again later." });
+    }
+
+    // 2. Require a valid auth token
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const token = authHeader.slice(7);
+    const user = await verifyToken(token);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    // 3. Validate body params
     const { code, userId } = req.body;
     if (!code || !userId) return res.status(400).json({ error: "Missing params" });
+
+    // 4. Bind: userId in body must match the authenticated token's sub
+    //    This is the critical guard — prevents user A from redeeming a code as user B.
+    if (userId !== user.id) {
+      return res.status(403).json({ error: "Forbidden — userId mismatch" });
+    }
+
+    // 5. Redeem the code
     const { error } = await supabaseAdmin
       .from("invite_codes")
       .update({ used: true, used_by: userId, used_at: new Date().toISOString() })
