@@ -473,11 +473,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // Approve merge
+  // ── #6: Approve merge — atomic via approve_upload RPC ────────────────────
+  // All writes (inventory items, snapshots, label queue, parsed row status,
+  // review + upload finalization) run inside a single PostgreSQL transaction.
+  // If any step fails, Postgres rolls back everything — no partial DB state.
   app.post("/api/uploads/:id/approve", async (req: any, res) => {
     try {
       const userId = req.user.id;
       const uploadId = req.params.id;
+
       const review = await storage.getMergeReviewByUpload(userId, uploadId);
       if (!review) return res.status(404).json({ error: "Review not found" });
       if (review.status !== "pending") return res.status(400).json({ error: "Already processed" });
@@ -487,19 +491,20 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const uploadRecord = await storage.getUpload(userId, uploadId);
       const game = uploadRecord?.game || "pokemon";
 
+      // Fetch parsed rows once, build map — no per-item DB queries below
       const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
-      // Build an in-memory map so we never query inside a loop (#6 N+1 fix carried forward)
       const parsedById = new Map(allParsed.map(r => [r.id, r]));
 
-      for (const row of (payload.newItems || [])) {
+      // ── Build RPC payload: new items ──────────────────────────────────────
+      const rpcNewItems = (payload.newItems || []).map((row: any) => {
         const parsedRow = parsedById.get(row.id);
         const matchMeta = {
-          sourceProductId: parsedRow?.sourceProductId,
-          sourceTcgplayerId: parsedRow?.sourceTcgplayerId,
-          sourceSetName: parsedRow?.sourceSetName,
-          sourcePrinting: parsedRow?.sourcePrinting,
-          sourceProductLine: parsedRow?.sourceProductLine,
-          sourceRarity: parsedRow?.sourceRarity,
+          sourceProductId: parsedRow?.sourceProductId ?? null,
+          sourceTcgplayerId: parsedRow?.sourceTcgplayerId ?? null,
+          sourceSetName: parsedRow?.sourceSetName ?? null,
+          sourcePrinting: parsedRow?.sourcePrinting ?? null,
+          sourceProductLine: parsedRow?.sourceProductLine ?? null,
+          sourceRarity: parsedRow?.sourceRarity ?? null,
         };
         let photoUrl: string | null = null;
         try {
@@ -507,103 +512,64 @@ export function registerRoutes(httpServer: Server, app: Express) {
           photoUrl = rawPayload._photoUrl || rawPayload["Photo URL"] || null;
         } catch {}
 
-        const item = await storage.createInventoryItem(userId, {
+        return {
+          inventoryItemId: crypto.randomUUID(),
+          parsedRowId: parsedRow?.id ?? null,
           game,
           productName: row.productName,
-          number: row.number || null,
-          condition: row.condition || null,
-          currentQuantity: row.addToQuantity || 1,
-          currentRawMarketPrice: row.rawMarketPrice,
-          currentRoundedPrintPrice: row.roundedPrintPrice,
-          latestUploadId: uploadId,
-          normalizedMatchKey: parsedRow?.normalizedMatchKey || null,
+          number: row.number ?? null,
+          condition: row.condition ?? null,
+          addToQuantity: row.addToQuantity ?? 1,
+          rawMarketPrice: row.rawMarketPrice ?? null,
+          roundedPrintPrice: row.roundedPrintPrice ?? null,
+          normalizedMatchKey: parsedRow?.normalizedMatchKey ?? null,
           matchMetadataJson: JSON.stringify(matchMeta),
+          sourceProductId: parsedRow?.sourceProductId ?? null,
+          sourceTcgplayerId: parsedRow?.sourceTcgplayerId ?? null,
           photoUrl,
-          firstSeenAt: now,
-          lastSeenAt: now,
-          status: "active",
-        });
+        };
+      });
 
-        if (row.rawMarketPrice) {
-          await storage.createPriceSnapshot(userId, {
-            inventoryItemId: item.id,
-            uploadId,
-            snapshotDate: now,
-            rawMarketPrice: row.rawMarketPrice,
-            roundedPrintPrice: row.roundedPrintPrice || 0,
-            quantityAfterMerge: row.addToQuantity || 1,
-          });
-        }
-
-        await storage.createLabelQueueItem(userId, {
-          inventoryItemId: item.id,
-          queueType: "new",
-          sourceUploadId: uploadId,
-          priorRawPrice: null,
-          currentRawPrice: row.rawMarketPrice,
-          roundedPrintPrice: row.roundedPrintPrice,
-          percentChange: null,
-          thresholdRule: null,
-          isSelectedForExport: true,
-          exportStatus: "pending",
-          createdAt: now,
-          reviewedAt: null,
-        });
-
-        if (parsedRow) {
-          await storage.updateParsedRow(userId, parsedRow.id, { matchStatus: "new", matchedInventoryId: item.id });
-        }
-      }
-
-      for (const match of (payload.matchedItems || [])) {
-        const existingItem = await storage.getInventoryItem(userId, match.existingId);
-        if (!existingItem) continue;
-        const newQty = existingItem.currentQuantity + (match.addToQuantity || 1);
-        await storage.updateInventoryItem(userId, existingItem.id, {
-          currentQuantity: newQty,
-          currentRawMarketPrice: match.rawMarketPrice,
-          currentRoundedPrintPrice: match.roundedPrintPrice,
-          latestUploadId: uploadId,
-          lastSeenAt: now,
-        });
-        if (match.rawMarketPrice) {
-          await storage.createPriceSnapshot(userId, {
-            inventoryItemId: existingItem.id,
-            uploadId,
-            snapshotDate: now,
-            rawMarketPrice: match.rawMarketPrice,
-            roundedPrintPrice: match.roundedPrintPrice || 0,
-            quantityAfterMerge: newQty,
-          });
-        }
+      // ── Build RPC payload: matched items ──────────────────────────────────
+      const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => {
         const parsedRow = parsedById.get(match.rowId);
-        if (parsedRow) {
-          await storage.updateParsedRow(userId, parsedRow.id, { matchStatus: "matched", matchedInventoryId: existingItem.id });
-        }
-      }
+        return {
+          parsedRowId: parsedRow?.id ?? null,
+          existingId: match.existingId,
+          newQty: (match.existingQty ?? 0) + (match.addToQuantity ?? 1),
+          rawMarketPrice: match.rawMarketPrice ?? null,
+          roundedPrintPrice: match.roundedPrintPrice ?? null,
+        };
+      });
 
-      for (const candidate of (payload.repricingCandidates || [])) {
+      // ── Build RPC payload: repricing candidates ───────────────────────────
+      const rpcRepricing = (payload.repricingCandidates || []).map((candidate: any) => {
         const matchedEntry = (payload.matchedItems || []).find((m: any) => m.rowId === candidate.rowId);
-        const invItem = matchedEntry ? await storage.getInventoryItem(userId, matchedEntry.existingId) : null;
-        if (!invItem) continue;
-        await storage.createLabelQueueItem(userId, {
-          inventoryItemId: invItem.id,
-          queueType: "reprice",
-          sourceUploadId: uploadId,
-          priorRawPrice: candidate.priorPrice,
-          currentRawPrice: candidate.newPrice,
-          roundedPrintPrice: candidate.roundedPrintPrice,
+        return {
+          existingId: matchedEntry?.existingId ?? null,
+          priorPrice: candidate.priorPrice ?? null,
+          newPrice: candidate.newPrice ?? null,
+          roundedPrintPrice: candidate.roundedPrintPrice ?? null,
           percentChange: parseFloat(candidate.percentChange) || null,
-          thresholdRule: candidate.rule,
-          isSelectedForExport: true,
-          exportStatus: "pending",
-          createdAt: now,
-          reviewedAt: null,
-        });
-      }
+          rule: candidate.rule ?? null,
+        };
+      }).filter((r: any) => r.existingId !== null);
 
-      await storage.updateMergeReview(userId, review.id, { status: "approved", reviewedAt: now });
-      await storage.updateUpload(userId, uploadId, { parseStatus: "merged" });
+      // ── Single RPC call — everything commits or rolls back together ───────
+      const { error: rpcError } = await supabaseAdmin.rpc("approve_upload", {
+        p_user_id:       userId,
+        p_upload_id:     uploadId,
+        p_review_id:     review.id,
+        p_new_items:     rpcNewItems,
+        p_matched_items: rpcMatchedItems,
+        p_repricing:     rpcRepricing,
+        p_now:           now,
+      });
+
+      if (rpcError) {
+        console.error("[approve_upload RPC error]", rpcError);
+        return res.status(500).json({ error: rpcError.message });
+      }
 
       res.json({ success: true });
     } catch (e: any) {
