@@ -449,9 +449,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
         if (!existingItem) {
           newItems.push(row);
         } else {
-          // Quantity delta: CSV total vs current inventory
-          // If equal → no quantity change (qtyDelta = 0)
-          // If different → set to CSV total (qtyDelta = csvQty - existingQty)
           const csvQty = row.addToQuantity || 1;
           const existingQty = existingItem.currentQuantity || 0;
           const qtyDelta = csvQty !== existingQty ? csvQty - existingQty : 0;
@@ -551,22 +548,21 @@ export function registerRoutes(httpServer: Server, app: Express) {
         };
       });
 
+      // FIX: Build the matched items RPC payload in a single pass.
+      // Apply any qty overrides from the review UI, then compute newQty from
+      // existingQty + delta so the RPC receives the fully resolved shape it needs.
       const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => {
-        const parsedRow = parsedById.get(match.rowId);
+        const override = overrides[match.rowId];
+        // If the user edited the qty in the review panel, use that value; otherwise use csvQty
+        const targetQty = override?.csvQty ?? match.csvQty ?? match.existingQty ?? 0;
         return {
-          parsedRowId: parsedRow?.id ?? null,
+          parsedRowId: parsedById.get(match.rowId)?.id ?? null,
           existingId: match.existingId,
-          newQty: (match.existingQty ?? 0) + (match.addToQuantity ?? 1),
+          // newQty is the absolute target quantity (not a delta)
+          newQty: targetQty,
           rawMarketPrice: match.rawMarketPrice ?? null,
           roundedPrintPrice: match.roundedPrintPrice ?? null,
         };
-      });
-
-      // Apply inline qty overrides from review edits: override matched item csvQty before RPC
-      const rpcMatchedItemsWithOverrides = (payload.matchedItems || []).map((match: any) => {
-        const override = overrides[match.rowId];
-        const targetQty = override?.csvQty ?? match.csvQty ?? match.existingQty;
-        return { ...match, csvQty: targetQty };
       });
 
       const rpcRepricing = (payload.repricingCandidates || []).map((candidate: any) => {
@@ -586,7 +582,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
         p_upload_id:     uploadId,
         p_review_id:     review.id,
         p_new_items:     rpcNewItems,
-        p_matched_items: rpcMatchedItemsWithOverrides,
+        p_matched_items: rpcMatchedItems,
         p_repricing:     rpcRepricing,
         p_now:           now,
       });
