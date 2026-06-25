@@ -1,262 +1,239 @@
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import Database from "better-sqlite3";
-import { eq, desc, and, or, like, sql } from "drizzle-orm";
-import {
-  uploads, parsedRows, inventoryItems, priceSnapshots,
-  mergeReviews, labelQueueItems, showLedgers, appSettings,
-  type Upload, type InsertUpload,
-  type ParsedRow, type InsertParsedRow,
-  type InventoryItem, type InsertInventoryItem,
-  type PriceSnapshot, type InsertPriceSnapshot,
-  type MergeReview, type InsertMergeReview,
-  type LabelQueueItem, type InsertLabelQueueItem,
-  type ShowLedger, type InsertShowLedger,
-} from "@shared/schema";
+import { supabaseAdmin } from "./supabase";
 
-// Use /app/data/data.db on Railway (persistent volume), fallback to local data/ dir
-const DB_PATH = process.env.DB_PATH ||
-  (process.env.NODE_ENV === "production" && process.env.RAILWAY_ENVIRONMENT ? "/app/data/data.db" : "data/data.db");
-const sqliteDb = new Database(DB_PATH);
-sqliteDb.pragma("journal_mode = WAL");
-const db = drizzle(sqliteDb);
-
-// ─── migrations (run once) ───────────────────────────────────────────────────
-sqliteDb.exec(`
-  CREATE TABLE IF NOT EXISTS uploads (
-    id TEXT PRIMARY KEY,
-    source_type TEXT NOT NULL DEFAULT 'tcgplayer',
-    game TEXT NOT NULL DEFAULT 'pokemon',
-    original_filename TEXT NOT NULL,
-    uploaded_at TEXT NOT NULL,
-    raw_file_path TEXT,
-    raw_file_content TEXT,
-    total_rows INTEGER NOT NULL DEFAULT 0,
-    parse_status TEXT NOT NULL DEFAULT 'pending',
-    summary_json TEXT
-  );
-  CREATE TABLE IF NOT EXISTS parsed_rows (
-    id TEXT PRIMARY KEY,
-    upload_id TEXT NOT NULL,
-    row_index INTEGER NOT NULL,
-    product_name TEXT NOT NULL,
-    number TEXT,
-    condition TEXT,
-    raw_market_price REAL,
-    rounded_print_price INTEGER,
-    add_to_quantity INTEGER NOT NULL DEFAULT 1,
-    normalized_match_key TEXT,
-    source_product_id TEXT,
-    source_tcgplayer_id TEXT,
-    source_product_line TEXT,
-    source_set_name TEXT,
-    source_printing TEXT,
-    source_rarity TEXT,
-    source_payload TEXT,
-    parse_flags TEXT,
-    match_status TEXT DEFAULT 'pending',
-    matched_inventory_id TEXT
-  );
-  CREATE TABLE IF NOT EXISTS inventory_items (
-    id TEXT PRIMARY KEY,
-    game TEXT NOT NULL DEFAULT 'pokemon',
-    product_name TEXT NOT NULL,
-    number TEXT,
-    condition TEXT,
-    current_quantity INTEGER NOT NULL DEFAULT 0,
-    current_raw_market_price REAL,
-    current_rounded_print_price INTEGER,
-    latest_upload_id TEXT,
-    normalized_match_key TEXT,
-    match_metadata_json TEXT,
-    photo_url TEXT,
-    first_seen_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active'
-  );
-  CREATE TABLE IF NOT EXISTS price_snapshots (
-    id TEXT PRIMARY KEY,
-    inventory_item_id TEXT NOT NULL,
-    upload_id TEXT NOT NULL,
-    snapshot_date TEXT NOT NULL,
-    raw_market_price REAL NOT NULL,
-    rounded_print_price INTEGER NOT NULL,
-    quantity_after_merge INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS merge_reviews (
-    id TEXT PRIMARY KEY,
-    upload_id TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    new_item_count INTEGER NOT NULL DEFAULT 0,
-    matched_item_count INTEGER NOT NULL DEFAULT 0,
-    repricing_candidate_count INTEGER NOT NULL DEFAULT 0,
-    duplicate_warning_count INTEGER NOT NULL DEFAULT 0,
-    review_payload TEXT,
-    reviewed_at TEXT,
-    reviewed_by TEXT
-  );
-  CREATE TABLE IF NOT EXISTS label_queue_items (
-    id TEXT PRIMARY KEY,
-    inventory_item_id TEXT NOT NULL,
-    queue_type TEXT NOT NULL,
-    source_upload_id TEXT,
-    prior_raw_price REAL,
-    current_raw_price REAL,
-    rounded_print_price INTEGER,
-    percent_change REAL,
-    threshold_rule TEXT,
-    is_selected_for_export INTEGER NOT NULL DEFAULT 1,
-    export_status TEXT NOT NULL DEFAULT 'pending',
-    created_at TEXT NOT NULL,
-    reviewed_at TEXT
-  );
-  CREATE TABLE IF NOT EXISTS app_settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS show_ledgers (
-    id TEXT PRIMARY KEY,
-    show_name TEXT NOT NULL,
-    location TEXT,
-    show_date TEXT NOT NULL,
-    starting_inventory_market_value REAL,
-    ending_inventory_market_value REAL,
-    purchased_inventory_cost_basis REAL,
-    purchased_inventory_market_value REAL,
-    cash_sales_in REAL,
-    cash_spent_on_buys REAL,
-    other_cash_out REAL,
-    expenses_total REAL,
-    notes TEXT,
-    created_at TEXT NOT NULL
-  );
-`);
-
-export interface IStorage {
-  // uploads
-  createUpload(data: InsertUpload & { summaryJson?: string }): Upload;
-  getUpload(id: string): Upload | undefined;
-  listUploads(): Upload[];
-  updateUpload(id: string, data: Partial<Upload>): Upload | undefined;
-
-  // parsed rows
-  createParsedRows(rows: InsertParsedRow[]): void;
-  getParsedRowsByUpload(uploadId: string): ParsedRow[];
-  updateParsedRow(id: string, data: Partial<ParsedRow>): void;
-
-  // inventory
-  createInventoryItem(data: InsertInventoryItem): InventoryItem;
-  getInventoryItem(id: string): InventoryItem | undefined;
-  getInventoryItemByMatchKey(key: string): InventoryItem | undefined;
-  getInventoryItemByExternalIds(productId?: string, tcgplayerId?: string): InventoryItem | undefined;
-  listInventoryItems(filters?: { game?: string; condition?: string; status?: string; search?: string }): InventoryItem[];
-  updateInventoryItem(id: string, data: Partial<InventoryItem>): InventoryItem | undefined;
-
-  // price snapshots
-  createPriceSnapshot(data: InsertPriceSnapshot): PriceSnapshot;
-  getSnapshotsByItem(inventoryItemId: string): PriceSnapshot[];
-  getLatestSnapshot(inventoryItemId: string): PriceSnapshot | undefined;
-
-  // merge reviews
-  createMergeReview(data: InsertMergeReview): MergeReview;
-  getMergeReviewByUpload(uploadId: string): MergeReview | undefined;
-  updateMergeReview(id: string, data: Partial<MergeReview>): MergeReview | undefined;
-
-  // label queue
-  createLabelQueueItem(data: InsertLabelQueueItem): LabelQueueItem;
-  listLabelQueueItems(queueType?: string, exportStatus?: string): LabelQueueItem[];
-  getLabelQueueItem(id: string): LabelQueueItem | undefined;
-  updateLabelQueueItem(id: string, data: Partial<LabelQueueItem>): LabelQueueItem | undefined;
-  bulkUpdateLabelQueueExportStatus(ids: string[], exportStatus: string): void;
-
-  // app settings
-  getSetting(key: string): string | undefined;
-  setSetting(key: string, value: string): void;
-  getRepricingThresholds(): { over100Pct: number; mid50to100Pct: number; under50Pct: number };
-  setRepricingThresholds(t: { over100Pct: number; mid50to100Pct: number; under50Pct: number }): void;
-
-  // show ledgers
-  createShowLedger(data: Omit<ShowLedger, "id" | "createdAt">): ShowLedger;
-  getShowLedger(id: string): ShowLedger | undefined;
-  listShowLedgers(): ShowLedger[];
-  updateShowLedger(id: string, data: Partial<ShowLedger>): ShowLedger | undefined;
-  deleteShowLedger(id: string): void;
-
-  // dashboard stats
-  getDashboardStats(): {
-    totalItems: number;
-    totalQuantity: number;
-    totalMarketValue: number;
-    newLabelsPending: number;
-    repricingPending: number;
-    uploadsThisWeek: number;
-  };
+// ─── Types ────────────────────────────────────────────────────────────────────
+export interface Upload {
+  id: string;
+  userId: string;
+  sourceType: string;
+  game: string;
+  originalFilename: string;
+  uploadedAt: string;
+  rawFileContent?: string | null;
+  totalRows: number;
+  parseStatus: string;
+  summaryJson?: string | null;
 }
 
+export interface ParsedRow {
+  id: string;
+  userId: string;
+  uploadId: string;
+  rowIndex: number;
+  productName: string;
+  number?: string | null;
+  condition?: string | null;
+  rawMarketPrice?: number | null;
+  roundedPrintPrice?: number | null;
+  addToQuantity: number;
+  normalizedMatchKey?: string | null;
+  sourceProductId?: string | null;
+  sourceTcgplayerId?: string | null;
+  sourceProductLine?: string | null;
+  sourceSetName?: string | null;
+  sourcePrinting?: string | null;
+  sourceRarity?: string | null;
+  sourcePayload?: string | null;
+  parseFlags?: string | null;
+  matchStatus?: string | null;
+  matchedInventoryId?: string | null;
+}
+
+export interface InventoryItem {
+  id: string;
+  userId: string;
+  game: string;
+  productName: string;
+  number?: string | null;
+  condition?: string | null;
+  currentQuantity: number;
+  currentRawMarketPrice?: number | null;
+  currentRoundedPrintPrice?: number | null;
+  latestUploadId?: string | null;
+  normalizedMatchKey?: string | null;
+  matchMetadataJson?: string | null;
+  photoUrl?: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  status: string;
+}
+
+export interface PriceSnapshot {
+  id: string;
+  userId: string;
+  inventoryItemId: string;
+  uploadId: string;
+  snapshotDate: string;
+  rawMarketPrice: number;
+  roundedPrintPrice: number;
+  quantityAfterMerge: number;
+}
+
+export interface MergeReview {
+  id: string;
+  userId: string;
+  uploadId: string;
+  status: string;
+  newItemCount: number;
+  matchedItemCount: number;
+  repricingCandidateCount: number;
+  duplicateWarningCount: number;
+  reviewPayload?: string | null;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+}
+
+export interface LabelQueueItem {
+  id: string;
+  userId: string;
+  inventoryItemId: string;
+  queueType: string;
+  sourceUploadId?: string | null;
+  priorRawPrice?: number | null;
+  currentRawPrice?: number | null;
+  roundedPrintPrice?: number | null;
+  percentChange?: number | null;
+  thresholdRule?: string | null;
+  isSelectedForExport: boolean;
+  exportStatus: string;
+  createdAt: string;
+  reviewedAt?: string | null;
+}
+
+export interface ShowLedger {
+  id: string;
+  userId: string;
+  showName: string;
+  location?: string | null;
+  showDate: string;
+  startingInventoryMarketValue?: number | null;
+  endingInventoryMarketValue?: number | null;
+  purchasedInventoryCostBasis?: number | null;
+  purchasedInventoryMarketValue?: number | null;
+  cashSalesIn?: number | null;
+  cashSpentOnBuys?: number | null;
+  otherCashOut?: number | null;
+  expensesTotal?: number | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function genId(): string {
   return crypto.randomUUID();
 }
 
-class SqliteStorage implements IStorage {
-  createUpload(data: InsertUpload & { summaryJson?: string }): Upload {
-    const row = { ...data, id: data.id || genId() };
-    db.insert(uploads).values(row as any).run();
-    return db.select().from(uploads).where(eq(uploads.id, row.id)).get()!;
+// camelCase <-> snake_case mappers
+function toSnake(obj: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const snake = k.replace(/([A-Z])/g, '_$1').toLowerCase();
+    out[snake] = v;
   }
-  getUpload(id: string): Upload | undefined {
-    return db.select().from(uploads).where(eq(uploads.id, id)).get();
+  return out;
+}
+
+function toCamel(obj: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const camel = k.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    out[camel] = v;
   }
-  listUploads(): Upload[] {
-    return db.select().from(uploads).orderBy(desc(uploads.uploadedAt)).all();
-  }
-  updateUpload(id: string, data: Partial<Upload>): Upload | undefined {
-    db.update(uploads).set(data as any).where(eq(uploads.id, id)).run();
-    return db.select().from(uploads).where(eq(uploads.id, id)).get();
+  return out;
+}
+
+function mapRow<T>(row: Record<string, any>): T {
+  return toCamel(row) as T;
+}
+
+function mapRows<T>(rows: Record<string, any>[]): T[] {
+  return rows.map(r => toCamel(r) as T);
+}
+
+// ─── Storage class ────────────────────────────────────────────────────────────
+class SupabaseStorage {
+  // ── uploads ────────────────────────────────────────────────────────────────
+  async createUpload(userId: string, data: Omit<Upload, 'id' | 'userId'>): Promise<Upload> {
+    const row = toSnake({ ...data, id: genId(), userId });
+    const { data: d, error } = await supabaseAdmin.from('uploads').insert(row).select().single();
+    if (error) throw new Error(error.message);
+    return mapRow<Upload>(d);
   }
 
-  createParsedRows(rows: InsertParsedRow[]): void {
-    for (const row of rows) {
-      db.insert(parsedRows).values(row as any).run();
-    }
-  }
-  getParsedRowsByUpload(uploadId: string): ParsedRow[] {
-    return db.select().from(parsedRows).where(eq(parsedRows.uploadId, uploadId)).all();
-  }
-  updateParsedRow(id: string, data: Partial<ParsedRow>): void {
-    db.update(parsedRows).set(data as any).where(eq(parsedRows.id, id)).run();
+  async getUpload(userId: string, id: string): Promise<Upload | undefined> {
+    const { data } = await supabaseAdmin.from('uploads').select('*').eq('id', id).eq('user_id', userId).single();
+    return data ? mapRow<Upload>(data) : undefined;
   }
 
-  createInventoryItem(data: InsertInventoryItem): InventoryItem {
-    const row = { ...data, id: data.id || genId() };
-    db.insert(inventoryItems).values(row as any).run();
-    return db.select().from(inventoryItems).where(eq(inventoryItems.id, row.id)).get()!;
+  async listUploads(userId: string): Promise<Upload[]> {
+    const { data } = await supabaseAdmin.from('uploads').select('*').eq('user_id', userId).order('uploaded_at', { ascending: false });
+    return mapRows<Upload>(data || []);
   }
-  getInventoryItem(id: string): InventoryItem | undefined {
-    return db.select().from(inventoryItems).where(eq(inventoryItems.id, id)).get();
+
+  async updateUpload(userId: string, id: string, data: Partial<Upload>): Promise<Upload | undefined> {
+    const { id: _, userId: __, ...rest } = data as any;
+    const { data: d } = await supabaseAdmin.from('uploads').update(toSnake(rest)).eq('id', id).eq('user_id', userId).select().single();
+    return d ? mapRow<Upload>(d) : undefined;
   }
-  getInventoryItemByMatchKey(key: string): InventoryItem | undefined {
-    return db.select().from(inventoryItems)
-      .where(and(eq(inventoryItems.normalizedMatchKey, key), eq(inventoryItems.status, "active")))
-      .get();
+
+  // ── parsed rows ────────────────────────────────────────────────────────────
+  async createParsedRows(userId: string, rows: Omit<ParsedRow, 'userId'>[]): Promise<void> {
+    const mapped = rows.map(r => toSnake({ ...r, userId }));
+    const { error } = await supabaseAdmin.from('parsed_rows').insert(mapped);
+    if (error) throw new Error(error.message);
   }
-  getInventoryItemByExternalIds(productId?: string, tcgplayerId?: string): InventoryItem | undefined {
+
+  async getParsedRowsByUpload(userId: string, uploadId: string): Promise<ParsedRow[]> {
+    const { data } = await supabaseAdmin.from('parsed_rows').select('*').eq('upload_id', uploadId).eq('user_id', userId);
+    return mapRows<ParsedRow>(data || []);
+  }
+
+  async updateParsedRow(userId: string, id: string, data: Partial<ParsedRow>): Promise<void> {
+    const { id: _, userId: __, ...rest } = data as any;
+    await supabaseAdmin.from('parsed_rows').update(toSnake(rest)).eq('id', id).eq('user_id', userId);
+  }
+
+  // ── inventory ──────────────────────────────────────────────────────────────
+  async createInventoryItem(userId: string, data: Omit<InventoryItem, 'id' | 'userId'>): Promise<InventoryItem> {
+    const row = toSnake({ ...data, id: genId(), userId });
+    const { data: d, error } = await supabaseAdmin.from('inventory_items').insert(row).select().single();
+    if (error) throw new Error(error.message);
+    return mapRow<InventoryItem>(d);
+  }
+
+  async getInventoryItem(userId: string, id: string): Promise<InventoryItem | undefined> {
+    const { data } = await supabaseAdmin.from('inventory_items').select('*').eq('id', id).eq('user_id', userId).single();
+    return data ? mapRow<InventoryItem>(data) : undefined;
+  }
+
+  async getInventoryItemByMatchKey(userId: string, key: string): Promise<InventoryItem | undefined> {
+    const { data } = await supabaseAdmin.from('inventory_items').select('*')
+      .eq('user_id', userId).eq('normalized_match_key', key).eq('status', 'active').maybeSingle();
+    return data ? mapRow<InventoryItem>(data) : undefined;
+  }
+
+  async getInventoryItemByExternalIds(userId: string, productId?: string, tcgplayerId?: string): Promise<InventoryItem | undefined> {
     if (!productId && !tcgplayerId) return undefined;
-    const allItems = db.select().from(inventoryItems).where(eq(inventoryItems.status, "active")).all();
-    for (const item of allItems) {
-      if (!item.matchMetadataJson) continue;
+    const { data } = await supabaseAdmin.from('inventory_items').select('*').eq('user_id', userId).eq('status', 'active');
+    for (const item of (data || [])) {
+      if (!item.match_metadata_json) continue;
       try {
-        const meta = JSON.parse(item.matchMetadataJson);
-        if (productId && meta.sourceProductId === productId) return item;
-        if (tcgplayerId && meta.sourceTcgplayerId === tcgplayerId) return item;
+        const meta = JSON.parse(item.match_metadata_json);
+        if (productId && meta.sourceProductId === productId) return mapRow<InventoryItem>(item);
+        if (tcgplayerId && meta.sourceTcgplayerId === tcgplayerId) return mapRow<InventoryItem>(item);
       } catch {}
     }
     return undefined;
   }
-  listInventoryItems(filters?: { game?: string; condition?: string; status?: string; search?: string }): InventoryItem[] {
-    let items = db.select().from(inventoryItems).orderBy(desc(inventoryItems.lastSeenAt)).all();
-    if (filters?.status) items = items.filter(i => i.status === filters.status);
-    else items = items.filter(i => i.status === "active");
-    if (filters?.game) items = items.filter(i => i.game === filters.game);
-    if (filters?.condition) items = items.filter(i => i.condition === filters.condition);
+
+  async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string }): Promise<InventoryItem[]> {
+    let query = supabaseAdmin.from('inventory_items').select('*').eq('user_id', userId);
+    const status = filters?.status || 'active';
+    query = query.eq('status', status);
+    if (filters?.game) query = query.eq('game', filters.game);
+    if (filters?.condition) query = query.eq('condition', filters.condition);
+    query = query.order('last_seen_at', { ascending: false });
+    const { data } = await query;
+    let items = mapRows<InventoryItem>(data || []);
     if (filters?.search) {
       const s = filters.search.toLowerCase();
       items = items.filter(i =>
@@ -266,131 +243,156 @@ class SqliteStorage implements IStorage {
     }
     return items;
   }
-  updateInventoryItem(id: string, data: Partial<InventoryItem>): InventoryItem | undefined {
-    db.update(inventoryItems).set(data as any).where(eq(inventoryItems.id, id)).run();
-    return db.select().from(inventoryItems).where(eq(inventoryItems.id, id)).get();
+
+  async updateInventoryItem(userId: string, id: string, data: Partial<InventoryItem>): Promise<InventoryItem | undefined> {
+    const { id: _, userId: __, ...rest } = data as any;
+    const { data: d } = await supabaseAdmin.from('inventory_items').update(toSnake(rest)).eq('id', id).eq('user_id', userId).select().single();
+    return d ? mapRow<InventoryItem>(d) : undefined;
   }
 
-  createPriceSnapshot(data: InsertPriceSnapshot): PriceSnapshot {
-    const row = { ...data, id: data.id || genId() };
-    db.insert(priceSnapshots).values(row as any).run();
-    return db.select().from(priceSnapshots).where(eq(priceSnapshots.id, row.id)).get()!;
-  }
-  getSnapshotsByItem(inventoryItemId: string): PriceSnapshot[] {
-    return db.select().from(priceSnapshots)
-      .where(eq(priceSnapshots.inventoryItemId, inventoryItemId))
-      .orderBy(desc(priceSnapshots.snapshotDate))
-      .all();
-  }
-  getLatestSnapshot(inventoryItemId: string): PriceSnapshot | undefined {
-    return db.select().from(priceSnapshots)
-      .where(eq(priceSnapshots.inventoryItemId, inventoryItemId))
-      .orderBy(desc(priceSnapshots.snapshotDate))
-      .get();
+  // ── price snapshots ────────────────────────────────────────────────────────
+  async createPriceSnapshot(userId: string, data: Omit<PriceSnapshot, 'id' | 'userId'>): Promise<PriceSnapshot> {
+    const row = toSnake({ ...data, id: genId(), userId });
+    const { data: d, error } = await supabaseAdmin.from('price_snapshots').insert(row).select().single();
+    if (error) throw new Error(error.message);
+    return mapRow<PriceSnapshot>(d);
   }
 
-  createMergeReview(data: InsertMergeReview): MergeReview {
-    const row = { ...data, id: data.id || genId() };
-    db.insert(mergeReviews).values(row as any).run();
-    return db.select().from(mergeReviews).where(eq(mergeReviews.id, row.id)).get()!;
-  }
-  getMergeReviewByUpload(uploadId: string): MergeReview | undefined {
-    return db.select().from(mergeReviews).where(eq(mergeReviews.uploadId, uploadId)).get();
-  }
-  updateMergeReview(id: string, data: Partial<MergeReview>): MergeReview | undefined {
-    db.update(mergeReviews).set(data as any).where(eq(mergeReviews.id, id)).run();
-    return db.select().from(mergeReviews).where(eq(mergeReviews.id, id)).get();
+  async getSnapshotsByItem(userId: string, inventoryItemId: string): Promise<PriceSnapshot[]> {
+    const { data } = await supabaseAdmin.from('price_snapshots').select('*')
+      .eq('inventory_item_id', inventoryItemId).eq('user_id', userId).order('snapshot_date', { ascending: false });
+    return mapRows<PriceSnapshot>(data || []);
   }
 
-  createLabelQueueItem(data: InsertLabelQueueItem): LabelQueueItem {
-    const row = { ...data, id: data.id || genId() };
-    db.insert(labelQueueItems).values(row as any).run();
-    return db.select().from(labelQueueItems).where(eq(labelQueueItems.id, row.id)).get()!;
-  }
-  listLabelQueueItems(queueType?: string, exportStatus?: string): LabelQueueItem[] {
-    let items = db.select().from(labelQueueItems).orderBy(desc(labelQueueItems.createdAt)).all();
-    if (queueType) items = items.filter(i => i.queueType === queueType);
-    if (exportStatus) items = items.filter(i => i.exportStatus === exportStatus);
-    return items;
-  }
-  getLabelQueueItem(id: string): LabelQueueItem | undefined {
-    return db.select().from(labelQueueItems).where(eq(labelQueueItems.id, id)).get();
-  }
-  updateLabelQueueItem(id: string, data: Partial<LabelQueueItem>): LabelQueueItem | undefined {
-    db.update(labelQueueItems).set(data as any).where(eq(labelQueueItems.id, id)).run();
-    return db.select().from(labelQueueItems).where(eq(labelQueueItems.id, id)).get();
-  }
-  bulkUpdateLabelQueueExportStatus(ids: string[], exportStatus: string): void {
-    for (const id of ids) {
-      db.update(labelQueueItems).set({ exportStatus } as any).where(eq(labelQueueItems.id, id)).run();
-    }
+  async getLatestSnapshot(userId: string, inventoryItemId: string): Promise<PriceSnapshot | undefined> {
+    const { data } = await supabaseAdmin.from('price_snapshots').select('*')
+      .eq('inventory_item_id', inventoryItemId).eq('user_id', userId).order('snapshot_date', { ascending: false }).limit(1).maybeSingle();
+    return data ? mapRow<PriceSnapshot>(data) : undefined;
   }
 
-  createShowLedger(data: Omit<ShowLedger, "id" | "createdAt">): ShowLedger {
-    const row = { ...data, id: genId(), createdAt: new Date().toISOString() };
-    db.insert(showLedgers).values(row as any).run();
-    return db.select().from(showLedgers).where(eq(showLedgers.id, row.id)).get()!;
-  }
-  getShowLedger(id: string): ShowLedger | undefined {
-    return db.select().from(showLedgers).where(eq(showLedgers.id, id)).get();
-  }
-  listShowLedgers(): ShowLedger[] {
-    return db.select().from(showLedgers).orderBy(desc(showLedgers.showDate)).all();
-  }
-  updateShowLedger(id: string, data: Partial<ShowLedger>): ShowLedger | undefined {
-    db.update(showLedgers).set(data as any).where(eq(showLedgers.id, id)).run();
-    return db.select().from(showLedgers).where(eq(showLedgers.id, id)).get();
-  }
-  deleteShowLedger(id: string): void {
-    db.delete(showLedgers).where(eq(showLedgers.id, id)).run();
+  // ── merge reviews ──────────────────────────────────────────────────────────
+  async createMergeReview(userId: string, data: Omit<MergeReview, 'id' | 'userId'>): Promise<MergeReview> {
+    const row = toSnake({ ...data, id: genId(), userId });
+    const { data: d, error } = await supabaseAdmin.from('merge_reviews').insert(row).select().single();
+    if (error) throw new Error(error.message);
+    return mapRow<MergeReview>(d);
   }
 
-  getSetting(key: string): string | undefined {
-    const row = db.select().from(appSettings).where(eq(appSettings.key, key)).get();
-    return row?.value;
+  async getMergeReviewByUpload(userId: string, uploadId: string): Promise<MergeReview | undefined> {
+    const { data } = await supabaseAdmin.from('merge_reviews').select('*').eq('upload_id', uploadId).eq('user_id', userId).maybeSingle();
+    return data ? mapRow<MergeReview>(data) : undefined;
   }
-  setSetting(key: string, value: string): void {
-    db.insert(appSettings).values({ key, value })
-      .onConflictDoUpdate({ target: appSettings.key, set: { value } })
-      .run();
+
+  async updateMergeReview(userId: string, id: string, data: Partial<MergeReview>): Promise<MergeReview | undefined> {
+    const { id: _, userId: __, ...rest } = data as any;
+    const { data: d } = await supabaseAdmin.from('merge_reviews').update(toSnake(rest)).eq('id', id).eq('user_id', userId).select().single();
+    return d ? mapRow<MergeReview>(d) : undefined;
   }
-  getRepricingThresholds(): { over100Pct: number; mid50to100Pct: number; under50Pct: number } {
-    const raw = this.getSetting("repricing_thresholds");
-    if (raw) {
-      try { return JSON.parse(raw); } catch {}
-    }
+
+  // ── label queue ────────────────────────────────────────────────────────────
+  async createLabelQueueItem(userId: string, data: Omit<LabelQueueItem, 'id' | 'userId'>): Promise<LabelQueueItem> {
+    const row = toSnake({ ...data, id: genId(), userId });
+    const { data: d, error } = await supabaseAdmin.from('label_queue_items').insert(row).select().single();
+    if (error) throw new Error(error.message);
+    return mapRow<LabelQueueItem>(d);
+  }
+
+  async listLabelQueueItems(userId: string, queueType?: string, exportStatus?: string): Promise<LabelQueueItem[]> {
+    let query = supabaseAdmin.from('label_queue_items').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    if (queueType) query = query.eq('queue_type', queueType);
+    if (exportStatus) query = query.eq('export_status', exportStatus);
+    const { data } = await query;
+    return mapRows<LabelQueueItem>(data || []);
+  }
+
+  async getLabelQueueItem(userId: string, id: string): Promise<LabelQueueItem | undefined> {
+    const { data } = await supabaseAdmin.from('label_queue_items').select('*').eq('id', id).eq('user_id', userId).maybeSingle();
+    return data ? mapRow<LabelQueueItem>(data) : undefined;
+  }
+
+  async updateLabelQueueItem(userId: string, id: string, data: Partial<LabelQueueItem>): Promise<LabelQueueItem | undefined> {
+    const { id: _, userId: __, ...rest } = data as any;
+    const { data: d } = await supabaseAdmin.from('label_queue_items').update(toSnake(rest)).eq('id', id).eq('user_id', userId).select().single();
+    return d ? mapRow<LabelQueueItem>(d) : undefined;
+  }
+
+  async bulkUpdateLabelQueueExportStatus(userId: string, ids: string[], exportStatus: string): Promise<void> {
+    await supabaseAdmin.from('label_queue_items').update({ export_status: exportStatus })
+      .in('id', ids).eq('user_id', userId);
+  }
+
+  // ── app settings ───────────────────────────────────────────────────────────
+  async getSetting(userId: string, key: string): Promise<string | undefined> {
+    const { data } = await supabaseAdmin.from('app_settings').select('value').eq('user_id', userId).eq('key', key).maybeSingle();
+    return data?.value;
+  }
+
+  async setSetting(userId: string, key: string, value: string): Promise<void> {
+    await supabaseAdmin.from('app_settings')
+      .upsert({ user_id: userId, key, value }, { onConflict: 'user_id,key' });
+  }
+
+  async getRepricingThresholds(userId: string): Promise<{ over100Pct: number; mid50to100Pct: number; under50Pct: number }> {
+    const raw = await this.getSetting(userId, 'repricing_thresholds');
+    if (raw) { try { return JSON.parse(raw); } catch {} }
     return { over100Pct: 5, mid50to100Pct: 7, under50Pct: 10 };
   }
-  setRepricingThresholds(t: { over100Pct: number; mid50to100Pct: number; under50Pct: number }): void {
-    this.setSetting("repricing_thresholds", JSON.stringify(t));
+
+  async setRepricingThresholds(userId: string, t: { over100Pct: number; mid50to100Pct: number; under50Pct: number }): Promise<void> {
+    await this.setSetting(userId, 'repricing_thresholds', JSON.stringify(t));
   }
 
-  getDashboardStats() {
-    const items = db.select().from(inventoryItems).where(eq(inventoryItems.status, "active")).all();
-    const totalItems = items.length;
-    const totalQuantity = items.reduce((s, i) => s + i.currentQuantity, 0);
-    const totalMarketValue = items.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * i.currentQuantity, 0);
+  // ── show ledgers ───────────────────────────────────────────────────────────
+  async createShowLedger(userId: string, data: Omit<ShowLedger, 'id' | 'userId' | 'createdAt'>): Promise<ShowLedger> {
+    const row = toSnake({ ...data, id: genId(), userId, createdAt: new Date().toISOString() });
+    const { data: d, error } = await supabaseAdmin.from('show_ledgers').insert(row).select().single();
+    if (error) throw new Error(error.message);
+    return mapRow<ShowLedger>(d);
+  }
 
-    const newLabels = db.select().from(labelQueueItems)
-      .where(and(eq(labelQueueItems.queueType, "new"), eq(labelQueueItems.exportStatus, "pending")))
-      .all();
-    const repricing = db.select().from(labelQueueItems)
-      .where(and(eq(labelQueueItems.queueType, "reprice"), eq(labelQueueItems.exportStatus, "pending")))
-      .all();
+  async getShowLedger(userId: string, id: string): Promise<ShowLedger | undefined> {
+    const { data } = await supabaseAdmin.from('show_ledgers').select('*').eq('id', id).eq('user_id', userId).maybeSingle();
+    return data ? mapRow<ShowLedger>(data) : undefined;
+  }
 
-    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const recentUploads = db.select().from(uploads).all()
-      .filter(u => u.uploadedAt >= oneWeekAgo);
+  async listShowLedgers(userId: string): Promise<ShowLedger[]> {
+    const { data } = await supabaseAdmin.from('show_ledgers').select('*').eq('user_id', userId).order('show_date', { ascending: false });
+    return mapRows<ShowLedger>(data || []);
+  }
 
+  async updateShowLedger(userId: string, id: string, data: Partial<ShowLedger>): Promise<ShowLedger | undefined> {
+    const { id: _, userId: __, ...rest } = data as any;
+    const { data: d } = await supabaseAdmin.from('show_ledgers').update(toSnake(rest)).eq('id', id).eq('user_id', userId).select().single();
+    return d ? mapRow<ShowLedger>(d) : undefined;
+  }
+
+  async deleteShowLedger(userId: string, id: string): Promise<void> {
+    await supabaseAdmin.from('show_ledgers').delete().eq('id', id).eq('user_id', userId);
+  }
+
+  // ── dashboard stats ────────────────────────────────────────────────────────
+  async getDashboardStats(userId: string): Promise<{
+    totalItems: number; totalQuantity: number; totalMarketValue: number;
+    newLabelsPending: number; repricingPending: number; uploadsThisWeek: number;
+  }> {
+    const [{ data: items }, { data: newLabels }, { data: repricing }, { data: recentUploads }] = await Promise.all([
+      supabaseAdmin.from('inventory_items').select('current_quantity,current_raw_market_price').eq('user_id', userId).eq('status', 'active'),
+      supabaseAdmin.from('label_queue_items').select('id').eq('user_id', userId).eq('queue_type', 'new').eq('export_status', 'pending'),
+      supabaseAdmin.from('label_queue_items').select('id').eq('user_id', userId).eq('queue_type', 'reprice').eq('export_status', 'pending'),
+      supabaseAdmin.from('uploads').select('id').eq('user_id', userId).gte('uploaded_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+    ]);
+    const totalItems = items?.length || 0;
+    const totalQuantity = (items || []).reduce((s: number, i: any) => s + (i.current_quantity || 0), 0);
+    const totalMarketValue = (items || []).reduce((s: number, i: any) => s + (i.current_raw_market_price || 0) * (i.current_quantity || 0), 0);
     return {
       totalItems,
       totalQuantity,
       totalMarketValue,
-      newLabelsPending: newLabels.length,
-      repricingPending: repricing.length,
-      uploadsThisWeek: recentUploads.length,
+      newLabelsPending: newLabels?.length || 0,
+      repricingPending: repricing?.length || 0,
+      uploadsThisWeek: recentUploads?.length || 0,
     };
   }
 }
 
-export const storage = new SqliteStorage();
+export const storage = new SupabaseStorage();

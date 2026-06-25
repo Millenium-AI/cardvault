@@ -94,8 +94,7 @@ function parseCsvLine(line: string): string[] {
   return result;
 }
 
-// Map raw row to parsed structure (flexible column mapping)
-function mapRow(raw: Record<string, string>, game: string, rowIndex: number, uploadId: string): any {
+function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, uploadId: string): any {
   const k = (candidates: string[]): string => {
     for (const c of candidates) {
       const found = Object.keys(raw).find(k => k.toLowerCase() === c.toLowerCase());
@@ -110,7 +109,6 @@ function mapRow(raw: Record<string, string>, game: string, rowIndex: number, upl
   const rawPriceStr = k(["TCG Market Price", "Market Price", "TCGplayer Market Price", "Price", "market_price"]);
   const rawMarketPrice = parseFloat(rawPriceStr.replace(/[^0-9.]/g, "")) || null;
   const roundedPrintPrice = ceilPrice(rawMarketPrice);
-  // Use "Add to Quantity" first (TCGplayer export); fall back to "Total Quantity" then generic
   const addToQuantityStr = k(["Add to Quantity", "add_to_quantity"]);
   const totalQuantityStr = k(["Total Quantity", "total_quantity", "Quantity", "Qty", "quantity"]);
   const addToQuantity = parseInt(addToQuantityStr) || parseInt(totalQuantityStr) || 1;
@@ -191,8 +189,8 @@ function buildNiimbotCsv(items: any[]): string {
   return [headers.join(","), ...rows].join("\n");
 }
 
-// ─── Auth middleware ────────────────────────────────────────────────────────
-const ADMIN_EMAIL = "bonsaicollects@gmail.com";
+// ─── Auth middleware ──────────────────────────────────────────────────────────
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "bonsaicollects@gmail.com";
 
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
   const auth = req.headers.authorization;
@@ -243,7 +241,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ ok: true });
   });
 
-  // ── admin: generate invite codes (admin only) ───────────────────────────
+  // ── admin: generate invite codes ─────────────────────────────────────────
   app.post("/api/admin/invite-codes", requireAdmin, async (req: any, res) => {
     const { count = 5, note = "" } = req.body;
     const codes = Array.from({ length: Math.min(count, 50) }, () => {
@@ -256,7 +254,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ codes: data });
   });
 
-  // ── admin: list invite codes (admin only) ──────────────────────────────
+  // ── admin: list invite codes ──────────────────────────────────────────────
   app.get("/api/admin/invite-codes", requireAdmin, async (_req, res) => {
     const { data, error } = await supabaseAdmin
       .from("invite_codes")
@@ -269,41 +267,42 @@ export function registerRoutes(httpServer: Server, app: Express) {
   // ── protect all remaining /api/* routes ───────────────────────────────────
   app.use("/api", requireAuth);
 
-  // ── dashboard stats ──────────────────────────────────────────────────────
-  app.get("/api/dashboard/stats", (_req, res) => {
+  // ── dashboard stats ───────────────────────────────────────────────────────
+  app.get("/api/dashboard/stats", async (req: any, res) => {
     try {
-      const stats = storage.getDashboardStats();
+      const stats = await storage.getDashboardStats(req.user.id);
       res.json(stats);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  // ── uploads ──────────────────────────────────────────────────────────────
-  app.get("/api/uploads", (_req, res) => {
-    res.json(storage.listUploads());
+  // ── uploads ───────────────────────────────────────────────────────────────
+  app.get("/api/uploads", async (req: any, res) => {
+    res.json(await storage.listUploads(req.user.id));
   });
 
-  app.get("/api/uploads/:id", (req, res) => {
-    const u = storage.getUpload(req.params.id);
+  app.get("/api/uploads/:id", async (req: any, res) => {
+    const u = await storage.getUpload(req.user.id, req.params.id);
     if (!u) return res.status(404).json({ error: "Not found" });
     res.json(u);
   });
 
-  app.get("/api/uploads/:id/rows", (req, res) => {
-    res.json(storage.getParsedRowsByUpload(req.params.id));
+  app.get("/api/uploads/:id/rows", async (req: any, res) => {
+    res.json(await storage.getParsedRowsByUpload(req.user.id, req.params.id));
   });
 
-  app.get("/api/uploads/:id/review", (req, res) => {
-    const review = storage.getMergeReviewByUpload(req.params.id);
+  app.get("/api/uploads/:id/review", async (req: any, res) => {
+    const review = await storage.getMergeReviewByUpload(req.user.id, req.params.id);
     if (!review) return res.status(404).json({ error: "Not found" });
     res.json(review);
   });
 
   // Upload CSV
-  app.post("/api/uploads", upload.single("file"), (req, res) => {
+  app.post("/api/uploads", upload.single("file"), async (req: any, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+      const userId = req.user.id;
       const { game = "pokemon", sourceType = "tcgplayer" } = req.body;
       const content = req.file.buffer.toString("utf-8");
       const rawRows = parseCSV(content);
@@ -311,7 +310,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const uploadId = crypto.randomUUID();
       const now = new Date().toISOString();
 
-      const newUpload = storage.createUpload({
+      const newUpload = await storage.createUpload(userId, {
         id: uploadId,
         sourceType,
         game,
@@ -320,16 +319,15 @@ export function registerRoutes(httpServer: Server, app: Express) {
         rawFileContent: content,
         totalRows: rawRows.length,
         parseStatus: "parsed",
+        summaryJson: null,
       });
 
-      // Parse rows
       const parsedRowData = rawRows
         .filter(r => Object.values(r).some(v => v))
-        .map((r, i) => mapRow(r, game, i, uploadId));
+        .map((r, i) => mapCsvRow(r, game, i, uploadId));
 
-      storage.createParsedRows(parsedRowData);
+      await storage.createParsedRows(userId, parsedRowData);
 
-      // Build merge review
       const validRows = parsedRowData.filter(r => r.productName !== "(unknown)");
       const newItems: any[] = [];
       const matchedItems: any[] = [];
@@ -337,29 +335,20 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const repricingCandidates: any[] = [];
 
       for (const row of validRows) {
-        // Try exact external ID match first
-        let existingItem = storage.getInventoryItemByExternalIds(
-          row.sourceProductId || undefined,
-          row.sourceTcgplayerId || undefined
-        );
-
-        // Try composite key match
+        let existingItem = await storage.getInventoryItemByExternalIds(userId, row.sourceProductId || undefined, row.sourceTcgplayerId || undefined);
         if (!existingItem && row.normalizedMatchKey) {
-          existingItem = storage.getInventoryItemByMatchKey(row.normalizedMatchKey);
+          existingItem = await storage.getInventoryItemByMatchKey(userId, row.normalizedMatchKey);
         }
 
         if (!existingItem) {
           newItems.push(row);
         } else {
-          // Check for repricing
           const prevPrice = existingItem.currentRawMarketPrice;
           const newPrice = row.rawMarketPrice;
           if (prevPrice && newPrice) {
-            const _thr = storage.getRepricingThresholds();
-            const { triggered, rule } = checkRepricingThreshold(newPrice, prevPrice, _thr);
-            if (triggered) {
-              repricingCandidates.push({ row, existingItem, rule });
-            }
+            const thr = await storage.getRepricingThresholds(userId);
+            const { triggered, rule } = checkRepricingThreshold(newPrice, prevPrice, thr);
+            if (triggered) repricingCandidates.push({ row, existingItem, rule });
           }
           matchedItems.push({ row, existingItem });
         }
@@ -372,8 +361,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
         repricingCandidates: repricingCandidates.map(({ row, existingItem, rule }) => ({ rowId: row.id, productName: row.productName, priorPrice: existingItem.currentRawMarketPrice, newPrice: row.rawMarketPrice, roundedPrintPrice: row.roundedPrintPrice, percentChange: existingItem.currentRawMarketPrice ? ((row.rawMarketPrice - existingItem.currentRawMarketPrice) / existingItem.currentRawMarketPrice * 100).toFixed(1) : null, rule })),
       });
 
-      const review = storage.createMergeReview({
-        id: crypto.randomUUID(),
+      const review = await storage.createMergeReview(userId, {
         uploadId,
         status: "pending",
         newItemCount: newItems.length,
@@ -385,18 +373,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
         reviewedBy: null,
       });
 
-      const summary = {
-        newItems: newItems.length,
-        matchedItems: matchedItems.length,
-        repricingCandidates: repricingCandidates.length,
-        ambiguousItems: ambiguousItems.length,
-        totalParsed: validRows.length,
-        totalRaw: rawRows.length,
-      };
-      storage.updateUpload(uploadId, {
-        summaryJson: JSON.stringify(summary),
-        parseStatus: "parsed",
-      });
+      const summary = { newItems: newItems.length, matchedItems: matchedItems.length, repricingCandidates: repricingCandidates.length, ambiguousItems: ambiguousItems.length, totalParsed: validRows.length, totalRaw: rawRows.length };
+      await storage.updateUpload(userId, uploadId, { summaryJson: JSON.stringify(summary), parseStatus: "parsed" });
 
       res.json({ upload: newUpload, review, summary });
     } catch (e: any) {
@@ -406,22 +384,22 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // Approve merge
-  app.post("/api/uploads/:id/approve", (req, res) => {
+  app.post("/api/uploads/:id/approve", async (req: any, res) => {
     try {
+      const userId = req.user.id;
       const uploadId = req.params.id;
-      const review = storage.getMergeReviewByUpload(uploadId);
+      const review = await storage.getMergeReviewByUpload(userId, uploadId);
       if (!review) return res.status(404).json({ error: "Review not found" });
       if (review.status !== "pending") return res.status(400).json({ error: "Already processed" });
 
       const payload = JSON.parse(review.reviewPayload || "{}");
       const now = new Date().toISOString();
-      const upload = storage.getUpload(uploadId);
-      const game = upload?.game || "pokemon";
+      const uploadRecord = await storage.getUpload(userId, uploadId);
+      const game = uploadRecord?.game || "pokemon";
 
-      // Process new items
       for (const row of (payload.newItems || [])) {
-        const parsedRow = storage.getParsedRowsByUpload(uploadId).find(r => r.id === row.id);
-        const meta = parsedRow ? JSON.parse(parsedRow.sourcePayload || "{}") : {};
+        const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
+        const parsedRow = allParsed.find(r => r.id === row.id);
         const matchMeta = {
           sourceProductId: parsedRow?.sourceProductId,
           sourceTcgplayerId: parsedRow?.sourceTcgplayerId,
@@ -430,16 +408,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
           sourceProductLine: parsedRow?.sourceProductLine,
           sourceRarity: parsedRow?.sourceRarity,
         };
-
-        // Extract photo URL from source payload
         let photoUrl: string | null = null;
         try {
           const rawPayload = JSON.parse(parsedRow?.sourcePayload || "{}");
           photoUrl = rawPayload._photoUrl || rawPayload["Photo URL"] || null;
         } catch {}
 
-        const item = storage.createInventoryItem({
-          id: crypto.randomUUID(),
+        const item = await storage.createInventoryItem(userId, {
           game,
           productName: row.productName,
           number: row.number || null,
@@ -456,10 +431,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
           status: "active",
         });
 
-        // Price snapshot
         if (row.rawMarketPrice) {
-          storage.createPriceSnapshot({
-            id: crypto.randomUUID(),
+          await storage.createPriceSnapshot(userId, {
             inventoryItemId: item.id,
             uploadId,
             snapshotDate: now,
@@ -469,9 +442,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
           });
         }
 
-        // New label queue
-        storage.createLabelQueueItem({
-          id: crypto.randomUUID(),
+        await storage.createLabelQueueItem(userId, {
           inventoryItemId: item.id,
           queueType: "new",
           sourceUploadId: uploadId,
@@ -487,27 +458,23 @@ export function registerRoutes(httpServer: Server, app: Express) {
         });
 
         if (parsedRow) {
-          storage.updateParsedRow(parsedRow.id, { matchStatus: "new", matchedInventoryId: item.id });
+          await storage.updateParsedRow(userId, parsedRow.id, { matchStatus: "new", matchedInventoryId: item.id });
         }
       }
 
-      // Process matched items
       for (const match of (payload.matchedItems || [])) {
-        const existingItem = storage.getInventoryItem(match.existingId);
+        const existingItem = await storage.getInventoryItem(userId, match.existingId);
         if (!existingItem) continue;
-
         const newQty = existingItem.currentQuantity + (match.addToQuantity || 1);
-        storage.updateInventoryItem(existingItem.id, {
+        await storage.updateInventoryItem(userId, existingItem.id, {
           currentQuantity: newQty,
           currentRawMarketPrice: match.rawMarketPrice,
           currentRoundedPrintPrice: match.roundedPrintPrice,
           latestUploadId: uploadId,
           lastSeenAt: now,
         });
-
         if (match.rawMarketPrice) {
-          storage.createPriceSnapshot({
-            id: crypto.randomUUID(),
+          await storage.createPriceSnapshot(userId, {
             inventoryItemId: existingItem.id,
             uploadId,
             snapshotDate: now,
@@ -516,23 +483,18 @@ export function registerRoutes(httpServer: Server, app: Express) {
             quantityAfterMerge: newQty,
           });
         }
-
-        const parsedRow = storage.getParsedRowsByUpload(uploadId).find(r => r.id === match.rowId);
+        const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
+        const parsedRow = allParsed.find(r => r.id === match.rowId);
         if (parsedRow) {
-          storage.updateParsedRow(parsedRow.id, { matchStatus: "matched", matchedInventoryId: existingItem.id });
+          await storage.updateParsedRow(userId, parsedRow.id, { matchStatus: "matched", matchedInventoryId: existingItem.id });
         }
       }
 
-      // Process repricing candidates
       for (const candidate of (payload.repricingCandidates || [])) {
-        const existingItem = storage.getInventoryItem(candidate.existingId || "");
-        // find from matched items by rowId
         const matchedEntry = (payload.matchedItems || []).find((m: any) => m.rowId === candidate.rowId);
-        const invItem = matchedEntry ? storage.getInventoryItem(matchedEntry.existingId) : null;
+        const invItem = matchedEntry ? await storage.getInventoryItem(userId, matchedEntry.existingId) : null;
         if (!invItem) continue;
-
-        storage.createLabelQueueItem({
-          id: crypto.randomUUID(),
+        await storage.createLabelQueueItem(userId, {
           inventoryItemId: invItem.id,
           queueType: "reprice",
           sourceUploadId: uploadId,
@@ -548,8 +510,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
         });
       }
 
-      storage.updateMergeReview(review.id, { status: "approved", reviewedAt: now });
-      storage.updateUpload(uploadId, { parseStatus: "merged" });
+      await storage.updateMergeReview(userId, review.id, { status: "approved", reviewedAt: now });
+      await storage.updateUpload(userId, uploadId, { parseStatus: "merged" });
 
       res.json({ success: true });
     } catch (e: any) {
@@ -559,107 +521,92 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // Reject merge
-  app.post("/api/uploads/:id/reject", (req, res) => {
-    const review = storage.getMergeReviewByUpload(req.params.id);
+  app.post("/api/uploads/:id/reject", async (req: any, res) => {
+    const userId = req.user.id;
+    const review = await storage.getMergeReviewByUpload(userId, req.params.id);
     if (!review) return res.status(404).json({ error: "Not found" });
-    storage.updateMergeReview(review.id, { status: "rejected", reviewedAt: new Date().toISOString() });
-    storage.updateUpload(req.params.id, { parseStatus: "rejected" as any });
+    await storage.updateMergeReview(userId, review.id, { status: "rejected", reviewedAt: new Date().toISOString() });
+    await storage.updateUpload(userId, req.params.id, { parseStatus: "rejected" as any });
     res.json({ success: true });
   });
 
-  // ── inventory ────────────────────────────────────────────────────────────
-  app.get("/api/inventory", (req, res) => {
+  // ── inventory ─────────────────────────────────────────────────────────────
+  app.get("/api/inventory", async (req: any, res) => {
     const { game, condition, status, search } = req.query as Record<string, string>;
-    const items = storage.listInventoryItems({ game, condition, status, search });
+    const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });
     const enriched = items.map(item => {
       let tcgplayerUrl: string | null = null;
       try {
         const meta = JSON.parse(item.matchMetadataJson || "{}");
-        // Product ID maps to /product/{id} — TCGplayer Id is a different internal key
-        if (meta.sourceProductId) {
-          tcgplayerUrl = `https://www.tcgplayer.com/product/${meta.sourceProductId}`;
-        }
+        if (meta.sourceProductId) tcgplayerUrl = `https://www.tcgplayer.com/product/${meta.sourceProductId}`;
       } catch {}
       return { ...item, tcgplayerUrl };
     });
     res.json(enriched);
   });
 
-  app.get("/api/inventory/:id", (req, res) => {
-    const item = storage.getInventoryItem(req.params.id);
+  app.get("/api/inventory/:id", async (req: any, res) => {
+    const item = await storage.getInventoryItem(req.user.id, req.params.id);
     if (!item) return res.status(404).json({ error: "Not found" });
     res.json(item);
   });
 
-  app.patch("/api/inventory/:id", (req, res) => {
-    const item = storage.getInventoryItem(req.params.id);
+  app.patch("/api/inventory/:id", async (req: any, res) => {
+    const item = await storage.getInventoryItem(req.user.id, req.params.id);
     if (!item) return res.status(404).json({ error: "Not found" });
-    const allowed: (keyof any)[] = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes"];
+    const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes"];
     const patch: Record<string, any> = {};
     for (const key of allowed) {
-      if (req.body[key] !== undefined) patch[key as string] = req.body[key];
+      if (req.body[key] !== undefined) patch[key] = req.body[key];
     }
-    // Recalculate rounded print price if market price changed
     if (patch.currentRawMarketPrice !== undefined) {
       patch.currentRoundedPrintPrice = Math.ceil(patch.currentRawMarketPrice);
     }
-    const updated = storage.updateInventoryItem(req.params.id, patch);
+    const updated = await storage.updateInventoryItem(req.user.id, req.params.id, patch);
     res.json(updated);
   });
 
-  app.get("/api/inventory/:id/snapshots", (req, res) => {
-    res.json(storage.getSnapshotsByItem(req.params.id));
+  app.get("/api/inventory/:id/snapshots", async (req: any, res) => {
+    res.json(await storage.getSnapshotsByItem(req.user.id, req.params.id));
   });
 
-  // ── label queue ──────────────────────────────────────────────────────────
-  app.get("/api/labels/new", (_req, res) => {
-    const items = storage.listLabelQueueItems("new");
-    // join with inventory
-    const enriched = items.map(item => {
-      const inv = storage.getInventoryItem(item.inventoryItemId);
+  // ── label queue ───────────────────────────────────────────────────────────
+  app.get("/api/labels/new", async (req: any, res) => {
+    const items = await storage.listLabelQueueItems(req.user.id, "new");
+    const enriched = await Promise.all(items.map(async item => {
+      const inv = await storage.getInventoryItem(req.user.id, item.inventoryItemId);
       return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
-    });
+    }));
     res.json(enriched);
   });
 
-  app.get("/api/labels/reprice", (_req, res) => {
-    const items = storage.listLabelQueueItems("reprice");
-    const enriched = items.map(item => {
-      const inv = storage.getInventoryItem(item.inventoryItemId);
+  app.get("/api/labels/reprice", async (req: any, res) => {
+    const items = await storage.listLabelQueueItems(req.user.id, "reprice");
+    const enriched = await Promise.all(items.map(async item => {
+      const inv = await storage.getInventoryItem(req.user.id, item.inventoryItemId);
       return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
-    });
+    }));
     res.json(enriched);
   });
 
-  app.patch("/api/labels/:id", (req, res) => {
-    const updated = storage.updateLabelQueueItem(req.params.id, req.body);
+  app.patch("/api/labels/:id", async (req: any, res) => {
+    const updated = await storage.updateLabelQueueItem(req.user.id, req.params.id, req.body);
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   });
 
-  app.post("/api/labels/export", (req, res) => {
+  app.post("/api/labels/export", async (req: any, res) => {
     try {
+      const userId = req.user.id;
       const { ids, queueType } = req.body as { ids: string[]; queueType: string };
-      const allItems = storage.listLabelQueueItems(queueType);
+      const allItems = await storage.listLabelQueueItems(userId, queueType);
       const selectedItems = allItems.filter(i => ids.includes(i.id));
-
-      const enriched = selectedItems.map(item => {
-        const inv = storage.getInventoryItem(item.inventoryItemId);
-        return {
-          id: item.id,
-          inventoryItemId: item.inventoryItemId,
-          condition: inv?.condition || "",
-          roundedPrintPrice: item.roundedPrintPrice,
-          productName: inv?.productName || "",
-          number: inv?.number || "",
-        };
-      });
-
+      const enriched = await Promise.all(selectedItems.map(async item => {
+        const inv = await storage.getInventoryItem(userId, item.inventoryItemId);
+        return { id: item.id, inventoryItemId: item.inventoryItemId, condition: inv?.condition || "", roundedPrintPrice: item.roundedPrintPrice, productName: inv?.productName || "", number: inv?.number || "" };
+      }));
       const csv = buildNiimbotCsv(enriched);
-
-      // Mark as exported
-      storage.bulkUpdateLabelQueueExportStatus(ids, "exported");
-
+      await storage.bulkUpdateLabelQueueExportStatus(userId, ids, "exported");
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="niimbot-labels-${queueType}-${Date.now()}.csv"`);
       res.send(csv);
@@ -669,67 +616,64 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ── shows ─────────────────────────────────────────────────────────────────
-  app.get("/api/shows", (_req, res) => {
-    res.json(storage.listShowLedgers());
+  app.get("/api/shows", async (req: any, res) => {
+    res.json(await storage.listShowLedgers(req.user.id));
   });
 
-  app.get("/api/shows/:id", (req, res) => {
-    const show = storage.getShowLedger(req.params.id);
+  app.get("/api/shows/:id", async (req: any, res) => {
+    const show = await storage.getShowLedger(req.user.id, req.params.id);
     if (!show) return res.status(404).json({ error: "Not found" });
     res.json(show);
   });
 
-  app.post("/api/shows", (req, res) => {
+  app.post("/api/shows", async (req: any, res) => {
     try {
-      const show = storage.createShowLedger(req.body);
+      const show = await storage.createShowLedger(req.user.id, req.body);
       res.json(show);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  app.patch("/api/shows/:id", (req, res) => {
-    const updated = storage.updateShowLedger(req.params.id, req.body);
+  app.patch("/api/shows/:id", async (req: any, res) => {
+    const updated = await storage.updateShowLedger(req.user.id, req.params.id, req.body);
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   });
 
-  app.delete("/api/shows/:id", (req, res) => {
-    storage.deleteShowLedger(req.params.id);
+  app.delete("/api/shows/:id", async (req: any, res) => {
+    await storage.deleteShowLedger(req.user.id, req.params.id);
     res.json({ success: true });
   });
 
-  // ── price snapshots for charts ────────────────────────────────────────────
-  app.get("/api/snapshots/history", (_req, res) => {
-    // Return aggregated daily total market value
+  // ── price snapshot history & movers ──────────────────────────────────────
+  app.get("/api/snapshots/history", async (req: any, res) => {
     try {
-      const allSnapshots = storage.listInventoryItems()
-        .flatMap(item => storage.getSnapshotsByItem(item.id).map(s => ({ ...s, quantity: s.quantityAfterMerge })));
-
-      // Group by date (day)
+      const userId = req.user.id;
+      const items = await storage.listInventoryItems(userId);
+      const allSnapshots = (await Promise.all(
+        items.map(item => storage.getSnapshotsByItem(userId, item.id).then(snaps => snaps.map(s => ({ ...s, qty: s.quantityAfterMerge }))))
+      )).flat();
       const byDate: Record<string, number> = {};
       for (const snap of allSnapshots) {
         const day = snap.snapshotDate.slice(0, 10);
-        byDate[day] = (byDate[day] || 0) + snap.rawMarketPrice * snap.quantityAfterMerge;
+        byDate[day] = (byDate[day] || 0) + snap.rawMarketPrice * snap.qty;
       }
-      const result = Object.entries(byDate)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }));
-
+      const result = Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }));
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
   });
 
-  app.get("/api/snapshots/movers", (_req, res) => {
-    // Top price movers in the last 7 days
+  app.get("/api/snapshots/movers", async (req: any, res) => {
     try {
+      const userId = req.user.id;
       const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const items = storage.listInventoryItems();
+      const items = await storage.listInventoryItems(userId);
       const movers: any[] = [];
       for (const item of items) {
-        const snaps = storage.getSnapshotsByItem(item.id).filter(s => s.snapshotDate >= oneWeekAgo);
+        const snaps = (await storage.getSnapshotsByItem(userId, item.id)).filter(s => s.snapshotDate >= oneWeekAgo);
         if (snaps.length < 2) continue;
         const oldest = snaps[snaps.length - 1];
         const newest = snaps[0];
@@ -744,24 +688,19 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // ── settings / column mapping presets ───────────────────────────────────
-  // ── repricing threshold settings ────────────────────────────────────────
-  app.get("/api/settings/thresholds", (_req, res) => {
-    res.json(storage.getRepricingThresholds());
+  // ── settings ──────────────────────────────────────────────────────────────
+  app.get("/api/settings/thresholds", async (req: any, res) => {
+    res.json(await storage.getRepricingThresholds(req.user.id));
   });
 
-  app.put("/api/settings/thresholds", (req, res) => {
+  app.put("/api/settings/thresholds", async (req: any, res) => {
     try {
       const { over100Pct, mid50to100Pct, under50Pct } = req.body;
-      if (
-        typeof over100Pct !== "number" || over100Pct <= 0 ||
-        typeof mid50to100Pct !== "number" || mid50to100Pct <= 0 ||
-        typeof under50Pct !== "number" || under50Pct <= 0
-      ) {
+      if (typeof over100Pct !== "number" || over100Pct <= 0 || typeof mid50to100Pct !== "number" || mid50to100Pct <= 0 || typeof under50Pct !== "number" || under50Pct <= 0) {
         return res.status(400).json({ error: "All thresholds must be positive numbers" });
       }
-      storage.setRepricingThresholds({ over100Pct, mid50to100Pct, under50Pct });
-      res.json(storage.getRepricingThresholds());
+      await storage.setRepricingThresholds(req.user.id, { over100Pct, mid50to100Pct, under50Pct });
+      res.json(await storage.getRepricingThresholds(req.user.id));
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -769,26 +708,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   app.get("/api/settings/presets", (_req, res) => {
     res.json({
-      tcgplayer: {
-        productName: ["Product Name"],
-        number: ["Number"],
-        condition: ["Condition"],
-        marketPrice: ["TCG Market Price", "Market Price"],
-        quantity: ["Add to Quantity", "Quantity"],
-        productId: ["Product ID"],
-        tcgplayerId: ["TCGplayer ID"],
-        setName: ["Set Name"],
-        printing: ["Printing"],
-        rarity: ["Rarity"],
-        productLine: ["Product Line"],
-      },
-      generic: {
-        productName: ["Name", "Card Name"],
-        number: ["Card Number", "Collector Number"],
-        condition: ["Condition", "Cond"],
-        marketPrice: ["Price", "Market Price"],
-        quantity: ["Qty", "Quantity"],
-      },
+      tcgplayer: { productName: ["Product Name"], number: ["Number"], condition: ["Condition"], marketPrice: ["TCG Market Price", "Market Price"], quantity: ["Add to Quantity", "Quantity"], productId: ["Product ID"], tcgplayerId: ["TCGplayer ID"], setName: ["Set Name"], printing: ["Printing"], rarity: ["Rarity"], productLine: ["Product Line"] },
+      generic: { productName: ["Name", "Card Name"], number: ["Card Number", "Collector Number"], condition: ["Condition", "Cond"], marketPrice: ["Price", "Market Price"], quantity: ["Qty", "Quantity"] },
     });
   });
 }
