@@ -69,9 +69,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             window.history.replaceState({}, "", cleanUrl);
 
             try {
+              // MUST include the Bearer token — /api/auth/use-invite requires
+              // an authenticated user and validates userId === token.sub.
               await fetch("/api/auth/use-invite", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${session.access_token}`,
+                },
                 body: JSON.stringify({ code: pendingCode, userId: session.user.id }),
               });
             } catch {
