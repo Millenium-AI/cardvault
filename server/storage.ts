@@ -51,6 +51,9 @@ export interface InventoryItem {
   latestUploadId?: string | null;
   normalizedMatchKey?: string | null;
   matchMetadataJson?: string | null;
+  // #5: dedicated indexed columns — queried directly instead of JSON casting
+  sourceProductId?: string | null;
+  sourceTcgplayerId?: string | null;
   photoUrl?: string | null;
   firstSeenAt: string;
   lastSeenAt: string;
@@ -211,26 +214,41 @@ class SupabaseStorage {
     return data ? mapRow<InventoryItem>(data) : undefined;
   }
 
-  async getInventoryItemByExternalIds(userId: string, productId?: string, tcgplayerId?: string): Promise<InventoryItem | undefined> {
+  // #5: Query dedicated indexed columns instead of casting match_metadata_json
+  // on every row. source_product_id and source_tcgplayer_id are now first-class
+  // columns with partial indexes on (user_id, column) WHERE column IS NOT NULL.
+  async getInventoryItemByExternalIds(
+    userId: string,
+    productId?: string,
+    tcgplayerId?: string,
+  ): Promise<InventoryItem | undefined> {
     if (!productId && !tcgplayerId) return undefined;
 
-    // Build filter: cast text column to jsonb and check the relevant key in Postgres
-    // instead of fetching all rows and filtering in JS.
-    let query = supabaseAdmin
-      .from('inventory_items')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .not('match_metadata_json', 'is', null);
-
     if (productId) {
-      query = query.filter('match_metadata_json::jsonb->>\'sourceProductId\'', 'eq', productId);
-    } else if (tcgplayerId) {
-      query = query.filter('match_metadata_json::jsonb->>\'sourceTcgplayerId\'', 'eq', tcgplayerId);
+      const { data } = await supabaseAdmin
+        .from('inventory_items')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('source_product_id', productId)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle();
+      if (data) return mapRow<InventoryItem>(data);
     }
 
-    const { data } = await query.limit(1).maybeSingle();
-    return data ? mapRow<InventoryItem>(data) : undefined;
+    if (tcgplayerId) {
+      const { data } = await supabaseAdmin
+        .from('inventory_items')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('source_tcgplayer_id', tcgplayerId)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle();
+      if (data) return mapRow<InventoryItem>(data);
+    }
+
+    return undefined;
   }
 
   async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string }): Promise<InventoryItem[]> {
