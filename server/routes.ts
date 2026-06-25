@@ -205,7 +205,6 @@ function buildNiimbotCsv(items: any[]): string {
 }
 
 // ─── Auth middleware ──────────────────────────────────────────────────────────
-// ADMIN_EMAIL must be set in Railway environment variables — no hardcoded fallback.
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 if (!ADMIN_EMAIL) {
   console.warn("[WARNING] ADMIN_EMAIL environment variable is not set. Admin routes will be inaccessible.");
@@ -232,13 +231,8 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-// ─── #3: use-invite rate limiter ─────────────────────────────────────────────
-// Simple in-memory store: tracks attempt timestamps per IP.
-// Allows max 5 attempts per IP per 15-minute window.
-// This is sufficient for a low-traffic invite-only app.
-// For high-traffic apps, replace with Redis or a DB-backed store.
 const useInviteAttempts = new Map<string, number[]>();
-const USE_INVITE_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+const USE_INVITE_WINDOW_MS = 15 * 60 * 1000;
 const USE_INVITE_MAX_ATTEMPTS = 5;
 
 function useInviteRateLimited(ip: string): boolean {
@@ -252,7 +246,6 @@ function useInviteRateLimited(ip: string): boolean {
 }
 
 export function registerRoutes(httpServer: Server, app: Express) {
-  // ── auth: validate invite code ────────────────────────────────────────────
   app.post("/api/auth/validate-invite", async (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: "Code required" });
@@ -266,21 +259,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ valid: true });
   });
 
-  // ── #3: auth: mark invite code used after signup ──────────────────────────
-  // Security hardening applied:
-  //   1. Requires a valid Bearer token — the caller must be an authenticated user.
-  //   2. The userId in the request body MUST match the token's sub claim.
-  //      This prevents any user from redeeming a code on behalf of another user.
-  //   3. IP-based rate limiting: max 5 attempts per 15-minute window.
-  //      This blocks automated abuse even if an attacker has a valid token.
   app.post("/api/auth/use-invite", async (req, res) => {
-    // 1. Rate limit by IP
     const ip = (req.headers["x-forwarded-for"] as string || req.socket.remoteAddress || "unknown").split(",")[0].trim();
     if (useInviteRateLimited(ip)) {
       return res.status(429).json({ error: "Too many requests. Please try again later." });
     }
-
-    // 2. Require a valid auth token
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -290,18 +273,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
     if (!user) {
       return res.status(401).json({ error: "Invalid or expired token" });
     }
-
-    // 3. Validate body params
     const { code, userId } = req.body;
     if (!code || !userId) return res.status(400).json({ error: "Missing params" });
-
-    // 4. Bind: userId in body must match the authenticated token's sub
-    //    This is the critical guard — prevents user A from redeeming a code as user B.
     if (userId !== user.id) {
       return res.status(403).json({ error: "Forbidden — userId mismatch" });
     }
-
-    // 5. Redeem the code
     const { error } = await supabaseAdmin
       .from("invite_codes")
       .update({ used: true, used_by: userId, used_at: new Date().toISOString() })
@@ -311,7 +287,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ ok: true });
   });
 
-  // ── auth: current user + admin flag ──────────────────────────────────────
   app.get("/api/auth/me", async (req, res) => {
     const auth = req.headers.authorization;
     if (!auth?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
@@ -322,7 +297,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ id: user.id, email: user.email, isAdmin });
   });
 
-  // ── admin: generate invite codes ─────────────────────────────────────────
   app.post("/api/admin/invite-codes", requireAdmin, async (req: any, res) => {
     const { count = 5, note = "" } = req.body;
     const codes = Array.from({ length: Math.min(count, 50) }, () => {
@@ -335,7 +309,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ codes: data });
   });
 
-  // ── admin: list invite codes ──────────────────────────────────────────────
   app.get("/api/admin/invite-codes", requireAdmin, async (_req, res) => {
     const { data, error } = await supabaseAdmin
       .from("invite_codes")
@@ -345,10 +318,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(data);
   });
 
-  // ── protect all remaining /api/* routes ───────────────────────────────────
   app.use("/api", requireAuth);
 
-  // ── dashboard stats ───────────────────────────────────────────────────────
   app.get("/api/dashboard/stats", async (req: any, res) => {
     try {
       const stats = await storage.getDashboardStats(req.user.id);
@@ -358,7 +329,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // ── uploads ───────────────────────────────────────────────────────────────
   app.get("/api/uploads", async (req: any, res) => {
     res.json(await storage.listUploads(req.user.id));
   });
@@ -379,7 +349,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(review);
   });
 
-  // ── #7: Upload CSV — multer error handler surfaces validation errors cleanly
   app.post("/api/uploads", (req: any, res: any, next: any) => {
     upload.single("file")(req, res, (err: any) => {
       if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
@@ -398,13 +367,12 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const now = new Date().toISOString();
 
-      // ── #8: Do NOT store raw CSV in the DB — store only metadata ─────────
       const newUpload = await storage.createUpload(userId, {
         sourceType,
         game,
         originalFilename: req.file.originalname,
         uploadedAt: now,
-        rawFileContent: null,   // intentionally omitted — data lives in parsed_rows
+        rawFileContent: null,
         totalRows: rawRows.length,
         parseStatus: "parsed",
         summaryJson: null,
@@ -473,10 +441,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // ── #6: Approve merge — atomic via approve_upload RPC ────────────────────
-  // All writes (inventory items, snapshots, label queue, parsed row status,
-  // review + upload finalization) run inside a single PostgreSQL transaction.
-  // If any step fails, Postgres rolls back everything — no partial DB state.
   app.post("/api/uploads/:id/approve", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -491,11 +455,9 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const uploadRecord = await storage.getUpload(userId, uploadId);
       const game = uploadRecord?.game || "pokemon";
 
-      // Fetch parsed rows once, build map — no per-item DB queries below
       const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
       const parsedById = new Map(allParsed.map(r => [r.id, r]));
 
-      // ── Build RPC payload: new items ──────────────────────────────────────
       const rpcNewItems = (payload.newItems || []).map((row: any) => {
         const parsedRow = parsedById.get(row.id);
         const matchMeta = {
@@ -530,7 +492,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
         };
       });
 
-      // ── Build RPC payload: matched items ──────────────────────────────────
       const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => {
         const parsedRow = parsedById.get(match.rowId);
         return {
@@ -542,7 +503,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
         };
       });
 
-      // ── Build RPC payload: repricing candidates ───────────────────────────
       const rpcRepricing = (payload.repricingCandidates || []).map((candidate: any) => {
         const matchedEntry = (payload.matchedItems || []).find((m: any) => m.rowId === candidate.rowId);
         return {
@@ -555,7 +515,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
         };
       }).filter((r: any) => r.existingId !== null);
 
-      // ── Single RPC call — everything commits or rolls back together ───────
       const { error: rpcError } = await supabaseAdmin.rpc("approve_upload", {
         p_user_id:       userId,
         p_upload_id:     uploadId,
@@ -578,7 +537,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // Reject merge
   app.post("/api/uploads/:id/reject", async (req: any, res) => {
     const userId = req.user.id;
     const review = await storage.getMergeReviewByUpload(userId, req.params.id);
@@ -588,7 +546,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // ── inventory ─────────────────────────────────────────────────────────────
   app.get("/api/inventory", async (req: any, res) => {
     const { game, condition, status, search } = req.query as Record<string, string>;
     const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });
@@ -628,9 +585,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.getSnapshotsByItem(req.user.id, req.params.id));
   });
 
-  // ── #6: Label queue — N+1 fix ─────────────────────────────────────────────
-  // Fetch all inventory items for the user once, build a Map, then join in memory.
-  // This reduces DB round-trips from O(n) per label to 2 total queries.
   app.get("/api/labels/new", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -693,7 +647,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // ── shows ─────────────────────────────────────────────────────────────────
   app.get("/api/shows", async (req: any, res) => {
     res.json(await storage.listShowLedgers(req.user.id));
   });
@@ -724,13 +677,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // ── #9: Snapshot history — paginated ─────────────────────────────────────
-  // Accepts ?page=1&limit=90 (default 90 days). Frontend chart only needs ~90 points.
+  // ── Snapshot history — returns a flat array (no pagination wrapper)
   app.get("/api/snapshots/history", async (req: any, res) => {
     try {
       const userId = req.user.id;
       const limit = Math.min(parseInt(req.query.limit as string) || 90, 365);
-      const page = Math.max(parseInt(req.query.page as string) || 1, 1);
 
       const items = await storage.listInventoryItems(userId);
       const allSnapshots = (await Promise.all(
@@ -745,16 +696,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const sorted = Object.entries(byDate)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }));
+        .map(([date, value]) => ({ date, value: Math.round(value * 100) / 100 }))
+        .slice(-limit);
 
-      const total = sorted.length;
-      const start = (page - 1) * limit;
-      const paginated = sorted.slice(start, start + limit);
-
-      res.json({
-        data: paginated,
-        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-      });
+      res.json(sorted);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -782,7 +727,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // ── settings ──────────────────────────────────────────────────────────────
   app.get("/api/settings/thresholds", async (req: any, res) => {
     res.json(await storage.getRepricingThresholds(req.user.id));
   });

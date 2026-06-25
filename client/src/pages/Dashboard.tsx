@@ -43,9 +43,14 @@ function CustomTooltip({ active, payload, label }: any) {
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
-  const { data: history = [], isLoading: histLoading } = useQuery<any[]>({ queryKey: ["/api/snapshots/history"] });
-  const { data: movers = [], isLoading: moversLoading } = useQuery<any[]>({ queryKey: ["/api/snapshots/movers"] });
-  const { data: shows = [] } = useQuery<any[]>({ queryKey: ["/api/shows"] });
+  const { data: historyRaw, isLoading: histLoading } = useQuery<any>({ queryKey: ["/api/snapshots/history"] });
+  const { data: moversRaw, isLoading: moversLoading } = useQuery<any>({ queryKey: ["/api/snapshots/movers"] });
+  const { data: showsRaw } = useQuery<any>({ queryKey: ["/api/shows"] });
+
+  // Defensive array coercion — guards against null, object, or paginated responses
+  const history: any[] = Array.isArray(historyRaw) ? historyRaw : [];
+  const movers: any[] = Array.isArray(moversRaw) ? moversRaw : [];
+  const shows: any[] = Array.isArray(showsRaw) ? showsRaw : [];
 
   const chartData = history.map(h => ({
     date: (() => { try { return format(parseISO(h.date), "M/d"); } catch { return h.date; } })(),
