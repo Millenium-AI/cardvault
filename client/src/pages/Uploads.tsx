@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeader } from "@/lib/queryClient";
-import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock } from "lucide-react";
+import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -269,14 +269,22 @@ export default function Uploads() {
 
   const { data: uploads = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
 
+  // FIX #2: queryFn must return the parsed JSON, not the raw Response.
+  // Previously `apiRequest` returned a Response and the query stored that object,
+  // so selectedReview was always a Response (truthy) but had no review fields.
   const { data: selectedReview, isLoading: reviewLoading } = useQuery<any>({
     queryKey: ["/api/uploads", selectedUploadId, "review"],
     queryFn: async () => {
       if (!selectedUploadId) return null;
       const res = await apiRequest("GET", `/api/uploads/${selectedUploadId}/review`);
-      return res.json();
+      // apiRequest returns a raw fetch Response — we must call .json() here
+      const data = await res.json();
+      // If the server returned an error object, throw so the query enters error state
+      if (data?.error) throw new Error(data.error);
+      return data;
     },
     enabled: !!selectedUploadId,
+    retry: false,
   });
 
   const uploadMut = useMutation({
@@ -298,6 +306,25 @@ export default function Uploads() {
       toast({ title: "CSV parsed", description: `${data.summary.totalParsed} rows ready for review.` });
     },
     onError: (e: any) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+  });
+
+  // FIX #1: Delete upload mutation
+  const deleteMut = useMutation({
+    mutationFn: async (uploadId: string) => {
+      const res = await apiRequest("DELETE", `/api/uploads/${uploadId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Delete failed");
+      return data;
+    },
+    onSuccess: (_data, uploadId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      if (selectedUploadId === uploadId) {
+        setSelectedUploadId(null);
+        setShowReview(false);
+      }
+      toast({ title: "Upload deleted" });
+    },
+    onError: (e: any) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
   });
 
   const handleFile = (file: File) => {
@@ -384,30 +411,49 @@ export default function Uploads() {
             ) : (
               <div className="space-y-1">
                 {uploads.map((u: any) => (
-                  <button
+                  <div
                     key={u.id}
-                    data-testid={`upload-row-${u.id}`}
-                    onClick={() => { setSelectedUploadId(u.id === selectedUploadId ? null : u.id); setShowReview(true); }}
                     className={cn(
-                      "w-full text-left px-3 py-2.5 rounded-md border transition-colors",
+                      "w-full text-left px-3 py-2.5 rounded-md border transition-colors flex items-start gap-2",
                       selectedUploadId === u.id ? "border-primary/40 bg-primary/5" : "border-border hover:bg-accent"
                     )}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <FileText size={12} className="text-muted-foreground shrink-0" />
-                        <span className="text-xs font-medium text-foreground truncate">{u.originalFilename}</span>
+                    {/* Clickable area */}
+                    <button
+                      data-testid={`upload-row-${u.id}`}
+                      onClick={() => { setSelectedUploadId(u.id === selectedUploadId ? null : u.id); setShowReview(true); }}
+                      className="flex-1 text-left min-w-0"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <FileText size={12} className="text-muted-foreground shrink-0" />
+                          <span className="text-xs font-medium text-foreground truncate">{u.originalFilename}</span>
+                        </div>
+                        <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium shrink-0", statusColors[u.parseStatus] || "")}>
+                          {u.parseStatus}
+                        </span>
                       </div>
-                      <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium shrink-0", statusColors[u.parseStatus] || "")}>
-                        {u.parseStatus}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
-                      <span>{u.game}</span><span>·</span>
-                      <span>{u.totalRows} rows</span><span>·</span>
-                      <span className="flex items-center gap-0.5"><Clock size={9} />{formatDate(u.uploadedAt)}</span>
-                    </div>
-                  </button>
+                      <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+                        <span>{u.game}</span><span>·</span>
+                        <span>{u.totalRows} rows</span><span>·</span>
+                        <span className="flex items-center gap-0.5"><Clock size={9} />{formatDate(u.uploadedAt)}</span>
+                      </div>
+                    </button>
+                    {/* Delete button */}
+                    <button
+                      aria-label="Delete upload"
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (confirm(`Delete "${u.originalFilename}"? This cannot be undone.`)) {
+                          deleteMut.mutate(u.id);
+                        }
+                      }}
+                      disabled={deleteMut.isPending && deleteMut.variables === u.id}
+                      className="shrink-0 mt-0.5 p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
