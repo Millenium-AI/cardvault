@@ -14,12 +14,8 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: true,
-    storage: {
-      // Custom storage using memory — avoids localStorage (blocked in iframe)
-      _data: {} as Record<string, string>,
-      getItem(key: string) { return this._data[key] ?? null; },
-      setItem(key: string, value: string) { this._data[key] = value; },
-      removeItem(key: string) { delete this._data[key]; },
-    },
+    // Use sessionStorage — persists across SPA navigation within the same tab,
+    // cleared when the tab closes. Works on Railway (no iframe restrictions).
+    storage: typeof window !== "undefined" ? window.sessionStorage : undefined,
   },
 });
