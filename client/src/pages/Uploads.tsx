@@ -24,12 +24,12 @@ function ExpandableSection({ title, count, color, children }: any) {
     <div className="border border-border rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-3 py-3 hover:bg-accent transition-colors text-sm"
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent transition-colors"
       >
-        <div className="flex items-center gap-2">
-          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          <span className="font-medium text-foreground">{title}</span>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>{count}</span>
+        <div className="flex items-center gap-2.5">
+          {open ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
+          <span className="text-sm font-semibold text-foreground">{title}</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold tabular-nums ${color}`}>{count}</span>
         </div>
       </button>
       {open && <div className="border-t border-border overflow-x-auto">{children}</div>}
@@ -41,7 +41,6 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   const { toast } = useToast();
   const payload = (() => { try { return JSON.parse(review.reviewPayload || "{}"); } catch { return {}; } })();
 
-  // Inline qty overrides: { [rowId]: newQty }
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
   function setQtyOverride(rowId: string, val: number) {
     setQtyOverrides(prev => ({ ...prev, [rowId]: val }));
@@ -73,20 +72,19 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  // Scrollable mini-table for expandable sections
   const MiniTable = ({ rows, cols }: { rows: any[]; cols: { key: string; label: string; render?: (v: any) => any }[] }) => (
-    <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
+    <div className="overflow-x-auto">
       <table className="w-full text-xs min-w-[480px]">
         <thead>
           <tr className="border-b border-border bg-muted/30">
-            {cols.map(c => <th key={c.key} className="text-left px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{c.label}</th>)}
+            {cols.map(c => <th key={c.key} className="text-left px-4 py-2.5 font-semibold text-muted-foreground whitespace-nowrap tracking-wide uppercase text-[10px]">{c.label}</th>)}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-accent/30">
+            <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors">
               {cols.map(c => (
-                <td key={c.key} className="px-3 py-2 text-foreground whitespace-nowrap">
+                <td key={c.key} className="px-4 py-2.5 text-foreground whitespace-nowrap">
                   {c.render ? c.render(row) : row[c.key] ?? "—"}
                 </td>
               ))}
@@ -98,146 +96,144 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   );
 
   return (
-    <div className="space-y-3">
-      {/* Summary grid — 2 cols on mobile, 4 on sm */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2.5">
-          <div className="text-xl font-bold text-emerald-400 mono">{review.newItemCount}</div>
-          <div className="text-xs text-muted-foreground">New items</div>
+    <div className="space-y-4">
+      {/* Summary stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {/* New Items */}
+        <div className="flex flex-col gap-1 rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3">
+          <div className="text-2xl font-bold tabular-nums text-emerald-400 leading-none">{review.newItemCount}</div>
+          <div className="text-xs font-medium text-muted-foreground">New items</div>
         </div>
-        <div className="bg-sky-500/10 border border-sky-500/20 rounded-lg px-3 py-2.5">
-          <div className="text-xl font-bold text-sky-400 mono">{review.matchedItemCount}</div>
-          <div className="text-xs text-muted-foreground">Qty changes</div>
+        {/* Qty Changes */}
+        <div className="flex flex-col gap-1 rounded-xl border border-sky-500/20 bg-sky-500/8 px-4 py-3">
+          <div className="text-2xl font-bold tabular-nums text-sky-400 leading-none">{review.matchedItemCount}</div>
+          <div className="text-xs font-medium text-muted-foreground">Qty changes</div>
           {review.matchedNoChangeCount > 0 && (
-            <div className="text-[10px] text-muted-foreground mt-0.5">{review.matchedNoChangeCount} unchanged</div>
+            <div className="text-[10px] text-muted-foreground/70 mt-0.5">{review.matchedNoChangeCount} unchanged</div>
           )}
         </div>
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2.5">
-          <div className="text-xl font-bold text-primary mono">{review.repricingCandidateCount}</div>
-          <div className="text-xs text-muted-foreground">Reprice alerts</div>
+        {/* Reprice Alerts */}
+        <div className="flex flex-col gap-1 rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-3">
+          <div className="text-2xl font-bold tabular-nums text-amber-400 leading-none">{review.repricingCandidateCount}</div>
+          <div className="text-xs font-medium text-muted-foreground">Reprice alerts</div>
         </div>
-        <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5">
-          <div className="text-xl font-bold text-red-400 mono">{review.duplicateWarningCount}</div>
-          <div className="text-xs text-muted-foreground">Warnings</div>
+        {/* Warnings */}
+        <div className="flex flex-col gap-1 rounded-xl border border-red-500/20 bg-red-500/8 px-4 py-3">
+          <div className="text-2xl font-bold tabular-nums text-red-400 leading-none">{review.duplicateWarningCount}</div>
+          <div className="text-xs font-medium text-muted-foreground">Warnings</div>
         </div>
       </div>
 
-      {/* Expandable tables */}
-      <ExpandableSection title="New Items" count={payload.newItems?.length} color="bg-emerald-500/10 text-emerald-400">
-        <MiniTable
-          rows={payload.newItems || []}
-          cols={[
-            { key: "productName", label: "Product Name" },
-            { key: "number", label: "#" },
-            { key: "condition", label: "Condition" },
-            { key: "rawMarketPrice", label: "Market $", render: r => r.rawMarketPrice ? `$${r.rawMarketPrice.toFixed(2)}` : "—" },
-            { key: "roundedPrintPrice", label: "Print $", render: r => r.roundedPrintPrice ? `$${r.roundedPrintPrice}` : "—" },
-            { key: "addToQuantity", label: "Qty" },
-          ]}
-        />
-      </ExpandableSection>
-
-      <ExpandableSection
-        title="Quantity Changes"
-        count={(payload.matchedItems || []).filter((r: any) => (qtyOverrides[r.rowId] ?? r.qtyDelta) !== 0).length}
-        color="bg-sky-500/10 text-sky-400"
-      >
-        <div className="overflow-x-auto -webkit-overflow-scrolling-touch">
-          <table className="w-full text-xs min-w-[560px]">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Product Name</th>
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">#</th>
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Cond</th>
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Cur Qty</th>
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">CSV Qty</th>
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Change</th>
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">Old $</th>
-                <th className="text-left px-3 py-2 font-medium text-muted-foreground">New $</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(payload.matchedItems || []).map((row: any, i: number) => {
-                const overrideQty = qtyOverrides[row.rowId];
-                const effectiveQty = overrideQty ?? row.csvQty ?? row.existingQty;
-                const delta = effectiveQty - (row.existingQty || 0);
-                const isEdited = overrideQty !== undefined;
-                return (
-                  <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30", isEdited && "bg-amber-500/5")}>
-                    <td className="px-3 py-2 text-foreground max-w-[160px] truncate">{row.productName}</td>
-                    <td className="px-3 py-2 text-foreground whitespace-nowrap">{row.number || "—"}</td>
-                    <td className="px-3 py-2 text-foreground whitespace-nowrap">{row.condition || "—"}</td>
-                    <td className="px-3 py-2 text-foreground whitespace-nowrap">{row.existingQty ?? "—"}</td>
-                    {/* Editable CSV qty */}
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        min={0}
-                        value={effectiveQty}
-                        onChange={e => setQtyOverride(row.rowId, Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-14 h-6 px-1.5 text-xs rounded border border-border bg-background text-foreground text-center focus:border-primary outline-none"
-                      />
-                    </td>
-                    {/* Delta */}
-                    <td className="px-3 py-2 whitespace-nowrap font-medium">
-                      {delta === 0
-                        ? <span className="text-muted-foreground">no change</span>
-                        : <span className={delta > 0 ? "text-emerald-400" : "text-red-400"}>{delta > 0 ? `+${delta}` : delta}</span>
-                      }
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{row.existingPrice ? `$${Number(row.existingPrice).toFixed(2)}` : "—"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{row.rawMarketPrice ? `$${Number(row.rawMarketPrice).toFixed(2)}` : "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </ExpandableSection>
-
-      {/* No-change matched items — collapsed by default, for reference only */}
-      {(payload.matchedItems || []).some((r: any) => r.qtyDelta === 0) && (
-        <ExpandableSection
-          title="Confirmed Unchanged"
-          count={(payload.matchedItems || []).filter((r: any) => r.qtyDelta === 0).length}
-          color="bg-muted/40 text-muted-foreground"
-        >
+      {/* Expandable sections */}
+      <div className="space-y-2">
+        <ExpandableSection title="New Items" count={payload.newItems?.length} color="bg-emerald-500/10 text-emerald-400">
           <MiniTable
-            rows={(payload.matchedItems || []).filter((r: any) => r.qtyDelta === 0)}
+            rows={payload.newItems || []}
             cols={[
               { key: "productName", label: "Product Name" },
               { key: "number", label: "#" },
-              { key: "condition", label: "Cond" },
-              { key: "existingQty", label: "Qty", render: (r: any) => <span className="text-muted-foreground">{r.existingQty} (no change)</span> },
-              { key: "existingPrice", label: "Price", render: (r: any) => r.existingPrice ? `$${Number(r.existingPrice).toFixed(2)}` : "—" },
+              { key: "condition", label: "Condition" },
+              { key: "rawMarketPrice", label: "Market $", render: r => r.rawMarketPrice ? `$${r.rawMarketPrice.toFixed(2)}` : "—" },
+              { key: "roundedPrintPrice", label: "Print $", render: r => r.roundedPrintPrice ? `$${r.roundedPrintPrice}` : "—" },
+              { key: "addToQuantity", label: "Qty" },
             ]}
           />
         </ExpandableSection>
-      )}
 
-      <ExpandableSection title="Repricing Candidates" count={payload.repricingCandidates?.length} color="bg-primary/10 text-primary">
-        <MiniTable
-          rows={payload.repricingCandidates || []}
-          cols={[
-            { key: "productName", label: "Product Name" },
-            { key: "priorPrice", label: "Prior $", render: r => r.priorPrice ? `$${Number(r.priorPrice).toFixed(2)}` : "—" },
-            { key: "newPrice", label: "New $", render: r => r.newPrice ? `$${Number(r.newPrice).toFixed(2)}` : "—" },
-            { key: "percentChange", label: "Change", render: r => r.percentChange ? `${r.percentChange}%` : "—" },
-            { key: "rule", label: "Rule" },
-          ]}
-        />
-      </ExpandableSection>
+        <ExpandableSection
+          title="Quantity Changes"
+          count={(payload.matchedItems || []).filter((r: any) => (qtyOverrides[r.rowId] ?? r.qtyDelta) !== 0).length}
+          color="bg-sky-500/10 text-sky-400"
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[560px]">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  {["Product Name","#","Cond","Cur Qty","CSV Qty","Change","Old $","New $"].map(h => (
+                    <th key={h} className="text-left px-4 py-2.5 font-semibold text-muted-foreground tracking-wide uppercase text-[10px] whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(payload.matchedItems || []).map((row: any, i: number) => {
+                  const overrideQty = qtyOverrides[row.rowId];
+                  const effectiveQty = overrideQty ?? row.csvQty ?? row.existingQty;
+                  const delta = effectiveQty - (row.existingQty || 0);
+                  const isEdited = overrideQty !== undefined;
+                  return (
+                    <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", isEdited && "bg-amber-500/5")}>
+                      <td className="px-4 py-2.5 text-foreground max-w-[160px] truncate">{row.productName}</td>
+                      <td className="px-4 py-2.5 text-foreground whitespace-nowrap">{row.number || "—"}</td>
+                      <td className="px-4 py-2.5 text-foreground whitespace-nowrap">{row.condition || "—"}</td>
+                      <td className="px-4 py-2.5 tabular-nums text-foreground">{row.existingQty ?? "—"}</td>
+                      <td className="px-4 py-2.5">
+                        <input
+                          type="number"
+                          min={0}
+                          value={effectiveQty}
+                          onChange={e => setQtyOverride(row.rowId, Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-16 h-7 px-2 text-xs rounded-md border border-border bg-background text-foreground text-center focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none transition-colors tabular-nums"
+                        />
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap font-semibold tabular-nums">
+                        {delta === 0
+                          ? <span className="text-muted-foreground font-normal">—</span>
+                          : <span className={delta > 0 ? "text-emerald-400" : "text-red-400"}>{delta > 0 ? `+${delta}` : delta}</span>
+                        }
+                      </td>
+                      <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground tabular-nums">{row.existingPrice ? `$${Number(row.existingPrice).toFixed(2)}` : "—"}</td>
+                      <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{row.rawMarketPrice ? `$${Number(row.rawMarketPrice).toFixed(2)}` : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </ExpandableSection>
+
+        {(payload.matchedItems || []).some((r: any) => r.qtyDelta === 0) && (
+          <ExpandableSection
+            title="Confirmed Unchanged"
+            count={(payload.matchedItems || []).filter((r: any) => r.qtyDelta === 0).length}
+            color="bg-muted/60 text-muted-foreground"
+          >
+            <MiniTable
+              rows={(payload.matchedItems || []).filter((r: any) => r.qtyDelta === 0)}
+              cols={[
+                { key: "productName", label: "Product Name" },
+                { key: "number", label: "#" },
+                { key: "condition", label: "Cond" },
+                { key: "existingQty", label: "Qty", render: (r: any) => <span className="text-muted-foreground tabular-nums">{r.existingQty}</span> },
+                { key: "existingPrice", label: "Price", render: (r: any) => r.existingPrice ? `$${Number(r.existingPrice).toFixed(2)}` : "—" },
+              ]}
+            />
+          </ExpandableSection>
+        )}
+
+        <ExpandableSection title="Repricing Candidates" count={payload.repricingCandidates?.length} color="bg-amber-500/10 text-amber-400">
+          <MiniTable
+            rows={payload.repricingCandidates || []}
+            cols={[
+              { key: "productName", label: "Product Name" },
+              { key: "priorPrice", label: "Prior $", render: r => r.priorPrice ? `$${Number(r.priorPrice).toFixed(2)}` : "—" },
+              { key: "newPrice", label: "New $", render: r => r.newPrice ? `$${Number(r.newPrice).toFixed(2)}` : "—" },
+              { key: "percentChange", label: "Change", render: r => r.percentChange ? `${r.percentChange}%` : "—" },
+              { key: "rule", label: "Rule" },
+            ]}
+          />
+        </ExpandableSection>
+      </div>
 
       {/* Action buttons */}
       {review.status === "pending" && (
-        <div className="flex gap-2 pt-1">
+        <div className="flex items-center gap-3 pt-2 border-t border-border">
           <Button
             data-testid="button-approve-merge"
             onClick={() => approveMut.mutate()}
             disabled={approveMut.isPending}
-            className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-500 text-white h-10"
+            className="gap-2 bg-emerald-600 hover:bg-emerald-500 text-white h-10 px-5 font-semibold"
           >
-            <CheckCircle size={15} className="mr-2" />
+            <CheckCircle size={15} />
             {approveMut.isPending ? "Merging…" : "Approve Merge"}
           </Button>
           <Button
@@ -245,15 +241,15 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
             variant="outline"
             onClick={() => rejectMut.mutate()}
             disabled={rejectMut.isPending}
-            className="flex-1 sm:flex-none border-red-500/30 text-red-400 hover:bg-red-500/10 h-10"
+            className="gap-2 border-red-500/40 text-red-400 hover:bg-red-500/10 hover:border-red-500/60 h-10 px-5 font-semibold"
           >
-            <XCircle size={15} className="mr-2" />
+            <XCircle size={15} />
             Reject
           </Button>
         </div>
       )}
       {review.status !== "pending" && (
-        <div className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium", statusColors[review.status] || "text-muted-foreground")}>
+        <div className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold mt-1", statusColors[review.status] || "text-muted-foreground")}>
           {review.status === "approved" || review.status === "merged" ? <CheckCircle size={14} /> : <XCircle size={14} />}
           {review.status.charAt(0).toUpperCase() + review.status.slice(1)}
         </div>
@@ -319,7 +315,6 @@ export default function Uploads() {
         <h1 className="text-lg font-semibold text-foreground">Uploads</h1>
       </div>
 
-      {/* On mobile: review panel slides in above history when an upload is selected */}
       <div className="flex flex-col lg:grid lg:grid-cols-3 gap-4">
 
         {/* Left column */}
@@ -419,7 +414,7 @@ export default function Uploads() {
           </div>
         </div>
 
-        {/* Review panel — full width on mobile when shown */}
+        {/* Review panel */}
         <div className="lg:col-span-2">
           {!selectedUploadId || !showReview ? (
             <div className="stat-card h-40 lg:h-64 flex items-center justify-center text-muted-foreground text-sm">
@@ -428,7 +423,7 @@ export default function Uploads() {
           ) : reviewLoading ? (
             <div className="stat-card space-y-3">
               <Skeleton className="h-5 w-40" />
-              <div className="grid grid-cols-2 gap-2">{Array.from({length:4}).map((_,i)=><Skeleton key={i} className="h-14"/>)}</div>
+              <div className="grid grid-cols-2 gap-3">{Array.from({length:4}).map((_,i)=><Skeleton key={i} className="h-16"/>)}</div>
             </div>
           ) : selectedReview ? (
             <div className="stat-card">
