@@ -129,7 +129,6 @@ export default function Login() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: window.location.origin },
       });
       if (error) throw error;
     } catch (err: any) {
@@ -156,7 +155,6 @@ export default function Login() {
       sessionStorage.setItem("pendingInviteCode", inviteCode.trim().toUpperCase());
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: window.location.origin },
       });
       if (error) throw error;
     } catch (err: any) {
