@@ -329,6 +329,11 @@ class SupabaseStorage {
     await supabaseAdmin.from('label_queue_items').update({ export_status: exportStatus }).in('id', ids).eq('user_id', userId);
   }
 
+  async deleteLabelQueueItem(userId: string, id: string): Promise<void> {
+    const { error } = await supabaseAdmin.from('label_queue_items').delete().eq('id', id).eq('user_id', userId);
+    if (error) throw new Error(error.message);
+  }
+
   // ── app settings ───────────────────────────────────────────────────────────
   async getSetting(userId: string, key: string): Promise<string | undefined> {
     const { data } = await supabaseAdmin.from('app_settings').select('value').eq('user_id', userId).eq('key', key).maybeSingle();

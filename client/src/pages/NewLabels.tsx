@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Download, CheckSquare, Square, Tag, ArrowLeft } from "lucide-react";
+import { Download, CheckSquare, Square, Tag, ArrowLeft, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -73,6 +73,24 @@ export default function NewLabels() {
     onError: (e: any) => toast({ title: "Export failed", description: e.message, variant: "destructive" }),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/labels/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/labels/new"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({ title: "Removed from queue" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to remove label.", variant: "destructive" }),
+  });
+
+  function handleDeleteLabel(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    if (confirm("Remove this label from the queue?")) deleteMut.mutate(id);
+  }
+
   const totalSelected = selected.size;
 
   // ── Tile picker (no game selected) ──────────────────────────────────────────
@@ -82,20 +100,27 @@ export default function NewLabels() {
         <div className="page-header">
           <h1 className="page-title">New Labels</h1>
         </div>
-        <GameTileGrid items={items} images={GAME_IMAGES} onSelect={setSelectedGame} />
+        <GameTileGrid
+          items={items.filter(i => i.exportStatus === "pending")}
+          images={GAME_IMAGES}
+          onSelect={setSelectedGame}
+        />
       </div>
     );
   }
 
   return (
     <div>
-      <button
-        data-testid="button-back-to-games"
-        onClick={() => setSelectedGame(null)}
-        className="inline-flex items-center gap-1 mb-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft size={14} /> Games
-      </button>
+      {/* Back to game tiles — sticky so it's always reachable */}
+      <div className="sticky top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 mb-3 bg-background/95 backdrop-blur border-b border-border/60">
+        <button
+          data-testid="button-back-to-games"
+          onClick={() => setSelectedGame(null)}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft size={14} /> Games
+        </button>
+      </div>
 
       <div className="page-header">
         <div>
@@ -184,6 +209,15 @@ export default function NewLabels() {
                       }`}>{item.exportStatus}</span>
                     </div>
                   </div>
+                  {/* Delete */}
+                  <button
+                    onClick={e => handleDeleteLabel(e, item.id)}
+                    aria-label="Delete label"
+                    disabled={deleteMut.isPending}
+                    className="shrink-0 self-center p-1.5 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               );
             })
@@ -218,19 +252,20 @@ export default function NewLabels() {
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Market Price</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Added</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Status</th>
+                <th className="px-3 py-2.5 w-10"></th>
               </tr>
             </thead>
             <tbody>
               {isLoading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} className="border-b border-border/50">
-                      <td colSpan={8} className="px-3 py-2.5"><Skeleton className="h-8 w-full" /></td>
+                      <td colSpan={9} className="px-3 py-2.5"><Skeleton className="h-8 w-full" /></td>
                     </tr>
                   ))
                 : displayed.length === 0
                 ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-12 text-center text-muted-foreground text-sm">
+                      <td colSpan={9} className="px-3 py-12 text-center text-muted-foreground text-sm">
                         <Tag size={24} className="mx-auto mb-2 opacity-40" />
                         {filter === "pending" ? "No pending labels — approve an upload to generate labels" : "No items"}
                       </td>
@@ -263,6 +298,16 @@ export default function NewLabels() {
                             ? "bg-emerald-500/10 text-emerald-400"
                             : "bg-primary/10 text-primary"
                         }`}>{item.exportStatus}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <button
+                          onClick={e => handleDeleteLabel(e, item.id)}
+                          aria-label="Delete label"
+                          disabled={deleteMut.isPending}
+                          className="p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </td>
                     </tr>
                   ))

@@ -679,7 +679,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
     const item = await resolveInventoryItem(req.user.id, req.params.id, res);
     if (!item) return;
 
-    const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes"];
+    const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes", "productName", "game", "status"];
     const patch: Record<string, any> = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) patch[key] = req.body[key];
@@ -743,6 +743,16 @@ export function registerRoutes(httpServer: Server, app: Express) {
     const updated = await storage.updateLabelQueueItem(req.user.id, req.params.id, req.body);
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
+  });
+
+  app.delete("/api/labels/:id", async (req: any, res) => {
+    try {
+      await storage.deleteLabelQueueItem(req.user.id, req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[delete label]", e);
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.post("/api/labels/export", async (req: any, res) => {

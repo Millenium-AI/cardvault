@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, Download, ArrowLeft } from "lucide-react";
+import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, Download, ArrowLeft, Minus, Pencil } from "lucide-react";
 import { GameTileGrid } from "@/components/GameTileGrid";
 import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ const GAME_IMAGES: Record<string, string> = {
   "dragon-ball": "",
 };
 
-// ── Price History ─────────────────────────────────────────────────────────────
+// ── Price History — financial-style timeline ──────────────────────────────────
 function PriceHistory({ itemId }: { itemId: string }) {
   const { data: snaps = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inventory", itemId, "snapshots"],
@@ -31,26 +32,42 @@ function PriceHistory({ itemId }: { itemId: string }) {
       return res.json();
     },
   });
-  if (isLoading) return <div className="text-xs text-muted-foreground">Loading…</div>;
-  if (!snaps.length) return <div className="text-xs text-muted-foreground">No price history yet</div>;
+
+  const Heading = () => (
+    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Price History</div>
+  );
+
+  if (isLoading) return <div><Heading /><div className="text-xs text-muted-foreground">Loading…</div></div>;
+  if (!snaps.length) return <div><Heading /><div className="text-xs text-muted-foreground">No price history yet</div></div>;
+
+  // Oldest → newest so it reads like a chart timeline.
+  const chrono = [...snaps].slice(0, 12).reverse();
+
   return (
     <div>
-      <div className="text-xs font-medium text-muted-foreground mb-1.5">Price History</div>
-      <div className="flex gap-3 overflow-x-auto pb-1">
-        {snaps.slice(0, 12).map((s: any, i: number) => {
-          const prev = snaps[i + 1];
-          const change = prev ? ((s.rawMarketPrice - prev.rawMarketPrice) / prev.rawMarketPrice * 100) : 0;
+      <Heading />
+      <div className="flex items-center gap-1 overflow-x-auto pb-1">
+        {chrono.map((s: any, i: number) => {
+          const prev = chrono[i - 1];
+          const change = prev && prev.rawMarketPrice
+            ? ((s.rawMarketPrice - prev.rawMarketPrice) / prev.rawMarketPrice) * 100
+            : null;
+          const isLatest = i === chrono.length - 1;
           return (
-            <div key={s.id} className="flex flex-col items-center gap-0.5 shrink-0">
-              <div className="text-xs font-mono font-medium text-foreground">${s.rawMarketPrice.toFixed(2)}</div>
-              {prev && (
-                <div className={`flex items-center gap-0.5 text-[10px] ${change > 0 ? "text-emerald-400" : change < 0 ? "text-red-400" : "text-muted-foreground"}`}>
-                  {change > 0 ? <TrendingUp size={9} /> : change < 0 ? <TrendingDown size={9} /> : null}
-                  {Math.abs(change).toFixed(1)}%
+            <div key={s.id} className="flex items-center gap-1 shrink-0">
+              {change !== null && (
+                <div className={`flex flex-col items-center justify-center px-0.5 ${change > 0 ? "text-emerald-400" : change < 0 ? "text-red-400" : "text-muted-foreground"}`}>
+                  {change > 0 ? <TrendingUp size={12} /> : change < 0 ? <TrendingDown size={12} /> : <Minus size={12} />}
+                  <span className="text-[9px] font-medium tabular-nums">{change > 0 ? "+" : ""}{change.toFixed(1)}%</span>
                 </div>
               )}
-              <div className="text-[10px] text-muted-foreground">
-                {(() => { try { return format(parseISO(s.snapshotDate), "M/d"); } catch { return "—"; } })()}
+              <div className={`flex flex-col items-center justify-center rounded-lg border px-2.5 py-1.5 min-w-[66px] ${isLatest ? "border-primary/40 bg-primary/10" : "border-border bg-muted/30"}`}>
+                <span className={`font-mono font-semibold tabular-nums leading-none ${isLatest ? "text-primary text-base" : "text-foreground text-sm"}`}>
+                  ${s.rawMarketPrice.toFixed(2)}
+                </span>
+                <span className="text-[10px] text-muted-foreground mt-1">
+                  {(() => { try { return format(parseISO(s.snapshotDate), "MMM d"); } catch { return "—"; } })()}
+                </span>
               </div>
             </div>
           );
@@ -94,8 +111,8 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
   const printPrice = !isNaN(parseFloat(price)) && parseFloat(price) >= 0 ? Math.ceil(parseFloat(price)) : null;
 
   return (
-    <div className="border border-primary/30 rounded-lg p-3 bg-primary/5 space-y-3">
-      <div className="text-xs font-semibold text-primary uppercase tracking-wide">Edit Item</div>
+    <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-primary">Edit Item</div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
@@ -131,8 +148,8 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
 
       <div className="space-y-1">
         <div className="text-[11px] text-muted-foreground font-medium">Notes</div>
-        <Input data-testid="input-edit-notes" value={notes} onChange={e => setNotes(e.target.value)}
-          className="h-8 text-sm" placeholder="e.g. scanner miscounted" />
+        <Textarea data-testid="input-edit-notes" value={notes} onChange={e => setNotes(e.target.value)}
+          rows={2} className="text-sm resize-none" placeholder="e.g. scanner miscounted" />
       </div>
 
       <div className="flex gap-2 pt-1">
@@ -140,12 +157,21 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
           disabled={mutation.isPending} className="h-8 text-xs gap-1.5">
           <Check size={12} />{mutation.isPending ? "Saving…" : "Save"}
         </Button>
-        <Button variant="outline" size="sm" onClick={onDone}
+        <Button data-testid="button-cancel-edit" variant="outline" size="sm" onClick={onDone}
           disabled={mutation.isPending} className="h-8 text-xs gap-1.5">
           <X size={12} />Cancel
         </Button>
       </div>
     </div>
+  );
+}
+
+// ── Small pill/badge chip ─────────────────────────────────────────────────────
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground">
+      {children}
+    </span>
   );
 }
 
@@ -159,49 +185,90 @@ function ExpandedDetail({
   setEditing: (v: boolean) => void;
   stopProp?: boolean;
 }) {
+  const { toast } = useToast();
   const wrap = (e: React.MouseEvent) => { if (stopProp) e.stopPropagation(); };
 
+  const deleteMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/inventory/${item.id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      toast({ title: "Deleted", description: "Item removed from inventory." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete item.", variant: "destructive" });
+    },
+  });
+
+  function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (confirm(`Delete "${item.productName}"? This cannot be undone.`)) deleteMut.mutate();
+  }
+
+  const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity || item.tcgplayerUrl;
+
   return (
-    <div className="space-y-3" onClick={wrap}>
-      {(meta.sourcePrinting || meta.sourceRarity || item.notes) && (
-        <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs">
-          {meta.sourcePrinting && (
-            <div><span className="text-muted-foreground">Printing: </span><span className="text-foreground">{meta.sourcePrinting}</span></div>
-          )}
-          {meta.sourceRarity && (
-            <div><span className="text-muted-foreground">Rarity: </span><span className="text-foreground">{meta.sourceRarity}</span></div>
-          )}
-          {item.notes && (
-            <div className="w-full"><span className="text-muted-foreground">Notes: </span><span className="text-foreground">{item.notes}</span></div>
+    <div className="rounded-xl border border-border bg-card/60 p-4 space-y-4" onClick={wrap}>
+      {/* Metadata chips */}
+      {hasChips && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {meta.sourceSetName && <Chip>{meta.sourceSetName}</Chip>}
+          {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
+          {meta.sourceRarity && <Chip>{meta.sourceRarity}</Chip>}
+          {item.tcgplayerUrl && (
+            <a
+              href={item.tcgplayerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              title="View on TCGplayer"
+              aria-label="View on TCGplayer"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-muted/50 text-muted-foreground transition-colors hover:text-primary hover:border-primary/40"
+            >
+              <ExternalLink size={12} />
+            </a>
           )}
         </div>
       )}
 
       <PriceHistory itemId={item.id} />
 
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        {item.tcgplayerUrl ? (
-          <a
-            href={item.tcgplayerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={e => e.stopPropagation()}
-            className="inline-flex items-center gap-1 text-xs text-primary hover:text-primary/80"
-          >
-            <ExternalLink size={11} /> View on TCGplayer
-          </a>
-        ) : <span />}
-        {!editing && (
-          <button
-            onClick={e => { e.stopPropagation(); setEditing(true); }}
-            className="text-xs text-muted-foreground hover:text-primary transition-colors underline underline-offset-2"
-          >
-            Edit item
-          </button>
-        )}
-      </div>
+      {/* Notes — italic in view mode */}
+      {!editing && item.notes && (
+        <div className="text-xs">
+          <span className="text-muted-foreground">Notes: </span>
+          <span className="italic text-foreground/80">{item.notes}</span>
+        </div>
+      )}
 
-      {editing && <InlineEditPanel item={item} onDone={() => setEditing(false)} />}
+      {/* Actions transform into the edit form in place */}
+      {editing ? (
+        <InlineEditPanel item={item} onDone={() => setEditing(false)} />
+      ) : (
+        <div className="flex items-center gap-2 pt-0.5">
+          <Button
+            data-testid="button-edit-item"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={e => { e.stopPropagation(); setEditing(true); }}
+          >
+            <Pencil size={12} /> Edit item
+          </Button>
+          <Button
+            data-testid="button-delete-item"
+            variant="outline"
+            size="sm"
+            disabled={deleteMut.isPending}
+            className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+            onClick={handleDelete}
+          >
+            <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -508,14 +575,16 @@ export default function Inventory() {
 
   return (
     <div>
-      {/* Back to game tiles */}
-      <button
-        data-testid="button-back-to-games"
-        onClick={() => setSelectedGame(null)}
-        className="inline-flex items-center gap-1 mb-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft size={14} /> Games
-      </button>
+      {/* Back to game tiles — sticky so it's always reachable */}
+      <div className="sticky top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 mb-3 bg-background/95 backdrop-blur border-b border-border/60">
+        <button
+          data-testid="button-back-to-games"
+          onClick={() => setSelectedGame(null)}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft size={14} /> Games
+        </button>
+      </div>
 
       {/* Header */}
       <div className="flex flex-col gap-1 mb-4 sm:flex-row sm:items-center sm:justify-between">
