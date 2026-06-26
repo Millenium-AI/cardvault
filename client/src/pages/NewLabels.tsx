@@ -137,7 +137,7 @@ export default function NewLabels() {
             <Button
               data-testid="button-export-new-labels"
               disabled={totalSelected === 0 || exportMut.isPending}
-              className="h-10 px-5 text-sm font-semibold gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+              className="h-10 px-5 text-sm font-semibold gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
             >
               <Download size={16} />
               {exportMut.isPending
@@ -346,7 +346,7 @@ export default function NewLabels() {
             <DropdownMenuTrigger asChild>
               <Button
                 disabled={exportMut.isPending}
-                className="h-9 px-4 text-sm font-semibold gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+                className="h-9 px-4 text-sm font-semibold gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
               >
                 <Download size={15} />
                 Export Labels

@@ -640,7 +640,7 @@ export default function Inventory() {
               data-testid="button-export-inventory"
               size="sm"
               disabled={exporting}
-              className="h-9 px-4 text-sm font-semibold gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+              className="h-9 px-4 text-sm font-semibold gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
             >
               <Download size={15} />
               {exporting ? "Exporting…" : "Export Labels"}
