@@ -18,15 +18,35 @@ const AuthContext = createContext<AuthContextValue>({
   signOut: async () => {},
 });
 
+// ── Dev bypass ────────────────────────────────────────────────────────────────
+// Set VITE_DEV_BYPASS=true in your .env to skip Google/Supabase auth locally.
+// Never set this in production.
+const DEV_BYPASS = import.meta.env.VITE_DEV_BYPASS === "true";
+
+const DEV_FAKE_SESSION = DEV_BYPASS
+  ? ({
+      access_token: "dev-bypass-token",
+      token_type: "bearer",
+      expires_in: 9999999,
+      expires_at: 9999999999,
+      refresh_token: "dev-bypass-refresh",
+      user: {
+        id: import.meta.env.VITE_DEV_BYPASS_USER_ID || "dev-user-id",
+        email: import.meta.env.VITE_DEV_BYPASS_EMAIL || "dev@local.test",
+        app_metadata: {},
+        user_metadata: {},
+        aud: "authenticated",
+        created_at: new Date().toISOString(),
+      },
+    } as unknown as Session)
+  : null;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
-  // Track whether loading has already been resolved so we only call
-  // setLoading(false) once — whichever path (getSession or onAuthStateChange)
-  // wins the race.
-  const loadingResolved = useRef(false);
+  const [user, setUser] = useState<User | null>(DEV_BYPASS ? DEV_FAKE_SESSION!.user : null);
+  const [session, setSession] = useState<Session | null>(DEV_BYPASS ? DEV_FAKE_SESSION : null);
+  const [isAdmin, setIsAdmin] = useState(import.meta.env.VITE_DEV_BYPASS_IS_ADMIN === "true");
+  const [loading, setLoading] = useState(!DEV_BYPASS);
+  const loadingResolved = useRef(DEV_BYPASS);
 
   function resolveLoading() {
     if (!loadingResolved.current) {
@@ -36,7 +56,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function fetchAdminStatus(token: string) {
-    // Timeout after 5s so a slow/down API never leaves loading=true forever
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
@@ -51,7 +70,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAdmin(false);
       }
     } catch {
-      // Network error, timeout, or abort — non-fatal, default to not admin
       setIsAdmin(false);
     } finally {
       clearTimeout(timeout);
@@ -59,7 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    // ── 1. Eagerly read the existing session (covers page refreshes) ──────────
+    // Skip Supabase entirely in dev bypass mode
+    if (DEV_BYPASS) return;
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -69,34 +89,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resolveLoading();
       }
     }).catch(() => {
-      // If getSession itself fails, still unblock the UI
       resolveLoading();
     });
 
-    // ── 2. Listen for auth state changes (covers OAuth callbacks, sign-out) ───
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
 
       if (session?.access_token) {
-        // Fire-and-forget admin check — resolveLoading unblocks the UI
-        // immediately and the isAdmin flag updates when the fetch returns.
         fetchAdminStatus(session.access_token);
 
-        // After a Google OAuth signup via invite, redeem the invite code that
-        // was passed as ?invite= in the redirectTo URL. sessionStorage does not
-        // survive the full-page OAuth redirect, so the URL param is used instead.
         if (_event === "SIGNED_IN" && session.user.app_metadata?.provider === "google") {
           const params = new URLSearchParams(window.location.search);
           const pendingCode = params.get("invite");
           if (pendingCode) {
-            // Strip the param immediately so it doesn't re-fire on refresh
             const cleanUrl = window.location.origin + window.location.hash;
             window.history.replaceState({}, "", cleanUrl);
 
             try {
-              // MUST include the Bearer token — /api/auth/use-invite requires
-              // an authenticated user and validates userId === token.sub.
               await fetch("/api/auth/use-invite", {
                 method: "POST",
                 headers: {
@@ -106,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 body: JSON.stringify({ code: pendingCode, userId: session.user.id }),
               });
             } catch {
-              // Non-fatal — user is still signed in
+              // Non-fatal
             }
           }
         }
@@ -114,10 +124,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAdmin(false);
       }
 
-      // ── KEY FIX: always unblock the UI after the first auth event ──────────
-      // This handles the race where onAuthStateChange fires before getSession()
-      // resolves (common on Railway / cold-start environments). Without this,
-      // loading stays true forever and no pages render.
       resolveLoading();
     });
 
@@ -125,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function signOut() {
-    await supabase.auth.signOut();
+    if (!DEV_BYPASS) await supabase.auth.signOut();
     setIsAdmin(false);
   }
 
