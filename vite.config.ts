@@ -12,6 +12,8 @@ export default defineConfig({
     },
   },
   root: path.resolve(import.meta.dirname, "client"),
+  // Read .env from the repo root (not client/) so one file serves server + client.
+  envDir: import.meta.dirname,
   base: "./",
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
