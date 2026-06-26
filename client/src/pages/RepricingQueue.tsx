@@ -1,13 +1,24 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Download, CheckSquare, Square, TrendingUp, TrendingDown, RefreshCcw } from "lucide-react";
+import { Download, CheckSquare, Square, TrendingUp, TrendingDown, RefreshCcw, ArrowLeft } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ConditionBadge } from "@/components/ConditionBadge";
+import { GameTileGrid } from "@/components/GameTileGrid";
+import { useGameParam } from "@/lib/useGameParam";
 import { format, parseISO } from "date-fns";
+
+// Placeholder image map for the game tiles — keyed by the stored game value.
+const GAME_IMAGES: Record<string, string> = {
+  all: "",
+  pokemon: "",
+  "one-piece": "",
+  sorcery: "",
+  "dragon-ball": "",
+};
 
 function PctBadge({ pct }: { pct: number | null }) {
   if (pct === null || pct === undefined) return <span className="text-muted-foreground">—</span>;
@@ -33,12 +44,18 @@ export default function RepricingQueue() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<"all" | "pending" | "exported" | "skipped">("pending");
   const { toast } = useToast();
+  const [selectedGame, setSelectedGame] = useGameParam();
 
   const { data: items = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/labels/reprice"],
   });
 
-  const displayed = items.filter(i => filter === "all" || i.exportStatus === filter);
+  // Tile layer: scope the list to the selected game ("all"/null → no scoping).
+  const scopedItems = selectedGame && selectedGame !== "all"
+    ? items.filter(i => i.game === selectedGame)
+    : items;
+
+  const displayed = scopedItems.filter(i => filter === "all" || i.exportStatus === filter);
   const pendingItems = displayed.filter(i => i.exportStatus === "pending");
   const allPendingIds = pendingItems.map((i: any) => i.id);
   const allSelected = allPendingIds.length > 0 && allPendingIds.every(id => selected.has(id));
@@ -89,10 +106,30 @@ export default function RepricingQueue() {
   });
 
   const totalSelected = selected.size;
-  const pendingCount = items.filter(i => i.exportStatus === "pending").length;
+  const pendingCount = scopedItems.filter(i => i.exportStatus === "pending").length;
+
+  // ── Tile picker (no game selected) ──────────────────────────────────────────
+  if (selectedGame === null) {
+    return (
+      <div>
+        <div className="page-header">
+          <h1 className="page-title">Repricing Queue</h1>
+        </div>
+        <GameTileGrid items={items} images={GAME_IMAGES} onSelect={setSelectedGame} />
+      </div>
+    );
+  }
 
   return (
     <div>
+      <button
+        data-testid="button-back-to-games"
+        onClick={() => setSelectedGame(null)}
+        className="inline-flex items-center gap-1 mb-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft size={14} /> Games
+      </button>
+
       <div className="page-header">
         <div>
           <h1 className="page-title">Repricing Queue</h1>

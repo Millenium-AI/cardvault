@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, Download } from "lucide-react";
+import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, Download, ArrowLeft } from "lucide-react";
+import { GameTileGrid } from "@/components/GameTileGrid";
+import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +11,16 @@ import { Button } from "@/components/ui/button";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { useToast } from "@/hooks/use-toast";
 import { format, parseISO } from "date-fns";
+
+// Placeholder image map for the game tiles — keyed by the stored game value.
+// Drop in image URLs here later without touching the tile component.
+const GAME_IMAGES: Record<string, string> = {
+  all: "",
+  pokemon: "",
+  "one-piece": "",
+  sorcery: "",
+  "dragon-ball": "",
+};
 
 // ── Price History ─────────────────────────────────────────────────────────────
 function PriceHistory({ itemId }: { itemId: string }) {
@@ -379,7 +391,10 @@ function InventoryRow({
 export default function Inventory() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
-  const [game, setGame] = useState("all");
+  // selectedGame === null → show the tile picker; any string → table view.
+  // `game` mirrors it (defaulting to "all") for the query + filter dropdown.
+  const [selectedGame, setSelectedGame] = useGameParam();
+  const game = selectedGame ?? "all";
   const [condition, setCondition] = useState("all");
   const [sortBy, setSortBy] = useState("lastSeenAt");
 
@@ -481,8 +496,27 @@ export default function Inventory() {
     }
   }
 
+  // ── Tile picker (no game selected) ──────────────────────────────────────────
+  if (selectedGame === null) {
+    return (
+      <div>
+        <h1 className="text-lg font-semibold text-foreground mb-4">Inventory</h1>
+        <GameTileGrid items={items} images={GAME_IMAGES} onSelect={setSelectedGame} />
+      </div>
+    );
+  }
+
   return (
     <div>
+      {/* Back to game tiles */}
+      <button
+        data-testid="button-back-to-games"
+        onClick={() => setSelectedGame(null)}
+        className="inline-flex items-center gap-1 mb-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft size={14} /> Games
+      </button>
+
       {/* Header */}
       <div className="flex flex-col gap-1 mb-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-lg font-semibold text-foreground">Inventory</h1>
@@ -509,7 +543,7 @@ export default function Inventory() {
             className="pl-7 h-9 text-sm"
           />
         </div>
-        <Select value={game} onValueChange={setGame}>
+        <Select value={game} onValueChange={setSelectedGame}>
           <SelectTrigger data-testid="select-filter-game" className="w-[110px] h-9 text-xs">
             <SelectValue placeholder="Game" />
           </SelectTrigger>
@@ -518,6 +552,7 @@ export default function Inventory() {
             <SelectItem value="one-piece">One Piece</SelectItem>
             <SelectItem value="pokemon">Pokémon</SelectItem>
             <SelectItem value="sorcery">Sorcery</SelectItem>
+            <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
             <SelectItem value="mtg">MTG</SelectItem>
           </SelectContent>
         </Select>
