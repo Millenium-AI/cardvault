@@ -224,7 +224,20 @@ if (!ADMIN_EMAIL) {
   console.warn("[WARNING] ADMIN_EMAIL is not set. Admin routes will be inaccessible.");
 }
 
+// Dev bypass — only active when NODE_ENV=development and DEV_BYPASS_USER_ID is set
+const DEV_MODE = process.env.NODE_ENV === "development";
+const DEV_BYPASS_USER_ID = process.env.DEV_BYPASS_USER_ID;
+const DEV_BYPASS_EMAIL = process.env.DEV_BYPASS_EMAIL;
+const DEV_BYPASS_IS_ADMIN = process.env.DEV_BYPASS_IS_ADMIN === "true";
+
 async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (DEV_MODE && DEV_BYPASS_USER_ID) {
+    (req as any).user = {
+      id: DEV_BYPASS_USER_ID,
+      email: DEV_BYPASS_EMAIL || "dev@local.test",
+    };
+    return next();
+  }
   const token = req.headers.authorization?.slice(7);
   if (!token) return res.status(401).json({ error: "Unauthorized" });
   const user = await verifyToken(token);
@@ -234,6 +247,13 @@ async function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 async function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (DEV_MODE && DEV_BYPASS_USER_ID && DEV_BYPASS_IS_ADMIN) {
+    (req as any).user = {
+      id: DEV_BYPASS_USER_ID,
+      email: DEV_BYPASS_EMAIL || "dev@local.test",
+    };
+    return next();
+  }
   await requireAuth(req, res, async () => {
     const user = (req as any).user;
     if (!ADMIN_EMAIL || user.email !== ADMIN_EMAIL)
