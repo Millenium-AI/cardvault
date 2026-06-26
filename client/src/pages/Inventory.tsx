@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, Download, ArrowLeft, Minus, Pencil } from "lucide-react";
+import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, Download, ArrowLeft, Minus, Pencil, FileSpreadsheet, FileText } from "lucide-react";
 import { GameTileGrid } from "@/components/GameTileGrid";
 import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
@@ -12,9 +12,14 @@ import { Button } from "@/components/ui/button";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { useToast } from "@/hooks/use-toast";
 import { format, parseISO } from "date-fns";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // Placeholder image map for the game tiles — keyed by the stored game value.
-// Drop in image URLs here later without touching the tile component.
 const GAME_IMAGES: Record<string, string> = {
   all: "",
   pokemon: "",
@@ -40,7 +45,6 @@ function PriceHistory({ itemId }: { itemId: string }) {
   if (isLoading) return <div><Heading /><div className="text-xs text-muted-foreground">Loading…</div></div>;
   if (!snaps.length) return <div><Heading /><div className="text-xs text-muted-foreground">No price history yet</div></div>;
 
-  // Oldest → newest so it reads like a chart timeline.
   const chrono = [...snaps].slice(0, 12).reverse();
 
   return (
@@ -175,7 +179,7 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Expanded detail content (shared between mobile + desktop) ─────────────────
+// ── Expanded detail content ───────────────────────────────────────────────────
 function ExpandedDetail({
   item, meta, editing, setEditing, stopProp = false,
 }: {
@@ -211,7 +215,6 @@ function ExpandedDetail({
 
   return (
     <div className="rounded-xl border border-border bg-card/60 p-4 space-y-4" onClick={wrap}>
-      {/* Metadata chips */}
       {hasChips && (
         <div className="flex flex-wrap items-center gap-1.5">
           {meta.sourceSetName && <Chip>{meta.sourceSetName}</Chip>}
@@ -235,7 +238,6 @@ function ExpandedDetail({
 
       <PriceHistory itemId={item.id} />
 
-      {/* Notes — italic in view mode */}
       {!editing && item.notes && (
         <div className="text-xs">
           <span className="text-muted-foreground">Notes: </span>
@@ -243,7 +245,6 @@ function ExpandedDetail({
         </div>
       )}
 
-      {/* Actions transform into the edit form in place */}
       {editing ? (
         <InlineEditPanel item={item} onDone={() => setEditing(false)} />
       ) : (
@@ -303,7 +304,6 @@ function InventoryCard({
       className={`stat-card p-3 space-y-2 transition-colors ${selected ? "ring-1 ring-primary bg-primary/5" : ""}`}
     >
       <div className="flex gap-3">
-        {/* Checkbox in select mode */}
         {selectMode && (
           <button
             onClick={e => { e.stopPropagation(); onSelect(item.id, !selected); }}
@@ -396,7 +396,6 @@ function InventoryRow({
         }`}
         onClick={toggle}
       >
-        {/* Checkbox column */}
         <td className="px-3 py-2.5 w-7" onClick={e => e.stopPropagation()}>
           {selectMode ? (
             <button
@@ -458,14 +457,11 @@ function InventoryRow({
 export default function Inventory() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
-  // selectedGame === null → show the tile picker; any string → table view.
-  // `game` mirrors it (defaulting to "all") for the query + filter dropdown.
   const [selectedGame, setSelectedGame] = useGameParam();
   const game = selectedGame ?? "all";
   const [condition, setCondition] = useState("all");
   const [sortBy, setSortBy] = useState("lastSeenAt");
 
-  // ── Bulk selection state ───────────────────────────────────────────────────
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -492,7 +488,6 @@ export default function Inventory() {
   const totalValue = items.reduce((s: number, i: any) => s + (i.currentRawMarketPrice || 0) * i.currentQuantity, 0);
   const totalUnits = items.reduce((s: number, i: any) => s + i.currentQuantity, 0);
 
-  // ── Selection helpers ──────────────────────────────────────────────────────
   function handleSelect(id: string, checked: boolean) {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -501,23 +496,13 @@ export default function Inventory() {
     });
   }
 
-  function selectAll() {
-    setSelectedIds(new Set(sorted.map((i: any) => i.id)));
-  }
-
-  function deselectAll() {
-    setSelectedIds(new Set());
-  }
-
-  function exitSelectMode() {
-    setSelectMode(false);
-    setSelectedIds(new Set());
-  }
+  function selectAll() { setSelectedIds(new Set(sorted.map((i: any) => i.id))); }
+  function deselectAll() { setSelectedIds(new Set()); }
+  function exitSelectMode() { setSelectMode(false); setSelectedIds(new Set()); }
 
   const allSelected = sorted.length > 0 && selectedIds.size === sorted.length;
   const someSelected = selectedIds.size > 0;
 
-  // ── Bulk delete mutation ───────────────────────────────────────────────────
   const bulkDeleteMut = useMutation({
     mutationFn: async (ids: string[]) => {
       const res = await apiRequest("DELETE", "/api/inventory/bulk", { ids });
@@ -535,27 +520,26 @@ export default function Inventory() {
 
   function handleBulkDelete() {
     if (!someSelected) return;
-    const ids = Array.from(selectedIds);
-    bulkDeleteMut.mutate(ids);
+    bulkDeleteMut.mutate(Array.from(selectedIds));
   }
 
-  // ── Excel export ───────────────────────────────────────────────────────────
+  // ── Export (Excel or CSV) ──────────────────────────────────────────────────
   const [exporting, setExporting] = useState(false);
 
-  async function handleExport() {
+  async function handleExport(fmt: "xlsx" | "csv") {
     setExporting(true);
     try {
-      // apiRequest attaches the Bearer token from the auth context.
-      const res = await apiRequest("GET", "/api/inventory/export");
+      const url = fmt === "csv" ? "/api/inventory/export?format=csv" : "/api/inventory/export";
+      const res = await apiRequest("GET", url);
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `cardvault-inventory-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.href = objectUrl;
+      a.download = `cardvault-inventory-${new Date().toISOString().slice(0, 10)}.${fmt}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objectUrl);
     } catch {
       toast({ title: "Error", description: "Failed to export inventory.", variant: "destructive" });
     } finally {
@@ -563,7 +547,7 @@ export default function Inventory() {
     }
   }
 
-  // ── Tile picker (no game selected) ──────────────────────────────────────────
+  // ── Tile picker ─────────────────────────────────────────────────────────────
   if (selectedGame === null) {
     return (
       <div>
@@ -575,7 +559,6 @@ export default function Inventory() {
 
   return (
     <div>
-      {/* Back to game tiles — sticky so it's always reachable */}
       <div className="sticky top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 mb-3 bg-background/95 backdrop-blur border-b border-border/60">
         <button
           data-testid="button-back-to-games"
@@ -586,7 +569,6 @@ export default function Inventory() {
         </button>
       </div>
 
-      {/* Header */}
       <div className="flex flex-col gap-1 mb-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-lg font-semibold text-foreground">Inventory</h1>
         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
@@ -650,20 +632,35 @@ export default function Inventory() {
             <SelectItem value="name">Name A-Z</SelectItem>
           </SelectContent>
         </Select>
-        <Button
-          data-testid="button-export-inventory"
-          variant="outline"
-          size="sm"
-          className="h-9 text-xs gap-1.5"
-          onClick={handleExport}
-          disabled={exporting}
-        >
-          <Download size={13} />
-          {exporting ? "Exporting…" : "Export Excel"}
-        </Button>
+
+        {/* ── Export Labels split button ── */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              data-testid="button-export-inventory"
+              size="sm"
+              disabled={exporting}
+              className="h-9 px-4 text-sm font-semibold gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+            >
+              <Download size={15} />
+              {exporting ? "Exporting…" : "Export Labels"}
+              <ChevronDown size={13} className="ml-0.5 opacity-70" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={() => handleExport("xlsx")} className="gap-2 cursor-pointer">
+              <FileSpreadsheet size={14} className="text-emerald-500" />
+              Excel (.xlsx)
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleExport("csv")} className="gap-2 cursor-pointer">
+              <FileText size={14} className="text-blue-400" />
+              CSV (.csv)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* ── Bulk actions toolbar ── */}
+      {/* Bulk actions toolbar */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {!selectMode ? (
           <Button
@@ -677,49 +674,21 @@ export default function Inventory() {
           </Button>
         ) : (
           <>
-            {/* Select / Deselect All */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs gap-1.5"
-              onClick={allSelected ? deselectAll : selectAll}
-            >
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={allSelected ? deselectAll : selectAll}>
               {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
               {allSelected ? "Deselect All" : "Select All"}
             </Button>
-
-            {/* Delete */}
             <Button
-              variant="destructive"
-              size="sm"
-              className="h-8 text-xs gap-1.5"
-              disabled={!someSelected || bulkDeleteMut.isPending}
-              onClick={handleBulkDelete}
+              variant="destructive" size="sm" className="h-8 text-xs gap-1.5"
+              disabled={!someSelected || bulkDeleteMut.isPending} onClick={handleBulkDelete}
             >
               <Trash2 size={13} />
-              {bulkDeleteMut.isPending
-                ? "Deleting…"
-                : someSelected
-                ? `Delete (${selectedIds.size})`
-                : "Delete"}
+              {bulkDeleteMut.isPending ? "Deleting…" : someSelected ? `Delete (${selectedIds.size})` : "Delete"}
             </Button>
-
-            {/* Cancel */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 text-xs gap-1.5 text-muted-foreground"
-              onClick={exitSelectMode}
-            >
-              <X size={13} />
-              Cancel
+            <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-muted-foreground" onClick={exitSelectMode}>
+              <X size={13} /> Cancel
             </Button>
-
-            {someSelected && (
-              <span className="text-xs text-muted-foreground ml-1">
-                {selectedIds.size} selected
-              </span>
-            )}
+            {someSelected && <span className="text-xs text-muted-foreground ml-1">{selectedIds.size} selected</span>}
           </>
         )}
       </div>
@@ -731,13 +700,7 @@ export default function Inventory() {
           : sorted.length === 0
           ? <div className="py-12 text-center text-muted-foreground text-sm">No inventory — upload a CSV to get started</div>
           : sorted.map((item: any) => (
-              <InventoryCard
-                key={item.id}
-                item={item}
-                selected={selectedIds.has(item.id)}
-                onSelect={handleSelect}
-                selectMode={selectMode}
-              />
+              <InventoryCard key={item.id} item={item} selected={selectedIds.has(item.id)} onSelect={handleSelect} selectMode={selectMode} />
             ))
         }
       </div>
@@ -748,18 +711,10 @@ export default function Inventory() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {/* Header checkbox cell — select/deselect all */}
                 <th className="w-7 px-3 py-2.5">
                   {selectMode && (
-                    <button
-                      onClick={allSelected ? deselectAll : selectAll}
-                      className="text-muted-foreground hover:text-primary transition-colors"
-                    >
-                      {allSelected
-                        ? <CheckSquare size={14} className="text-primary" />
-                        : someSelected
-                        ? <CheckSquare size={14} className="text-primary/50" />
-                        : <Square size={14} />}
+                    <button onClick={allSelected ? deselectAll : selectAll} className="text-muted-foreground hover:text-primary transition-colors">
+                      {allSelected ? <CheckSquare size={14} className="text-primary" /> : someSelected ? <CheckSquare size={14} className="text-primary/50" /> : <Square size={14} />}
                     </button>
                   )}
                 </th>
@@ -782,13 +737,7 @@ export default function Inventory() {
                 : sorted.length === 0
                 ? <tr><td colSpan={8} className="px-3 py-12 text-center text-muted-foreground text-sm">No inventory — upload a CSV to get started</td></tr>
                 : sorted.map((item: any) => (
-                    <InventoryRow
-                      key={item.id}
-                      item={item}
-                      selected={selectedIds.has(item.id)}
-                      onSelect={handleSelect}
-                      selectMode={selectMode}
-                    />
+                    <InventoryRow key={item.id} item={item} selected={selectedIds.has(item.id)} onSelect={handleSelect} selectMode={selectMode} />
                   ))
               }
             </tbody>

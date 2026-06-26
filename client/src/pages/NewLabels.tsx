@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Download, CheckSquare, Square, Tag, ArrowLeft, Trash2 } from "lucide-react";
+import { Download, CheckSquare, Square, Tag, ArrowLeft, Trash2, ChevronDown, FileSpreadsheet, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,8 +10,13 @@ import { ConditionBadge } from "@/components/ConditionBadge";
 import { GameTileGrid } from "@/components/GameTileGrid";
 import { useGameParam } from "@/lib/useGameParam";
 import { format, parseISO } from "date-fns";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-// Placeholder image map for the game tiles — keyed by the stored game value.
 const GAME_IMAGES: Record<string, string> = {
   all: "",
   pokemon: "",
@@ -30,7 +35,6 @@ export default function NewLabels() {
     queryKey: ["/api/labels/new"],
   });
 
-  // Tile layer: scope the list to the selected game ("all"/null → no scoping).
   const scopedItems = selectedGame && selectedGame !== "all"
     ? items.filter(i => i.game === selectedGame)
     : items;
@@ -54,21 +58,21 @@ export default function NewLabels() {
   };
 
   const exportMut = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const res = await apiRequest("POST", "/api/labels/export", { ids, queueType: "new" });
+    mutationFn: async ({ ids, fmt }: { ids: string[]; fmt: "xlsx" | "csv" }) => {
+      const res = await apiRequest("POST", "/api/labels/export", { ids, queueType: "new", format: fmt });
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `new-labels-${Date.now()}.csv`;
+      a.download = `new-labels-${Date.now()}.${fmt}`;
       a.click();
       URL.revokeObjectURL(url);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/labels/new"] });
       setSelected(new Set());
-      toast({ title: "Labels exported", description: "CSV downloaded successfully." });
+      toast({ title: "Labels exported", description: "File downloaded successfully." });
     },
     onError: (e: any) => toast({ title: "Export failed", description: e.message, variant: "destructive" }),
   });
@@ -93,7 +97,7 @@ export default function NewLabels() {
 
   const totalSelected = selected.size;
 
-  // ── Tile picker (no game selected) ──────────────────────────────────────────
+  // ── Tile picker ──────────────────────────────────────────────────────────────
   if (selectedGame === null) {
     return (
       <div>
@@ -111,7 +115,6 @@ export default function NewLabels() {
 
   return (
     <div>
-      {/* Back to game tiles — sticky so it's always reachable */}
       <div className="sticky top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 mb-3 bg-background/95 backdrop-blur border-b border-border/60">
         <button
           data-testid="button-back-to-games"
@@ -127,15 +130,39 @@ export default function NewLabels() {
           <h1 className="page-title">New Labels</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Newly added inventory that needs labels printed</p>
         </div>
-        <Button
-          data-testid="button-export-new-labels"
-          onClick={() => exportMut.mutate(Array.from(selected))}
-          disabled={totalSelected === 0 || exportMut.isPending}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Download size={15} className="mr-2" />
-          {exportMut.isPending ? "Exporting…" : `Export ${totalSelected > 0 ? `(${totalSelected})` : ""} CSV`}
-        </Button>
+
+        {/* ── Export Labels split button (header) ── */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              data-testid="button-export-new-labels"
+              disabled={totalSelected === 0 || exportMut.isPending}
+              className="h-10 px-5 text-sm font-semibold gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+            >
+              <Download size={16} />
+              {exportMut.isPending
+                ? "Exporting…"
+                : `Export Labels${totalSelected > 0 ? ` (${totalSelected})` : ""}`}
+              <ChevronDown size={13} className="ml-0.5 opacity-70" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem
+              onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx" })}
+              className="gap-2 cursor-pointer"
+            >
+              <FileSpreadsheet size={14} className="text-emerald-500" />
+              Excel (.xlsx)
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv" })}
+              className="gap-2 cursor-pointer"
+            >
+              <FileText size={14} className="text-blue-400" />
+              CSV (.csv)
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Tabs */}
@@ -158,9 +185,7 @@ export default function NewLabels() {
       {/* ── Mobile card list ── */}
       <div className="sm:hidden space-y-2">
         {isLoading
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-20 w-full rounded-xl" />
-            ))
+          ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)
           : displayed.length === 0
           ? (
               <div className="py-16 text-center text-muted-foreground text-sm">
@@ -180,7 +205,6 @@ export default function NewLabels() {
                     !isPending ? "opacity-50" : isSel ? "ring-1 ring-primary/60" : ""
                   }`}
                 >
-                  {/* Checkbox */}
                   <div className="mt-0.5 shrink-0">
                     {isPending
                       ? isSel
@@ -189,7 +213,6 @@ export default function NewLabels() {
                       : <div className="w-[18px]" />
                     }
                   </div>
-                  {/* Body */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <ConditionBadge condition={item.condition} abbreviated />
@@ -209,7 +232,6 @@ export default function NewLabels() {
                       }`}>{item.exportStatus}</span>
                     </div>
                   </div>
-                  {/* Delete */}
                   <button
                     onClick={e => handleDeleteLabel(e, item.id)}
                     aria-label="Delete label"
@@ -222,7 +244,6 @@ export default function NewLabels() {
               );
             })
         }
-        {/* Mobile select-all bar */}
         {pendingItems.length > 0 && (
           <button
             onClick={toggleAll}
@@ -317,18 +338,38 @@ export default function NewLabels() {
         </div>
       </div>
 
-      {/* Floating action bar — shift above bottom nav on mobile */}
+      {/* ── Floating action bar ── */}
       {totalSelected > 0 && (
         <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 bg-card border border-border rounded-xl shadow-xl px-4 py-3 flex items-center gap-3">
           <div className="text-sm font-medium">{totalSelected} selected</div>
-          <Button
-            onClick={() => exportMut.mutate(Array.from(selected))}
-            disabled={exportMut.isPending}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 h-8 text-sm"
-          >
-            <Download size={14} className="mr-1.5" />
-            Export CSV
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                disabled={exportMut.isPending}
+                className="h-9 px-4 text-sm font-semibold gap-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+              >
+                <Download size={15} />
+                Export Labels
+                <ChevronDown size={13} className="ml-0.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx" })}
+                className="gap-2 cursor-pointer"
+              >
+                <FileSpreadsheet size={14} className="text-emerald-500" />
+                Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv" })}
+                className="gap-2 cursor-pointer"
+              >
+                <FileText size={14} className="text-blue-400" />
+                CSV (.csv)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
     </div>
