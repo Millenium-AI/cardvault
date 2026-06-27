@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { storage } from "./storage";
 import { supabaseAdmin, verifyToken } from "./supabase";
 
-// ── File validation ───────────────────────────────────────────────────────────
+// ── File validation ───────────────────────────────────────────────────────────────
 const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const ok =
     file.mimetype === "text/csv" ||
@@ -22,7 +22,7 @@ const upload = multer({
   fileFilter: csvFilter,
 });
 
-// ── CSV parsing ───────────────────────────────────────────────────────────────
+// ── CSV parsing ──────────────────────────────────────────────────────────────────
 function normalizeCondition(raw: string): string {
   const s = (raw || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (s.includes("near mint") || s === "nm") return "Near Mint";
@@ -176,7 +176,7 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
   };
 }
 
-// ── Repricing ─────────────────────────────────────────────────────────────────
+// ── Repricing ───────────────────────────────────────────────────────────────────
 const CONDITION_SHORT: Record<string, string> = {
   "Near Mint": "NM",
   "Lightly Played": "LP",
@@ -201,7 +201,7 @@ function checkRepricingThreshold(
   return { triggered: false, rule: "" };
 }
 
-// ── Niimbot CSV export ────────────────────────────────────────────────────────
+// ── Niimbot CSV export ────────────────────────────────────────────────────────────────
 function buildNiimbotCsv(items: any[]): string {
   const headers = ["Condition", "Current Market Price", "Product Name", "Number", "Internal ID"];
   const rows = items.flatMap(item => {
@@ -218,7 +218,7 @@ function buildNiimbotCsv(items: any[]): string {
   return [headers.join(","), ...rows].join("\n");
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
+// ── Auth ────────────────────────────────────────────────────────────────────────
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 if (!ADMIN_EMAIL) {
   console.warn("[WARNING] ADMIN_EMAIL is not set. Admin routes will be inaccessible.");
@@ -272,7 +272,7 @@ function useInviteRateLimited(ip: string): boolean {
   return false;
 }
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────────
 async function enrichLabelItems(userId: string, queueType: string) {
   const [items, allInventory] = await Promise.all([
     storage.listLabelQueueItems(userId, queueType),
@@ -291,7 +291,21 @@ async function resolveInventoryItem(userId: string, id: string, res: Response) {
   return item;
 }
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+// ── SSE progress helpers ─────────────────────────────────────────────────────────────
+// Pending upload jobs indexed by a short random token
+const pendingJobs = new Map<string, {
+  status: "pending" | "done" | "error";
+  steps: { label: string; pct: number }[];
+  result?: any;
+  error?: string;
+}>();
+
+function sendProgress(token: string, label: string, pct: number) {
+  const job = pendingJobs.get(token);
+  if (job) job.steps.push({ label, pct });
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────────
 export function registerRoutes(httpServer: Server, app: Express) {
 
   // Public auth routes
@@ -389,6 +403,44 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(review);
   });
 
+  // ── SSE progress stream for upload jobs ───────────────────────────────────
+  app.get("/api/uploads/progress/:token", (req: any, res: any) => {
+    const { token } = req.params;
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
+    // Poll every 200ms until done or client disconnects
+    const interval = setInterval(() => {
+      const job = pendingJobs.get(token);
+      if (!job) { send({ error: "Job not found" }); clearInterval(interval); res.end(); return; }
+
+      // Drain buffered steps
+      while (job.steps.length) {
+        const step = job.steps.shift()!;
+        send({ label: step.label, pct: step.pct });
+      }
+
+      if (job.status === "done") {
+        send({ done: true, result: job.result });
+        clearInterval(interval);
+        res.end();
+        pendingJobs.delete(token);
+      } else if (job.status === "error") {
+        send({ error: job.error });
+        clearInterval(interval);
+        res.end();
+        pendingJobs.delete(token);
+      }
+    }, 200);
+
+    req.on("close", () => clearInterval(interval));
+  });
+
+  // ── POST upload ────────────────────────────────────────────────────────────────
   app.post("/api/uploads", (req: any, res: any, next: any) => {
     upload.single("file")(req, res, (err: any) => {
       if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE")
@@ -400,11 +452,17 @@ export function registerRoutes(httpServer: Server, app: Express) {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
       const userId = req.user.id;
-      const { game = "pokemon", sourceType = "tcgplayer" } = req.body;
+      const { game = "pokemon", sourceType = "tcgplayer", progressToken } = req.body;
+
+      const progress = (label: string, pct: number) => {
+        if (progressToken) sendProgress(progressToken, label, pct);
+      };
 
       const isXlsx =
         req.file.originalname.toLowerCase().endsWith(".xlsx") ||
         req.file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+      progress("Parsing file…", 10);
 
       let rawRows: Record<string, string>[];
       try {
@@ -421,8 +479,14 @@ export function registerRoutes(httpServer: Server, app: Express) {
           rawRows = parseCSV(req.file.buffer.toString("utf-8"));
         }
       } catch (e: any) {
+        if (progressToken) {
+          const job = pendingJobs.get(progressToken);
+          if (job) { job.status = "error"; job.error = e.message; }
+        }
         return res.status(400).json({ error: e.message });
       }
+
+      progress("Saving rows…", 25);
 
       const now = new Date().toISOString();
       const newUpload = await storage.createUpload(userId, {
@@ -442,17 +506,30 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       await storage.createParsedRows(userId, parsedRowData);
 
+      progress("Loading inventory…", 40);
+
       const validRows = parsedRowData.filter(r => r.productName !== "(unknown)");
       const newItems: any[] = [];
       const matchedItems: any[] = [];
       const ambiguousItems: any[] = [];
       const repricingCandidates: any[] = [];
 
+      // ── PERF: single bulk fetch replaces N×DB round-trips in the loop below
+      const [lookupMaps, thr] = await Promise.all([
+        storage.getInventoryLookupMaps(userId),
+        storage.getRepricingThresholds(userId),
+      ]);
+      const { byProductId, byTcgplayerId, byMatchKey } = lookupMaps;
+
+      progress("Matching rows…", 55);
+
       for (const row of validRows) {
-        let existing = await storage.getInventoryItemByExternalIds(userId, row.sourceProductId ?? undefined, row.sourceTcgplayerId ?? undefined);
-        if (!existing && row.normalizedMatchKey) {
-          existing = await storage.getInventoryItemByMatchKey(userId, row.normalizedMatchKey);
-        }
+        // Resolve existing item using in-memory Maps (zero additional DB calls)
+        let existing =
+          (row.sourceProductId && byProductId.get(row.sourceProductId)) ||
+          (row.sourceTcgplayerId && byTcgplayerId.get(row.sourceTcgplayerId)) ||
+          (row.normalizedMatchKey && byMatchKey.get(row.normalizedMatchKey)) ||
+          undefined;
 
         if (!existing) {
           newItems.push(row);
@@ -462,13 +539,14 @@ export function registerRoutes(httpServer: Server, app: Express) {
           const qtyDelta = csvQty !== existingQty ? csvQty - existingQty : 0;
 
           if (existing.currentRawMarketPrice && row.rawMarketPrice) {
-            const thr = await storage.getRepricingThresholds(userId);
             const { triggered, rule } = checkRepricingThreshold(row.rawMarketPrice, existing.currentRawMarketPrice, thr);
             if (triggered) repricingCandidates.push({ row, existingItem: existing, rule, qtyDelta, csvQty, existingQty });
           }
           matchedItems.push({ row, existingItem: existing, qtyDelta, csvQty, existingQty });
         }
       }
+
+      progress("Building review…", 80);
 
       const matchedNoChangeCount = matchedItems.filter(m => m.qtyDelta === 0).length;
 
@@ -516,11 +594,37 @@ export function registerRoutes(httpServer: Server, app: Express) {
       };
       await storage.updateUpload(userId, uploadId, { summaryJson: JSON.stringify(summary), parseStatus: "parsed" });
 
-      res.json({ upload: newUpload, review, summary });
+      const result = { upload: newUpload, review, summary };
+
+      // Signal SSE stream that the job is done
+      if (progressToken) {
+        const job = pendingJobs.get(progressToken);
+        if (job) {
+          job.steps.push({ label: "Done!", pct: 100 });
+          job.result = result;
+          job.status = "done";
+        }
+      }
+
+      res.json(result);
     } catch (e: any) {
       console.error(e);
+      if (req.body?.progressToken) {
+        const job = pendingJobs.get(req.body.progressToken);
+        if (job) { job.status = "error"; job.error = e.message; }
+      }
       res.status(500).json({ error: e.message });
     }
+  });
+
+  // ── SSE progress token registration ───────────────────────────────────────
+  // Client calls this first to get a token, then opens the SSE stream, then POSTs the file.
+  app.post("/api/uploads/progress-token", (_req: any, res: any) => {
+    const token = crypto.randomUUID();
+    pendingJobs.set(token, { status: "pending", steps: [] });
+    // Auto-cleanup after 5 minutes in case client never connects
+    setTimeout(() => pendingJobs.delete(token), 5 * 60 * 1000);
+    res.json({ token });
   });
 
   app.post("/api/uploads/:id/approve", async (req: any, res) => {
