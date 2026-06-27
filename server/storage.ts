@@ -230,6 +230,38 @@ class SupabaseStorage {
     return undefined;
   }
 
+  /**
+   * Bulk-fetch all active inventory for a user and return two lookup Maps:
+   * one keyed by source_product_id, one by normalized_match_key.
+   * Used during CSV upload matching to avoid N×DB-round-trips.
+   */
+  async getInventoryLookupMaps(userId: string): Promise<{
+    byProductId: Map<string, InventoryItem>;
+    byTcgplayerId: Map<string, InventoryItem>;
+    byMatchKey: Map<string, InventoryItem>;
+  }> {
+    const { data, error } = await supabaseAdmin
+      .from('inventory_items')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'active');
+
+    if (error) throw new Error(error.message);
+
+    const byProductId = new Map<string, InventoryItem>();
+    const byTcgplayerId = new Map<string, InventoryItem>();
+    const byMatchKey = new Map<string, InventoryItem>();
+
+    for (const raw of data || []) {
+      const item = toCamel<InventoryItem>(raw);
+      if (item.sourceProductId) byProductId.set(item.sourceProductId, item);
+      if (item.sourceTcgplayerId) byTcgplayerId.set(item.sourceTcgplayerId, item);
+      if (item.normalizedMatchKey) byMatchKey.set(item.normalizedMatchKey, item);
+    }
+
+    return { byProductId, byTcgplayerId, byMatchKey };
+  }
+
   async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string }): Promise<InventoryItem[]> {
     let query = supabaseAdmin.from('inventory_items').select('*')
       .eq('user_id', userId)
