@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeader } from "@/lib/queryClient";
-import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2 } from "lucide-react";
+import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2, Search, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +16,53 @@ const statusColors: Record<string, string> = {
   failed: "text-red-400 bg-red-400/10",
   rejected: "text-muted-foreground bg-muted",
 };
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Returns true if every row in the array has a falsy number field */
+function allBlankNumbers(rows: any[]): boolean {
+  return rows.length > 0 && rows.every(r => !r.number);
+}
+
+/** Sort rows by productName A→Z, then by number numerically when present */
+function sortByName(rows: any[]): any[] {
+  return [...rows].sort((a, b) => {
+    const na = (a.productName || "").toLowerCase();
+    const nb = (b.productName || "").toLowerCase();
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+    const numA = parseFloat(a.number) || 0;
+    const numB = parseFloat(b.number) || 0;
+    return numA - numB;
+  });
+}
+
+function sortByPrice(rows: any[], key: string): any[] {
+  return [...rows].sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0));
+}
+
+function sortByQty(rows: any[]): any[] {
+  return [...rows].sort((a, b) => (b.addToQuantity ?? b.csvQty ?? 0) - (a.addToQuantity ?? a.csvQty ?? 0));
+}
+
+function applySort(rows: any[], sort: string): any[] {
+  if (sort === "name") return sortByName(rows);
+  if (sort === "price_desc") return sortByPrice(rows, "rawMarketPrice");
+  if (sort === "qty_desc") return sortByQty(rows);
+  return rows; // "default" = server order
+}
+
+function applySearch(rows: any[], q: string): any[] {
+  if (!q.trim()) return rows;
+  const lower = q.toLowerCase();
+  return rows.filter(r =>
+    (r.productName || "").toLowerCase().includes(lower) ||
+    (r.number || "").toLowerCase().includes(lower) ||
+    (r.condition || "").toLowerCase().includes(lower)
+  );
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
 
 function ExpandableSection({ title, count, color, children }: any) {
   const [open, setOpen] = useState(false);
@@ -37,14 +84,100 @@ function ExpandableSection({ title, count, color, children }: any) {
   );
 }
 
+/** Inline filter + sort bar shown inside the review panel */
+function ReviewFilterBar({
+  search, onSearch,
+  sort, onSort,
+  totalVisible, totalAll,
+}: {
+  search: string; onSearch: (v: string) => void;
+  sort: string; onSort: (v: string) => void;
+  totalVisible: number; totalAll: number;
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap mb-3 p-2.5 rounded-lg bg-muted/30 border border-border/60">
+      {/* Search */}
+      <div className="relative flex-1 min-w-[140px]">
+        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Search name, #, condition…"
+          value={search}
+          onChange={e => onSearch(e.target.value)}
+          className="w-full pl-7 pr-3 h-7 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none transition-colors"
+        />
+      </div>
+
+      {/* Sort */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        <ArrowUpDown size={11} className="text-muted-foreground" />
+        <Select value={sort} onValueChange={onSort}>
+          <SelectTrigger className="h-7 text-xs w-[130px] border-border">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="name">Name A→Z</SelectItem>
+            <SelectItem value="price_desc">Price High→Low</SelectItem>
+            <SelectItem value="qty_desc">Qty High→Low</SelectItem>
+            <SelectItem value="default">Default order</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Row count badge */}
+      {(search.trim() || sort !== "name") && (
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+          {totalVisible}/{totalAll}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: string; onDone: () => void }) {
   const { toast } = useToast();
   const payload = (() => { try { return JSON.parse(review.reviewPayload || "{}"); } catch { return {}; } })();
 
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<string>("name");
+
   function setQtyOverride(rowId: string, val: number) {
     setQtyOverrides(prev => ({ ...prev, [rowId]: val }));
   }
+
+  // Pre-process all row arrays: default sort A→Z on first render, then filter/sort reactively
+  const newItemsProcessed = useMemo(() => {
+    const base = sortByName(payload.newItems || []);
+    return applySearch(applySort(base, sort), search);
+  }, [payload.newItems, sort, search]);
+
+  const matchedItemsRaw = useMemo(() => sortByName(payload.matchedItems || []), [payload.matchedItems]);
+  const matchedChanged = useMemo(() =>
+    applySearch(applySort(matchedItemsRaw.filter((r: any) =>
+      (qtyOverrides[r.rowId] ?? r.csvQty ?? r.existingQty) !== r.existingQty
+    ), sort), search),
+    [matchedItemsRaw, qtyOverrides, sort, search]
+  );
+  const matchedUnchanged = useMemo(() =>
+    applySearch(applySort(matchedItemsRaw.filter((r: any) => r.qtyDelta === 0), sort), search),
+    [matchedItemsRaw, sort, search]
+  );
+  const repricingProcessed = useMemo(() => {
+    const base = sortByName(payload.repricingCandidates || []);
+    return applySearch(applySort(base, sort), search);
+  }, [payload.repricingCandidates, sort, search]);
+
+  // Total across all sections for the badge
+  const totalAll = (payload.newItems?.length ?? 0) + (payload.matchedItems?.length ?? 0) + (payload.repricingCandidates?.length ?? 0);
+  const totalVisible = newItemsProcessed.length + matchedChanged.length + matchedUnchanged.length + repricingProcessed.length;
+
+  // Detect if all rows across new items have blank numbers (e.g. Sorcery)
+  const hideNumberCol = allBlankNumbers([
+    ...(payload.newItems || []),
+    ...(payload.matchedItems || []),
+    ...(payload.repricingCandidates || []),
+  ]);
 
   const approveMut = useMutation({
     mutationFn: async () => {
@@ -82,28 +215,38 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const MiniTable = ({ rows, cols }: { rows: any[]; cols: { key: string; label: string; render?: (v: any) => any }[] }) => (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs min-w-[480px]">
-        <thead>
-          <tr className="border-b border-border bg-muted/30">
-            {cols.map(c => <th key={c.key} className="text-left px-4 py-2.5 font-semibold text-muted-foreground whitespace-nowrap tracking-wide uppercase text-[10px]">{c.label}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors">
-              {cols.map(c => (
-                <td key={c.key} className="px-4 py-2.5 text-foreground whitespace-nowrap">
-                  {c.render ? c.render(row) : row[c.key] ?? "—"}
-                </td>
+  type Col = { key: string; label: string; render?: (v: any) => any };
+
+  const MiniTable = ({ rows, cols }: { rows: any[]; cols: Col[] }) => {
+    // Dynamically strip the # column if hideNumberCol is true
+    const visibleCols = hideNumberCol ? cols.filter(c => c.key !== "number") : cols;
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs min-w-[420px]">
+          <thead>
+            <tr className="border-b border-border bg-muted/30">
+              {visibleCols.map(c => (
+                <th key={c.key} className="text-left px-4 py-2.5 font-semibold text-muted-foreground whitespace-nowrap tracking-wide uppercase text-[10px]">{c.label}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr><td colSpan={visibleCols.length} className="px-4 py-4 text-center text-muted-foreground text-xs">No results</td></tr>
+            ) : rows.map((row, i) => (
+              <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors">
+                {visibleCols.map(c => (
+                  <td key={c.key} className="px-4 py-2.5 text-foreground whitespace-nowrap">
+                    {c.render ? c.render(row) : row[c.key] ?? "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -127,11 +270,18 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
         </div>
       </div>
 
+      {/* Filter / sort bar */}
+      <ReviewFilterBar
+        search={search} onSearch={setSearch}
+        sort={sort} onSort={setSort}
+        totalVisible={totalVisible} totalAll={totalAll}
+      />
+
       {/* Expandable sections */}
       <div className="space-y-2">
-        <ExpandableSection title="New Items" count={payload.newItems?.length} color="bg-emerald-500/10 text-emerald-400">
+        <ExpandableSection title="New Items" count={newItemsProcessed.length} color="bg-emerald-500/10 text-emerald-400">
           <MiniTable
-            rows={payload.newItems || []}
+            rows={newItemsProcessed}
             cols={[
               { key: "productName", label: "Product Name" },
               { key: "number", label: "#" },
@@ -145,20 +295,25 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
 
         <ExpandableSection
           title="Quantity Changes"
-          count={(payload.matchedItems || []).filter((r: any) => (qtyOverrides[r.rowId] ?? r.csvQty ?? r.existingQty) !== r.existingQty).length}
+          count={matchedChanged.length}
           color="bg-sky-500/10 text-sky-400"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[560px]">
+            <table className="w-full text-xs min-w-[480px]">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
-                  {["Product Name","#","Cond","Cur Qty","CSV Qty","Change","Old $","New $"].map(h => (
+                  {(hideNumberCol
+                    ? ["Product Name","Cond","Cur Qty","CSV Qty","Change","Old $","New $"]
+                    : ["Product Name","#","Cond","Cur Qty","CSV Qty","Change","Old $","New $"]
+                  ).map(h => (
                     <th key={h} className="text-left px-4 py-2.5 font-semibold text-muted-foreground tracking-wide uppercase text-[10px] whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {(payload.matchedItems || []).map((row: any, i: number) => {
+                {matchedChanged.length === 0 ? (
+                  <tr><td colSpan={hideNumberCol ? 7 : 8} className="px-4 py-4 text-center text-muted-foreground text-xs">No results</td></tr>
+                ) : matchedChanged.map((row: any, i: number) => {
                   const overrideQty = qtyOverrides[row.rowId];
                   const effectiveQty = overrideQty ?? row.csvQty ?? row.existingQty ?? 0;
                   const delta = effectiveQty - (row.existingQty || 0);
@@ -166,7 +321,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
                   return (
                     <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", isEdited && "bg-amber-500/5")}>
                       <td className="px-4 py-2.5 text-foreground max-w-[160px] truncate">{row.productName}</td>
-                      <td className="px-4 py-2.5 text-foreground whitespace-nowrap">{row.number || "—"}</td>
+                      {!hideNumberCol && <td className="px-4 py-2.5 text-foreground whitespace-nowrap">{row.number || "—"}</td>}
                       <td className="px-4 py-2.5 text-foreground whitespace-nowrap">{row.condition || "—"}</td>
                       <td className="px-4 py-2.5 tabular-nums text-foreground">{row.existingQty ?? "—"}</td>
                       <td className="px-4 py-2.5">
@@ -194,14 +349,14 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
           </div>
         </ExpandableSection>
 
-        {(payload.matchedItems || []).some((r: any) => r.qtyDelta === 0) && (
+        {matchedUnchanged.length > 0 && (
           <ExpandableSection
             title="Confirmed Unchanged"
-            count={(payload.matchedItems || []).filter((r: any) => r.qtyDelta === 0).length}
+            count={matchedUnchanged.length}
             color="bg-muted/60 text-muted-foreground"
           >
             <MiniTable
-              rows={(payload.matchedItems || []).filter((r: any) => r.qtyDelta === 0)}
+              rows={matchedUnchanged}
               cols={[
                 { key: "productName", label: "Product Name" },
                 { key: "number", label: "#" },
@@ -213,9 +368,9 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
           </ExpandableSection>
         )}
 
-        <ExpandableSection title="Repricing Candidates" count={payload.repricingCandidates?.length} color="bg-amber-500/10 text-amber-400">
+        <ExpandableSection title="Repricing Candidates" count={repricingProcessed.length} color="bg-amber-500/10 text-amber-400">
           <MiniTable
-            rows={payload.repricingCandidates || []}
+            rows={repricingProcessed}
             cols={[
               { key: "productName", label: "Product Name" },
               { key: "priorPrice", label: "Prior $", render: (r: any) => r.priorPrice ? `$${Number(r.priorPrice).toFixed(2)}` : "—" },
@@ -261,7 +416,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   );
 }
 
-// ── Upload progress bar component ──────────────────────────────────────────────
+// ── Upload progress bar ───────────────────────────────────────────────────────
 function UploadProgress({ label, pct }: { label: string; pct: number }) {
   return (
     <div className="space-y-1.5 pt-1">
@@ -279,6 +434,7 @@ function UploadProgress({ label, pct }: { label: string; pct: number }) {
   );
 }
 
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function Uploads() {
   const [game, setGame] = useState("one-piece");
   const [sourceType, setSourceType] = useState("tcgplayer");
@@ -290,7 +446,6 @@ export default function Uploads() {
   const sseRef = useRef<EventSource | null>(null);
   const { toast } = useToast();
 
-  // Clean up any open SSE connection on unmount
   useEffect(() => () => { sseRef.current?.close(); }, []);
 
   const { data: uploads = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
@@ -310,7 +465,6 @@ export default function Uploads() {
 
   const uploadMut = useMutation({
     mutationFn: async (file: File) => {
-      // 1. Get a progress token from the server
       const authHeader = await getAuthHeader();
       const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
 
@@ -320,7 +474,6 @@ export default function Uploads() {
       });
       const { token } = await tokenRes.json();
 
-      // 2. Open SSE stream for progress updates
       sseRef.current?.close();
       const sse = new EventSource(`${API_BASE}/api/uploads/progress/${token}`);
       sseRef.current = sse;
@@ -328,18 +481,11 @@ export default function Uploads() {
 
       sse.onmessage = (e) => {
         const msg = JSON.parse(e.data);
-        if (msg.error) {
-          setUploadProgress(null);
-          sse.close();
-        } else if (msg.done) {
-          setUploadProgress({ label: "Done!", pct: 100 });
-          sse.close();
-        } else if (typeof msg.pct === "number") {
-          setUploadProgress({ label: msg.label, pct: msg.pct });
-        }
+        if (msg.error) { setUploadProgress(null); sse.close(); }
+        else if (msg.done) { setUploadProgress({ label: "Done!", pct: 100 }); sse.close(); }
+        else if (typeof msg.pct === "number") { setUploadProgress({ label: msg.label, pct: msg.pct }); }
       };
 
-      // 3. POST the file with the progress token
       const form = new FormData();
       form.append("file", file);
       form.append("game", game);
@@ -372,10 +518,7 @@ export default function Uploads() {
     },
     onSuccess: (_data, uploadId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
-      if (selectedUploadId === uploadId) {
-        setSelectedUploadId(null);
-        setShowReview(false);
-      }
+      if (selectedUploadId === uploadId) { setSelectedUploadId(null); setShowReview(false); }
       toast({ title: "Upload deleted" });
     },
     onError: (e: any) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
@@ -459,7 +602,6 @@ export default function Uploads() {
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </div>
 
-            {/* Progress bar — visible only during upload */}
             {uploadProgress && (
               <UploadProgress label={uploadProgress.label} pct={uploadProgress.pct} />
             )}
