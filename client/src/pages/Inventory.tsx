@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, Download, ArrowLeft, Minus, Pencil, FileSpreadsheet, FileText } from "lucide-react";
+import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, ArrowLeft, Minus, Pencil } from "lucide-react";
 import { GameTileGrid } from "@/components/GameTileGrid";
 import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
@@ -12,12 +12,6 @@ import { Button } from "@/components/ui/button";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { useToast } from "@/hooks/use-toast";
 import { format, parseISO } from "date-fns";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 // Placeholder image map for the game tiles — keyed by the stored game value.
 const GAME_IMAGES: Record<string, string> = {
@@ -523,30 +517,6 @@ export default function Inventory() {
     bulkDeleteMut.mutate(Array.from(selectedIds));
   }
 
-  // ── Export (Excel or CSV) ──────────────────────────────────────────────────
-  const [exporting, setExporting] = useState(false);
-
-  async function handleExport(fmt: "xlsx" | "csv") {
-    setExporting(true);
-    try {
-      const url = fmt === "csv" ? "/api/inventory/export?format=csv" : "/api/inventory/export";
-      const res = await apiRequest("GET", url);
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = `cardvault-inventory-${new Date().toISOString().slice(0, 10)}.${fmt}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(objectUrl);
-    } catch {
-      toast({ title: "Error", description: "Failed to export inventory.", variant: "destructive" });
-    } finally {
-      setExporting(false);
-    }
-  }
-
   // ── Tile picker ─────────────────────────────────────────────────────────────
   if (selectedGame === null) {
     return (
@@ -633,65 +603,38 @@ export default function Inventory() {
           </SelectContent>
         </Select>
 
-        {/* ── Export Labels split button ── */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              data-testid="button-export-inventory"
-              size="sm"
-              disabled={exporting}
-              className="h-9 px-4 text-sm font-semibold gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-            >
-              <Download size={15} />
-              {exporting ? "Exporting…" : "Export Labels"}
-              <ChevronDown size={13} className="ml-0.5 opacity-70" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem onClick={() => handleExport("xlsx")} className="gap-2 cursor-pointer">
-              <FileSpreadsheet size={14} className="text-emerald-500" />
-              Excel (.xlsx)
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => handleExport("csv")} className="gap-2 cursor-pointer">
-              <FileText size={14} className="text-blue-400" />
-              CSV (.csv)
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* ── Bulk Edit button (replaces Export Labels) ── */}
+        <Button
+          data-testid="button-bulk-edit"
+          size="sm"
+          className="h-9 px-4 text-sm font-semibold gap-2 bg-green-600 text-white hover:bg-green-700 shadow-sm"
+          onClick={() => setSelectMode(true)}
+        >
+          <CheckSquare size={15} />
+          Bulk Edit
+        </Button>
       </div>
 
-      {/* Bulk actions toolbar */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        {!selectMode ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1.5"
-            onClick={() => setSelectMode(true)}
-          >
-            <CheckSquare size={13} />
-            Bulk Actions
+      {/* Bulk actions toolbar — visible only in select mode */}
+      {selectMode && (
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={allSelected ? deselectAll : selectAll}>
+            {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
+            {allSelected ? "Deselect All" : "Select All"}
           </Button>
-        ) : (
-          <>
-            <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={allSelected ? deselectAll : selectAll}>
-              {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
-              {allSelected ? "Deselect All" : "Select All"}
-            </Button>
-            <Button
-              variant="destructive" size="sm" className="h-8 text-xs gap-1.5"
-              disabled={!someSelected || bulkDeleteMut.isPending} onClick={handleBulkDelete}
-            >
-              <Trash2 size={13} />
-              {bulkDeleteMut.isPending ? "Deleting…" : someSelected ? `Delete (${selectedIds.size})` : "Delete"}
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-muted-foreground" onClick={exitSelectMode}>
-              <X size={13} /> Cancel
-            </Button>
-            {someSelected && <span className="text-xs text-muted-foreground ml-1">{selectedIds.size} selected</span>}
-          </>
-        )}
-      </div>
+          <Button
+            variant="destructive" size="sm" className="h-8 text-xs gap-1.5"
+            disabled={!someSelected || bulkDeleteMut.isPending} onClick={handleBulkDelete}
+          >
+            <Trash2 size={13} />
+            {bulkDeleteMut.isPending ? "Deleting…" : someSelected ? `Delete (${selectedIds.size})` : "Delete"}
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-muted-foreground" onClick={exitSelectMode}>
+            <X size={13} /> Cancel
+          </Button>
+          {someSelected && <span className="text-xs text-muted-foreground ml-1">{selectedIds.size} selected</span>}
+        </div>
+      )}
 
       {/* Mobile */}
       <div className="sm:hidden space-y-2">
