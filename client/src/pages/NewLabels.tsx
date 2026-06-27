@@ -27,7 +27,7 @@ const GAME_IMAGES: Record<string, string> = {
 
 export default function NewLabels() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<"all" | "pending" | "exported">("pending");
+  const [filter, setFilter] = useState<"all" | "pending" | "exported" | "skipped">("pending");
   const { toast } = useToast();
   const [selectedGame, setSelectedGame] = useGameParam();
 
@@ -77,6 +77,19 @@ export default function NewLabels() {
     onError: (e: any) => toast({ title: "Export failed", description: e.message, variant: "destructive" }),
   });
 
+  const skipMut = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) {
+        await apiRequest("PATCH", `/api/labels/${id}`, { exportStatus: "skipped" });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/labels/new"] });
+      setSelected(new Set());
+      toast({ title: "Items marked as skipped" });
+    },
+  });
+
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
       const res = await apiRequest("DELETE", `/api/labels/${id}`);
@@ -97,7 +110,7 @@ export default function NewLabels() {
 
   const totalSelected = selected.size;
 
-  // ── Tile picker ──────────────────────────────────────────────────────────────
+  // ── Tile picker ─────────────────────────────────────────────────────────────
   if (selectedGame === null) {
     return (
       <div>
@@ -130,44 +143,56 @@ export default function NewLabels() {
           <h1 className="page-title">New Labels</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Newly added inventory that needs labels printed</p>
         </div>
-
-        {/* ── Export Labels split button (header) ── */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <div className="flex gap-2 items-center">
+          {totalSelected > 0 && (
             <Button
-              data-testid="button-export-new-labels"
-              disabled={totalSelected === 0 || exportMut.isPending}
-              className="h-10 px-5 text-sm font-semibold gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+              variant="outline"
+              onClick={() => skipMut.mutate(Array.from(selected))}
+              disabled={skipMut.isPending}
+              className="h-10 text-sm border-border hidden sm:flex"
             >
-              <Download size={16} />
-              {exportMut.isPending
-                ? "Exporting…"
-                : `Export Labels${totalSelected > 0 ? ` (${totalSelected})` : ""}`}
-              <ChevronDown size={13} className="ml-0.5 opacity-70" />
+              Skip Selected
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem
-              onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx" })}
-              className="gap-2 cursor-pointer"
-            >
-              <FileSpreadsheet size={14} className="text-emerald-500" />
-              Excel (.xlsx)
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv" })}
-              className="gap-2 cursor-pointer"
-            >
-              <FileText size={14} className="text-blue-400" />
-              CSV (.csv)
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          )}
+
+          {/* ── Export Labels split button (header) ── */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                data-testid="button-export-new-labels"
+                disabled={totalSelected === 0 || exportMut.isPending}
+                className="h-10 px-5 text-sm font-semibold gap-2 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+              >
+                <Download size={16} />
+                {exportMut.isPending
+                  ? "Exporting…"
+                  : `Export Labels${totalSelected > 0 ? ` (${totalSelected})` : ""}`}
+                <ChevronDown size={13} className="ml-0.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx" })}
+                className="gap-2 cursor-pointer"
+              >
+                <FileSpreadsheet size={14} className="text-emerald-500" />
+                Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv" })}
+                className="gap-2 cursor-pointer"
+              >
+                <FileText size={14} className="text-blue-400" />
+                CSV (.csv)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-muted rounded-lg p-1 w-fit">
-        {(["pending", "exported", "all"] as const).map(f => (
+        {(["pending", "exported", "skipped", "all"] as const).map(f => (
           <button
             key={f}
             data-testid={`tab-labels-${f}`}
@@ -202,7 +227,7 @@ export default function NewLabels() {
                   data-testid={`card-label-${item.id}`}
                   onClick={() => isPending && toggle(item.id)}
                   className={`stat-card flex items-start gap-3 p-3 cursor-pointer select-none ${
-                    !isPending ? "opacity-50" : isSel ? "ring-1 ring-primary/60" : ""
+                    !isPending ? "opacity-60" : isSel ? "ring-1 ring-primary/60" : ""
                   }`}
                 >
                   <div className="mt-0.5 shrink-0">
@@ -228,6 +253,8 @@ export default function NewLabels() {
                       <span className={`ml-auto text-xs px-1.5 py-0.5 rounded font-medium ${
                         item.exportStatus === "exported"
                           ? "bg-emerald-500/10 text-emerald-400"
+                          : item.exportStatus === "skipped"
+                          ? "bg-muted text-muted-foreground"
                           : "bg-primary/10 text-primary"
                       }`}>{item.exportStatus}</span>
                     </div>
@@ -296,7 +323,9 @@ export default function NewLabels() {
                     <tr
                       key={item.id}
                       data-testid={`row-label-${item.id}`}
-                      className={`border-b border-border/50 hover:bg-accent/30 ${item.exportStatus === "exported" ? "opacity-50" : ""}`}
+                      className={`border-b border-border/50 hover:bg-accent/30 ${
+                        item.exportStatus !== "pending" ? "opacity-60" : ""
+                      }`}
                     >
                       <td className="px-3 py-2.5">
                         {item.exportStatus === "pending" && (
@@ -317,6 +346,8 @@ export default function NewLabels() {
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
                           item.exportStatus === "exported"
                             ? "bg-emerald-500/10 text-emerald-400"
+                            : item.exportStatus === "skipped"
+                            ? "bg-muted text-muted-foreground"
                             : "bg-primary/10 text-primary"
                         }`}>{item.exportStatus}</span>
                       </td>
@@ -340,8 +371,16 @@ export default function NewLabels() {
 
       {/* ── Floating action bar ── */}
       {totalSelected > 0 && (
-        <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 bg-card border border-border rounded-xl shadow-xl px-4 py-3 flex items-center gap-3">
+        <div className="fixed bottom-20 md:bottom-6 right-4 md:right-6 bg-card border border-border rounded-xl shadow-xl px-4 py-3 flex items-center gap-2 flex-wrap">
           <div className="text-sm font-medium">{totalSelected} selected</div>
+          <Button
+            variant="outline"
+            onClick={() => skipMut.mutate(Array.from(selected))}
+            disabled={skipMut.isPending}
+            className="h-9 text-sm border-border"
+          >
+            Skip
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
