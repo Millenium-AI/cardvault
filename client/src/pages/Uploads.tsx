@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeader } from "@/lib/queryClient";
 import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2 } from "lucide-react";
@@ -261,20 +261,40 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   );
 }
 
+// ── Upload progress bar component ──────────────────────────────────────────────
+function UploadProgress({ label, pct }: { label: string; pct: number }) {
+  return (
+    <div className="space-y-1.5 pt-1">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{pct}%</span>
+      </div>
+      <div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function Uploads() {
   const [game, setGame] = useState("one-piece");
   const [sourceType, setSourceType] = useState("tcgplayer");
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ label: string; pct: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const sseRef = useRef<EventSource | null>(null);
   const { toast } = useToast();
+
+  // Clean up any open SSE connection on unmount
+  useEffect(() => () => { sseRef.current?.close(); }, []);
 
   const { data: uploads = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
 
-  // FIX #2: queryFn awaits .json() so the query stores the parsed review object,
-  // not the raw Response. Previously the Response object was truthy so the review
-  // panel rendered but had none of the expected fields.
   const { data: selectedReview, isLoading: reviewLoading } = useQuery<any>({
     queryKey: ["/api/uploads", selectedUploadId, "review"],
     queryFn: async () => {
@@ -290,26 +310,59 @@ export default function Uploads() {
 
   const uploadMut = useMutation({
     mutationFn: async (file: File) => {
+      // 1. Get a progress token from the server
+      const authHeader = await getAuthHeader();
+      const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
+
+      const tokenRes = await fetch(`${API_BASE}/api/uploads/progress-token`, {
+        method: "POST",
+        headers: authHeader,
+      });
+      const { token } = await tokenRes.json();
+
+      // 2. Open SSE stream for progress updates
+      sseRef.current?.close();
+      const sse = new EventSource(`${API_BASE}/api/uploads/progress/${token}`);
+      sseRef.current = sse;
+      setUploadProgress({ label: "Starting…", pct: 0 });
+
+      sse.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.error) {
+          setUploadProgress(null);
+          sse.close();
+        } else if (msg.done) {
+          setUploadProgress({ label: "Done!", pct: 100 });
+          sse.close();
+        } else if (typeof msg.pct === "number") {
+          setUploadProgress({ label: msg.label, pct: msg.pct });
+        }
+      };
+
+      // 3. POST the file with the progress token
       const form = new FormData();
       form.append("file", file);
       form.append("game", game);
       form.append("sourceType", sourceType);
-      const authHeader = await getAuthHeader();
-      const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
+      form.append("progressToken", token);
+
       const res = await fetch(`${API_BASE}/api/uploads`, { method: "POST", body: form, headers: authHeader });
       if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Upload failed"); }
       return res.json();
     },
     onSuccess: (data) => {
+      setTimeout(() => setUploadProgress(null), 800);
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       setSelectedUploadId(data.upload.id);
       setShowReview(true);
       toast({ title: "File parsed", description: `${data.summary.totalParsed} rows ready for review.` });
     },
-    onError: (e: any) => toast({ title: "Upload failed", description: e.message, variant: "destructive" }),
+    onError: (e: any) => {
+      setUploadProgress(null);
+      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
+    },
   });
 
-  // FIX #1: Delete upload — cascades through merge_reviews and parsed_rows
   const deleteMut = useMutation({
     mutationFn: async (uploadId: string) => {
       const res = await apiRequest("DELETE", `/api/uploads/${uploadId}`);
@@ -319,7 +372,6 @@ export default function Uploads() {
     },
     onSuccess: (_data, uploadId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
-      // Clear the review panel if we just deleted the selected upload
       if (selectedUploadId === uploadId) {
         setSelectedUploadId(null);
         setShowReview(false);
@@ -391,20 +443,26 @@ export default function Uploads() {
               onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
               onDragLeave={() => setIsDragging(false)}
               onDrop={e => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-              onClick={() => fileRef.current?.click()}
+              onClick={() => !uploadMut.isPending && fileRef.current?.click()}
               className={cn(
-                "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors active:scale-[0.98]",
-                isDragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-accent/30"
+                "border-2 border-dashed rounded-lg p-6 text-center transition-colors active:scale-[0.98]",
+                uploadMut.isPending ? "cursor-default opacity-70" : "cursor-pointer hover:border-primary/50 hover:bg-accent/30",
+                isDragging ? "border-primary bg-primary/5" : "border-border"
               )}
             >
               <Upload size={22} className="mx-auto mb-2 text-muted-foreground" />
               <div className="text-sm text-muted-foreground">
-                {uploadMut.isPending ? "Parsing…" : "Tap or drop CSV or Excel"}
+                {uploadMut.isPending ? "Processing…" : "Tap or drop CSV or Excel"}
               </div>
               <div className="text-xs text-muted-foreground mt-1">TCGplayer CSV or .xlsx supported</div>
               <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </div>
+
+            {/* Progress bar — visible only during upload */}
+            {uploadProgress && (
+              <UploadProgress label={uploadProgress.label} pct={uploadProgress.pct} />
+            )}
           </div>
 
           {/* Upload history */}
@@ -424,7 +482,6 @@ export default function Uploads() {
                       selectedUploadId === u.id ? "border-primary/40 bg-primary/5" : "border-border hover:bg-accent"
                     )}
                   >
-                    {/* Clickable row area */}
                     <button
                       data-testid={`upload-row-${u.id}`}
                       onClick={() => {
@@ -449,7 +506,6 @@ export default function Uploads() {
                       </div>
                     </button>
 
-                    {/* FIX #1: Delete button */}
                     <button
                       aria-label="Delete upload"
                       onClick={e => {
