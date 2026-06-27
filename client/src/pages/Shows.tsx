@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { format, parseISO } from "date-fns";
 
 function fmt(n: number | null | undefined) {
   if (n === null || n === undefined) return "—";
@@ -22,6 +23,11 @@ function fmtDollar(n: number | null | undefined) {
   return "$" + Number(n).toFixed(2);
 }
 
+function fmtDate(d: string | null | undefined) {
+  if (!d) return "—";
+  try { return format(parseISO(d), "MMM d, yyyy"); } catch { return d; }
+}
+
 function calcShow(show: any) {
   const cashResult = (show.cashSalesIn || 0) - (show.cashSpentOnBuys || 0) - (show.otherCashOut || 0) - (show.expensesTotal || 0);
   const invEdge = (show.purchasedInventoryMarketValue || 0) - (show.purchasedInventoryCostBasis || 0);
@@ -30,10 +36,11 @@ function calcShow(show: any) {
   return { cashResult, invEdge, invDelta, combined };
 }
 
-function NumInput({ label, name, register, placeholder }: any) {
+function NumInput({ label, hint, name, register, placeholder }: any) {
   return (
     <div>
-      <label className="text-xs text-muted-foreground block mb-1">{label}</label>
+      <label className="text-xs text-muted-foreground block mb-0.5">{label}</label>
+      {hint && <p className="text-[11px] text-muted-foreground/70 mb-1">{hint}</p>}
       <Input
         type="number"
         step="0.01"
@@ -84,43 +91,47 @@ function ShowModal({ show, onClose }: { show?: any; onClose: () => void }) {
         {/* Name, location, date */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
-            <label className="text-xs text-muted-foreground block mb-1">Show Name *</label>
-            <Input data-testid="input-show-name" className="h-9 text-sm" {...register("showName", { required: true })} />
+            <label className="text-xs text-muted-foreground block mb-0.5">Show Name *</label>
+            <Input data-testid="input-show-name" className="h-9 text-sm" placeholder="e.g. Tampa Card Show — Mar 2026" {...register("showName", { required: true })} />
             {errors.showName && <span className="text-xs text-red-400">Required</span>}
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Location</label>
-            <Input data-testid="input-show-location" className="h-9 text-sm" {...register("location")} />
+            <label className="text-xs text-muted-foreground block mb-0.5">Location</label>
+            <Input data-testid="input-show-location" className="h-9 text-sm" placeholder="e.g. Tampa Convention Center" {...register("location")} />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">Date *</label>
+            <label className="text-xs text-muted-foreground block mb-0.5">Date *</label>
             <Input data-testid="input-show-date" type="date" className="h-9 text-sm" {...register("showDate", { required: true })} />
             {errors.showDate && <span className="text-xs text-red-400">Required</span>}
           </div>
         </div>
 
-        <div className="border border-border rounded-lg p-3">
-          <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Inventory Values</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <NumInput label="Starting Inventory Market Value" name="startingInventoryMarketValue" register={register} />
-            <NumInput label="Ending Inventory Market Value" name="endingInventoryMarketValue" register={register} />
-            <NumInput label="Purchased Inventory Cost Basis" name="purchasedInventoryCostBasis" register={register} />
-            <NumInput label="Purchased Inventory Market Value" name="purchasedInventoryMarketValue" register={register} />
-          </div>
-        </div>
-
+        {/* Cash Flow */}
         <div className="border border-border rounded-lg p-3">
           <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Cash Flow</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <NumInput label="Cash Sales In" name="cashSalesIn" register={register} />
-            <NumInput label="Cash Spent on Buys" name="cashSpentOnBuys" register={register} />
-            <NumInput label="Other Cash Out" name="otherCashOut" register={register} />
-            <NumInput label="Expenses (table, parking, food, etc.)" name="expensesTotal" register={register} />
+            <NumInput label="Cash Sales In" hint="All cash you took in from sales at the show" name="cashSalesIn" register={register} />
+            <NumInput label="Cash Spent on Buys" hint="Cash you spent buying cards at the show" name="cashSpentOnBuys" register={register} />
+            <NumInput label="Other Cash Out" hint="ATM fees, food, parking, misc cash expenses" name="otherCashOut" register={register} />
+            <NumInput label="Show Expenses" hint="Table fee, entry, and any non-cash show costs" name="expensesTotal" register={register} />
           </div>
         </div>
 
+        {/* Inventory Values */}
+        <div className="border border-border rounded-lg p-3">
+          <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Inventory Values</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <NumInput label="Starting Inventory Value" hint="Market value of inventory you brought to the show" name="startingInventoryMarketValue" register={register} />
+            <NumInput label="Ending Inventory Value" hint="Market value of inventory you brought back home" name="endingInventoryMarketValue" register={register} />
+            <NumInput label="Purchased — Cost Basis" hint="Total you paid for cards you bought at the show" name="purchasedInventoryCostBasis" register={register} />
+            <NumInput label="Purchased — Market Value" hint="Estimated market value of the cards you bought" name="purchasedInventoryMarketValue" register={register} />
+          </div>
+        </div>
+
+        {/* Notes */}
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Notes</label>
+          <label className="text-xs text-muted-foreground block mb-0.5">Notes</label>
+          <p className="text-[11px] text-muted-foreground/70 mb-1">What worked, what didn't, key pickups, thoughts for next time</p>
           <Textarea className="text-sm resize-none" rows={2} {...register("notes")} />
         </div>
 
@@ -132,6 +143,37 @@ function ShowModal({ show, onClose }: { show?: any; onClose: () => void }) {
         </div>
       </form>
     </DialogContent>
+  );
+}
+
+/** Shared Show Summary block used in both mobile + desktop expanded views */
+function ShowSummary({ cashResult, invEdge, invDelta, combined }: { cashResult: number; invEdge: number; invDelta: number; combined: number }) {
+  return (
+    <div className="rounded-lg border border-border bg-card/60 p-3 mb-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Show Summary</div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+        <div>
+          <div className="text-[11px] text-muted-foreground">Cash Profit</div>
+          <div className={`font-mono font-semibold text-sm ${cashResult >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(cashResult)}</div>
+          <div className="text-[10px] text-muted-foreground/60">Sales − buys − cash out − expenses</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-muted-foreground">New Inventory Edge</div>
+          <div className={`font-mono font-semibold text-sm ${invEdge >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(invEdge)}</div>
+          <div className="text-[10px] text-muted-foreground/60">Market value of buys − what you paid</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-muted-foreground">Total Gain (Cash + Edge)</div>
+          <div className={`font-mono font-bold text-base ${combined >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(combined)}</div>
+          <div className="text-[10px] text-muted-foreground/60">Cash Profit + New Inventory Edge</div>
+        </div>
+        <div>
+          <div className="text-[11px] text-muted-foreground">Inventory Value Change</div>
+          <div className={`font-mono font-semibold text-sm ${invDelta >= 0 ? "text-emerald-400" : "text-red-400"}`}>{fmt(invDelta)}</div>
+          <div className="text-[10px] text-muted-foreground/60">Ending inventory − starting inventory</div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -162,19 +204,19 @@ function ShowCard({ show, onEdit }: { show: any; onEdit: () => void }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="font-medium text-foreground text-sm truncate">{show.showName}</span>
-            <span className="ml-auto text-xs text-muted-foreground mono shrink-0">{show.showDate}</span>
+            <span className="ml-auto text-xs text-muted-foreground mono shrink-0">{fmtDate(show.showDate)}</span>
           </div>
           {show.location && <div className="text-xs text-muted-foreground mb-1.5">{show.location}</div>}
           {/* Mini stat pills */}
           <div className="flex flex-wrap gap-2 text-xs">
             <span className={`font-mono font-medium ${cashResult >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-              Cash {fmt(cashResult)}
+              Cash Profit {fmt(cashResult)}
             </span>
             <span className={`font-mono font-medium ${invEdge >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-              Edge {fmt(invEdge)}
+              Inv Edge {fmt(invEdge)}
             </span>
             <span className={`font-mono font-semibold ${combined >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-              Total {fmt(combined)}
+              Total Gain {fmt(combined)}
             </span>
           </div>
         </div>
@@ -197,15 +239,17 @@ function ShowCard({ show, onEdit }: { show: any; onEdit: () => void }) {
       {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-border/50 bg-muted/20 px-4 py-3">
+          <ShowSummary cashResult={cashResult} invEdge={invEdge} invDelta={invDelta} combined={combined} />
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Raw Inputs</div>
           <div className="grid grid-cols-2 gap-3 text-xs">
+            <div><span className="text-muted-foreground block">Cash Sales In</span><span className="font-mono text-foreground">{fmtDollar(show.cashSalesIn)}</span></div>
+            <div><span className="text-muted-foreground block">Cash Spent on Buys</span><span className="font-mono text-foreground">{fmtDollar(show.cashSpentOnBuys)}</span></div>
+            <div><span className="text-muted-foreground block">Other Cash Out</span><span className="font-mono text-foreground">{fmtDollar(show.otherCashOut)}</span></div>
+            <div><span className="text-muted-foreground block">Show Expenses</span><span className="font-mono text-foreground">{fmtDollar(show.expensesTotal)}</span></div>
             <div><span className="text-muted-foreground block">Starting Inv Value</span><span className="font-mono text-foreground">{fmtDollar(show.startingInventoryMarketValue)}</span></div>
             <div><span className="text-muted-foreground block">Ending Inv Value</span><span className="font-mono text-foreground">{fmtDollar(show.endingInventoryMarketValue)}</span></div>
             <div><span className="text-muted-foreground block">Purchased Cost Basis</span><span className="font-mono text-foreground">{fmtDollar(show.purchasedInventoryCostBasis)}</span></div>
             <div><span className="text-muted-foreground block">Purchased Market Value</span><span className="font-mono text-foreground">{fmtDollar(show.purchasedInventoryMarketValue)}</span></div>
-            <div><span className="text-muted-foreground block">Cash Sales In</span><span className="font-mono text-foreground">{fmtDollar(show.cashSalesIn)}</span></div>
-            <div><span className="text-muted-foreground block">Cash Spent on Buys</span><span className="font-mono text-foreground">{fmtDollar(show.cashSpentOnBuys)}</span></div>
-            <div><span className="text-muted-foreground block">Other Cash Out</span><span className="font-mono text-foreground">{fmtDollar(show.otherCashOut)}</span></div>
-            <div><span className="text-muted-foreground block">Expenses</span><span className="font-mono text-foreground">{fmtDollar(show.expensesTotal)}</span></div>
             {show.notes && (
               <div className="col-span-2">
                 <span className="text-muted-foreground block">Notes</span>
@@ -243,7 +287,7 @@ function ShowRow({ show, onEdit }: { show: any; onEdit: () => void }) {
         <td className="px-3 py-2.5 w-8 text-muted-foreground">{expanded ? <ChevronDown size={13}/> : <ChevronRight size={13}/>}</td>
         <td className="px-3 py-2.5 font-medium text-foreground">{show.showName}</td>
         <td className="px-3 py-2.5 text-muted-foreground text-sm">{show.location || "—"}</td>
-        <td className="px-3 py-2.5 text-sm mono">{show.showDate}</td>
+        <td className="px-3 py-2.5 text-sm mono">{fmtDate(show.showDate)}</td>
         <td className={`px-3 py-2.5 text-right mono text-sm font-medium ${cashResult >= 0 ? "text-emerald-400" : "text-red-400"}`}>
           {fmt(cashResult)}
         </td>
@@ -270,15 +314,17 @@ function ShowRow({ show, onEdit }: { show: any; onEdit: () => void }) {
       {expanded && (
         <tr className="border-b border-border/50 bg-muted/20">
           <td colSpan={9} className="px-6 py-3">
+            <ShowSummary cashResult={cashResult} invEdge={invEdge} invDelta={invDelta} combined={combined} />
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Raw Inputs</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-              <div><span className="text-muted-foreground">Starting Inv Value:</span><div className="font-mono text-foreground">{fmtDollar(show.startingInventoryMarketValue)}</div></div>
-              <div><span className="text-muted-foreground">Ending Inv Value:</span><div className="font-mono text-foreground">{fmtDollar(show.endingInventoryMarketValue)}</div></div>
-              <div><span className="text-muted-foreground">Purchased Cost Basis:</span><div className="font-mono text-foreground">{fmtDollar(show.purchasedInventoryCostBasis)}</div></div>
-              <div><span className="text-muted-foreground">Purchased Market Value:</span><div className="font-mono text-foreground">{fmtDollar(show.purchasedInventoryMarketValue)}</div></div>
-              <div><span className="text-muted-foreground">Cash Sales In:</span><div className="font-mono text-foreground">{fmtDollar(show.cashSalesIn)}</div></div>
-              <div><span className="text-muted-foreground">Cash Spent on Buys:</span><div className="font-mono text-foreground">{fmtDollar(show.cashSpentOnBuys)}</div></div>
-              <div><span className="text-muted-foreground">Other Cash Out:</span><div className="font-mono text-foreground">{fmtDollar(show.otherCashOut)}</div></div>
-              <div><span className="text-muted-foreground">Expenses:</span><div className="font-mono text-foreground">{fmtDollar(show.expensesTotal)}</div></div>
+              <div><span className="text-muted-foreground">Cash Sales In</span><div className="font-mono text-foreground">{fmtDollar(show.cashSalesIn)}</div></div>
+              <div><span className="text-muted-foreground">Cash Spent on Buys</span><div className="font-mono text-foreground">{fmtDollar(show.cashSpentOnBuys)}</div></div>
+              <div><span className="text-muted-foreground">Other Cash Out</span><div className="font-mono text-foreground">{fmtDollar(show.otherCashOut)}</div></div>
+              <div><span className="text-muted-foreground">Show Expenses</span><div className="font-mono text-foreground">{fmtDollar(show.expensesTotal)}</div></div>
+              <div><span className="text-muted-foreground">Starting Inv Value</span><div className="font-mono text-foreground">{fmtDollar(show.startingInventoryMarketValue)}</div></div>
+              <div><span className="text-muted-foreground">Ending Inv Value</span><div className="font-mono text-foreground">{fmtDollar(show.endingInventoryMarketValue)}</div></div>
+              <div><span className="text-muted-foreground">Purchased Cost Basis</span><div className="font-mono text-foreground">{fmtDollar(show.purchasedInventoryCostBasis)}</div></div>
+              <div><span className="text-muted-foreground">Purchased Market Value</span><div className="font-mono text-foreground">{fmtDollar(show.purchasedInventoryMarketValue)}</div></div>
               {show.notes && <div className="col-span-4"><span className="text-muted-foreground">Notes:</span><div className="text-foreground">{show.notes}</div></div>}
             </div>
           </td>
@@ -295,8 +341,13 @@ export default function Shows() {
   const { data: shows = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/shows"] });
 
   const chartData = [...shows].reverse().map(s => {
-    const { cashResult, invEdge } = calcShow(s);
-    return { name: s.showName, cashResult: Math.round(cashResult * 100) / 100, invEdge: Math.round(invEdge * 100) / 100 };
+    const { cashResult, invEdge, combined } = calcShow(s);
+    return {
+      name: s.showName,
+      cashResult: Math.round(cashResult * 100) / 100,
+      invEdge: Math.round(invEdge * 100) / 100,
+      combined: Math.round(combined * 100) / 100,
+    };
   });
 
   const totals = shows.reduce((acc, s) => {
@@ -320,23 +371,26 @@ export default function Shows() {
         </Button>
       </div>
 
-      {/* Summary cards — 3 col on sm+, 1 col on mobile */}
+      {/* Summary cards */}
       {shows.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           <div className="stat-card">
-            <div className="text-xs text-muted-foreground mb-1">Total Cash Result</div>
+            <div className="text-xs text-muted-foreground mb-0.5">Total Cash Profit</div>
+            <div className="text-[10px] text-muted-foreground/60 mb-1">Sales − buys − cash out − expenses</div>
             <div className={`text-xl font-bold mono ${totals.cashResult >= 0 ? "text-emerald-400" : "text-red-400"}`}>
               {fmt(totals.cashResult)}
             </div>
           </div>
           <div className="stat-card">
-            <div className="text-xs text-muted-foreground mb-1">Total Inv Edge Created</div>
+            <div className="text-xs text-muted-foreground mb-0.5">Total New Inventory Edge</div>
+            <div className="text-[10px] text-muted-foreground/60 mb-1">Market value of buys − what you paid</div>
             <div className={`text-xl font-bold mono ${totals.invEdge >= 0 ? "text-emerald-400" : "text-red-400"}`}>
               {fmt(totals.invEdge)}
             </div>
           </div>
           <div className="stat-card">
-            <div className="text-xs text-muted-foreground mb-1">Combined Performance</div>
+            <div className="text-xs text-muted-foreground mb-0.5">Total Gain (Cash + Edge)</div>
+            <div className="text-[10px] text-muted-foreground/60 mb-1">Cash Profit + New Inventory Edge</div>
             <div className={`text-xl font-bold mono ${totals.combined >= 0 ? "text-emerald-400" : "text-red-400"}`}>
               {fmt(totals.combined)}
             </div>
@@ -344,37 +398,37 @@ export default function Shows() {
         </div>
       )}
 
-      {/* Charts — only show when there's data */}
+      {/* Charts */}
       {chartData.length > 1 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
           <div className="stat-card">
-            <div className="text-sm font-semibold mb-3">Cash Result by Show</div>
+            <div className="text-sm font-semibold mb-3">Cash Profit by Show</div>
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
                 <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: 12 }} />
-                <Bar dataKey="cashResult" name="Cash Result" fill="hsl(142 71% 45%)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="cashResult" name="Cash Profit" fill="hsl(142 71% 45%)" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
           <div className="stat-card">
-            <div className="text-sm font-semibold mb-3">Inventory Edge by Show</div>
+            <div className="text-sm font-semibold mb-3">New Inventory Edge by Show</div>
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
                 <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "8px", fontSize: 12 }} />
-                <Bar dataKey="invEdge" name="Inv Edge" fill="hsl(199 89% 48%)" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="invEdge" name="New Inv Edge" fill="hsl(199 89% 48%)" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       )}
 
-      {/* ── Mobile: card list ── */}
+      {/* Mobile: card list */}
       <div className="sm:hidden space-y-2">
         {isLoading
           ? Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)
@@ -394,7 +448,7 @@ export default function Shows() {
         }
       </div>
 
-      {/* ── Desktop: table ── */}
+      {/* Desktop: table */}
       <div className="hidden sm:block stat-card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -404,10 +458,10 @@ export default function Shows() {
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Show</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Location</th>
                 <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Date</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground">Cash Result</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground">Inv Edge</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground">Combined</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground">Inv Δ</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground">Cash Profit</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground">New Inv Edge</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground">Total Gain</th>
+                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground">Inv Value Δ</th>
                 <th className="px-3 py-2.5 w-16"></th>
               </tr>
             </thead>
