@@ -4,6 +4,7 @@ import multer from "multer";
 import * as XLSX from "xlsx";
 import { storage } from "./storage";
 import { supabaseAdmin, verifyToken } from "./supabase";
+import { batchFetchPrices, fetchSinglePrice } from "./justtcg";
 
 // ── File validation ───────────────────────────────────────────────────────────────
 const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
@@ -150,7 +151,8 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
 
   const flags: string[] = [];
   if (!productName) flags.push("missing_product_name");
-  if (!rawMarketPrice) flags.push("missing_market_price");
+  // Price is now fetched live from JustTCG after approve — no longer a blocking flag
+  if (!rawMarketPrice) flags.push("price_pending_live_fetch");
 
   return {
     id: crypto.randomUUID(),
@@ -305,6 +307,69 @@ function sendProgress(token: string, label: string, pct: number) {
   if (job) job.steps.push({ label, pct });
 }
 
+// ── Background price enrichment helper ──────────────────────────────────────────
+// Called after approve_upload to fetch live JustTCG prices for newly added items.
+// Runs fire-and-forget — does not block the approve response.
+async function enrichNewItemsWithLivePrices(
+  userId: string,
+  inventoryItemIds: string[]
+) {
+  if (!inventoryItemIds.length) return;
+
+  try {
+    // Fetch the newly created inventory items
+    const allItems = await storage.listInventoryItems(userId);
+    const newItems = allItems.filter(i => inventoryItemIds.includes(i.id) && i.sourceTcgplayerId);
+
+    if (!newItems.length) return;
+
+    const BATCH = 20;
+    for (let i = 0; i < newItems.length; i += BATCH) {
+      const chunk = newItems.slice(i, i + BATCH);
+
+      const priceMap = await batchFetchPrices(
+        chunk.map(item => ({
+          id: item.id,
+          tcgplayerId: item.sourceTcgplayerId!,
+          condition: item.condition ?? "Near Mint",
+          printing: (() => {
+            try { return JSON.parse(item.matchMetadataJson || "{}").sourcePrinting ?? null; }
+            catch { return null; }
+          })(),
+        }))
+      );
+
+      for (const item of chunk) {
+        const priceResult = priceMap.get(item.id);
+        if (!priceResult) continue;
+
+        await supabaseAdmin
+          .from("inventory_items")
+          .update({
+            current_raw_market_price:    priceResult.price,
+            current_rounded_print_price: Math.ceil(priceResult.price),
+            price_last_fetched_at:       new Date().toISOString(),
+            price_change_24hr:           priceResult.priceChange24hr,
+            price_change_7d:             priceResult.priceChange7d,
+            justtcg_card_uuid:           priceResult.cardUuid,
+            justtcg_variant_uuid:        priceResult.variantUuid,
+          })
+          .eq("inventory_item_id", item.id)
+          .eq("user_id", userId);
+      }
+
+      // Respect 10 req/min rate limit — pause 6s between batches
+      if (i + BATCH < newItems.length) {
+        await new Promise(r => setTimeout(r, 6000));
+      }
+    }
+
+    console.log(`[JustTCG] Enriched ${newItems.length} new items with live prices for user ${userId}`);
+  } catch (err: any) {
+    console.error("[JustTCG] enrichNewItemsWithLivePrices error:", err.message);
+  }
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────────
 export function registerRoutes(httpServer: Server, app: Express) {
 
@@ -378,6 +443,97 @@ export function registerRoutes(httpServer: Server, app: Express) {
     try {
       res.json(await storage.getDashboardStats(req.user.id));
     } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── JustTCG Price Routes ──────────────────────────────────────────────────────
+
+  // POST /api/prices/refresh — batch refresh stale or selected inventory items
+  app.post("/api/prices/refresh", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { ids } = req.body as { ids?: string[] };
+
+      const allItems = await storage.listInventoryItems(userId);
+
+      // Filter: specific IDs requested, or items with no price / stale > 6h
+      const toRefresh = ids
+        ? allItems.filter(i => ids.includes(i.id) && i.sourceTcgplayerId)
+        : allItems.filter(i => {
+            if (!i.sourceTcgplayerId) return false;
+            if (!i.priceFetchedAt) return true;
+            const staleMs = Date.now() - new Date(i.priceFetchedAt).getTime();
+            return staleMs > 6 * 60 * 60 * 1000;
+          });
+
+      if (!toRefresh.length) return res.json({ updated: 0, total: 0, message: "All prices are fresh" });
+
+      const BATCH = 20;
+      let updated = 0;
+
+      for (let i = 0; i < toRefresh.length; i += BATCH) {
+        const chunk = toRefresh.slice(i, i + BATCH);
+
+        const priceMap = await batchFetchPrices(
+          chunk.map(item => ({
+            id: item.id,
+            tcgplayerId: item.sourceTcgplayerId!,
+            condition: item.condition ?? "Near Mint",
+            printing: (() => {
+              try { return JSON.parse(item.matchMetadataJson || "{}").sourcePrinting ?? null; }
+              catch { return null; }
+            })(),
+          }))
+        );
+
+        for (const item of chunk) {
+          const priceResult = priceMap.get(item.id);
+          if (!priceResult) continue;
+
+          await supabaseAdmin
+            .from("inventory_items")
+            .update({
+              current_raw_market_price:    priceResult.price,
+              current_rounded_print_price: Math.ceil(priceResult.price),
+              price_last_fetched_at:       new Date().toISOString(),
+              price_change_24hr:           priceResult.priceChange24hr,
+              price_change_7d:             priceResult.priceChange7d,
+              justtcg_card_uuid:           priceResult.cardUuid,
+              justtcg_variant_uuid:        priceResult.variantUuid,
+            })
+            .eq("inventory_item_id", item.id)
+            .eq("user_id", userId);
+
+          updated++;
+        }
+
+        // Respect 10 req/min — pause 6s between batches
+        if (i + BATCH < toRefresh.length) {
+          await new Promise(r => setTimeout(r, 6000));
+        }
+      }
+
+      res.json({ updated, total: toRefresh.length });
+    } catch (e: any) {
+      console.error("[prices/refresh]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/prices/live?tcgplayerId=xxx&condition=Near+Mint&printing=Normal
+  // Single card live price lookup — uses cache first, falls back to JustTCG
+  app.get("/api/prices/live", async (req: any, res) => {
+    try {
+      const { tcgplayerId, condition, printing } = req.query as Record<string, string>;
+      if (!tcgplayerId) return res.status(400).json({ error: "tcgplayerId is required" });
+
+      const result = await fetchSinglePrice(tcgplayerId, condition ?? "Near Mint", printing ?? null);
+      if (!result) return res.status(404).json({ error: "No price found for this card" });
+
+      res.json(result);
+    } catch (e: any) {
+      console.error("[prices/live]", e);
       res.status(500).json({ error: e.message });
     }
   });
@@ -713,6 +869,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
         console.error("[approve_upload RPC error]", rpcError);
         return res.status(500).json({ error: rpcError.message });
       }
+
+      // ── Fire-and-forget: enrich new items with live JustTCG prices ──────────
+      const newItemIds = rpcNewItems.map((i: any) => i.inventoryItemId);
+      setImmediate(() => enrichNewItemsWithLivePrices(userId, newItemIds));
 
       res.json({ success: true });
     } catch (e: any) {
