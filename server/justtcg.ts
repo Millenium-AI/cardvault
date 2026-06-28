@@ -1,7 +1,16 @@
-import { JustTCG } from 'justtcg-js';
+/**
+ * JustTCG API client — native fetch, zero npm dependencies.
+ * Docs: https://justtcg.com/docs/sdk
+ */
 import { supabaseAdmin } from './supabase.js';
 
-const client = new JustTCG(); // reads JUSTTCG_API_KEY from process.env automatically
+const BASE_URL = 'https://api.justtcg.com/v1';
+
+function apiKey(): string {
+  const key = process.env.JUSTTCG_API_KEY;
+  if (!key) throw new Error('JUSTTCG_API_KEY env var is not set');
+  return key;
+}
 
 // ── Condition mapping: CardVault → JustTCG ────────────────────────────────────
 const CONDITION_MAP: Record<string, string> = {
@@ -35,8 +44,33 @@ function expiresAt(price: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
+// ── Low-level POST /v1/cards (batch) ─────────────────────────────────────────
+async function postBatchCards(
+  items: { tcgplayerId: string; condition: string; printing: string }[]
+): Promise<{ data: any[]; usage?: any }> {
+  const res = await fetch(`${BASE_URL}/cards`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey()}`,
+    },
+    body: JSON.stringify({ cards: items }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`JustTCG API ${res.status}: ${text}`);
+  }
+
+  return res.json();
+}
+
 // ── Extract the matching variant price from a card response ──────────────────
-export function extractPrice(card: any, condition: string, printing?: string | null): PriceResult | null {
+export function extractPrice(
+  card: any,
+  condition: string,
+  printing?: string | null
+): PriceResult | null {
   const jtCondition = CONDITION_MAP[condition] ?? 'NM';
   const jtPrinting  = printing ?? 'Normal';
 
@@ -59,16 +93,16 @@ export function extractPrice(card: any, condition: string, printing?: string | n
 // ── Batch fetch up to 20 cards, with Supabase cache layer ────────────────────
 export async function batchFetchPrices(
   items: {
-    id:            string;  // inventory item UUID (for mapping results back)
-    tcgplayerId:   string;
-    condition:     string;
-    printing?:     string | null;
+    id:           string;   // inventory item UUID (for mapping results back)
+    tcgplayerId:  string;
+    condition:    string;
+    printing?:    string | null;
   }[]
 ): Promise<Map<string, PriceResult>> {
   const resultMap = new Map<string, PriceResult>();
   const toFetch:   typeof items = [];
 
-  // 1. Check Supabase cache first for each item
+  // 1. Check Supabase cache first
   for (const item of items) {
     const cacheKey = buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing);
     const { data: cached } = await supabaseAdmin
@@ -95,7 +129,7 @@ export async function batchFetchPrices(
 
   // 2. Call JustTCG for cache misses
   try {
-    const response = await (client.cards as any).batch(
+    const response = await postBatchCards(
       toFetch.map(i => ({
         tcgplayerId: i.tcgplayerId,
         condition:   CONDITION_MAP[i.condition] ?? 'NM',
@@ -139,7 +173,7 @@ export async function batchFetchPrices(
   return resultMap;
 }
 
-// ── Single card live lookup (used on card detail page) ────────────────────────
+// ── Single card live lookup ───────────────────────────────────────────────────
 export async function fetchSinglePrice(
   tcgplayerId: string,
   condition: string,
@@ -167,7 +201,7 @@ export async function fetchSinglePrice(
 
   // Live fetch
   try {
-    const response = await (client.cards as any).batch([{
+    const response = await postBatchCards([{
       tcgplayerId,
       condition: CONDITION_MAP[condition] ?? 'NM',
       printing:  printing ?? 'Normal',
