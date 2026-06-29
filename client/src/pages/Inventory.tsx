@@ -13,7 +13,6 @@ import type { DragEndEvent } from "@dnd-kit/core";
 import {
   SortableContext, horizontalListSortingStrategy, useSortable, arrayMove,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,10 +45,13 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
 // ── Draggable column header ───────────────────────────────────────────────────
 function DraggableColHeader({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const transformStr = transform
+    ? `translate3d(${transform.x}px, ${transform.y}px, 0) scaleX(${transform.scaleX ?? 1}) scaleY(${transform.scaleY ?? 1})`
+    : undefined;
   return (
     <th
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      style={{ transform: transformStr, transition, opacity: isDragging ? 0.5 : 1 }}
       className="px-3 py-2.5 text-xs font-medium text-muted-foreground cursor-grab active:cursor-grabbing select-none whitespace-nowrap"
       {...attributes}
       {...listeners}
@@ -271,7 +273,6 @@ function ExpandedDetail({
           <span className="italic text-foreground/80">{item.notes}</span>
         </div>
       )}
-      {console.log("tcgplayerUrl:", item.tcgplayerUrl, "| id:", item.id) as unknown as null}
       {editing ? (
         <InlineEditPanel item={item} onDone={() => setEditing(false)} />
       ) : (
@@ -945,7 +946,6 @@ export default function Inventory() {
     setSheetOpen(true);
   }
 
-  // Keep sheet item in sync with latest data
   const liveSheetItem = sheetItem
     ? (items.find((i: any) => i.id === sheetItem.id) ?? sheetItem)
     : null;
