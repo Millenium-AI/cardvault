@@ -114,8 +114,9 @@ export default function NewLabels() {
   const totalSelected = selected.size;
 
   // Shared dropdown content for both header and floating bar
+  // Excel (Niimbot native) listed first, CSV at bottom for Mac users
   const ExportMenuContent = () => (
-    <DropdownMenuContent align="end" className="w-52">
+    <DropdownMenuContent align="end" className="w-56">
       <DropdownMenuItem
         onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx", stickerMode: "single" })}
         className="gap-2 cursor-pointer"
@@ -135,7 +136,7 @@ export default function NewLabels() {
       <DropdownMenuSeparator />
       <DropdownMenuItem
         onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv", stickerMode: "single" })}
-        className="gap-2 cursor-pointer"
+        className="gap-2 cursor-pointer text-muted-foreground"
       >
         <FileText size={14} className="text-blue-400" />
         CSV — Single sticker
@@ -143,7 +144,7 @@ export default function NewLabels() {
       {isAdmin && (
         <DropdownMenuItem
           onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv", stickerMode: "dual" })}
-          className="gap-2 cursor-pointer"
+          className="gap-2 cursor-pointer text-muted-foreground"
         >
           <FileText size={14} className="text-blue-400 opacity-60" />
           CSV — Dual sticker (A/B)

@@ -151,7 +151,6 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
 
   const flags: string[] = [];
   if (!productName) flags.push("missing_product_name");
-  // Price is now fetched live from JustTCG after approve — no longer a blocking flag
   if (!rawMarketPrice) flags.push("price_pending_live_fetch");
 
   return {
@@ -222,7 +221,6 @@ function buildNiimbotCsv(items: any[]): string {
 
 // ── Niimbot dual sticker CSV export — A/B side split ─────────────────────────────────────
 function buildNiimbotDualCsv(items: any[]): string {
-  // Expand by quantity first (same as single)
   const expanded: any[] = items.flatMap(item => {
     const qty = Math.max(1, parseInt(item.quantity) || 1);
     return Array(qty).fill(item);
@@ -261,7 +259,6 @@ if (!ADMIN_EMAIL) {
   console.warn("[WARNING] ADMIN_EMAIL is not set. Admin routes will be inaccessible.");
 }
 
-// Dev bypass — only active when NODE_ENV=development and DEV_BYPASS_USER_ID is set
 const DEV_MODE = process.env.NODE_ENV === "development";
 const DEV_BYPASS_USER_ID = process.env.DEV_BYPASS_USER_ID;
 const DEV_BYPASS_EMAIL = process.env.DEV_BYPASS_EMAIL;
@@ -329,7 +326,6 @@ async function resolveInventoryItem(userId: string, id: string, res: Response) {
 }
 
 // ── SSE progress helpers ─────────────────────────────────────────────────────────────
-// Pending upload jobs indexed by a short random token
 const pendingJobs = new Map<string, {
   status: "pending" | "done" | "error";
   steps: { label: string; pct: number }[];
@@ -343,8 +339,6 @@ function sendProgress(token: string, label: string, pct: number) {
 }
 
 // ── Background price enrichment helper ──────────────────────────────────────────
-// Called after approve_upload to fetch live JustTCG prices for newly added items.
-// Runs fire-and-forget — does not block the approve response.
 async function enrichNewItemsWithLivePrices(
   userId: string,
   inventoryItemIds: string[]
@@ -352,7 +346,6 @@ async function enrichNewItemsWithLivePrices(
   if (!inventoryItemIds.length) return;
 
   try {
-    // Fetch the newly created inventory items
     const allItems = await storage.listInventoryItems(userId);
     const newItems = allItems.filter(i => inventoryItemIds.includes(i.id) && i.sourceTcgplayerId);
 
@@ -393,7 +386,6 @@ async function enrichNewItemsWithLivePrices(
           .eq("user_id", userId);
       }
 
-      // Respect 10 req/min rate limit — pause 6s between batches
       if (i + BATCH < newItems.length) {
         await new Promise(r => setTimeout(r, 6000));
       }
@@ -408,7 +400,6 @@ async function enrichNewItemsWithLivePrices(
 // ── Routes ────────────────────────────────────────────────────────────────────────
 export function registerRoutes(httpServer: Server, app: Express) {
 
-  // Public auth routes
   app.post("/api/auth/validate-invite", async (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: "Code required" });
@@ -452,7 +443,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ id: user.id, email: user.email, isAdmin: Boolean(ADMIN_EMAIL && user.email === ADMIN_EMAIL) });
   });
 
-  // Admin routes
   app.post("/api/admin/invite-codes", requireAdmin, async (req: any, res) => {
     const { count = 5, note = "" } = req.body;
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -470,10 +460,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(data);
   });
 
-  // All routes below require auth
   app.use("/api", requireAuth);
 
-  // Dashboard
   app.get("/api/dashboard/stats", async (req: any, res) => {
     try {
       res.json(await storage.getDashboardStats(req.user.id));
@@ -482,9 +470,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // ── JustTCG Price Routes ──────────────────────────────────────────────────────
-
-  // POST /api/prices/refresh — batch refresh stale or selected inventory items
   app.post("/api/prices/refresh", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -492,7 +477,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const allItems = await storage.listInventoryItems(userId);
 
-      // Filter: specific IDs requested, or items with no price / stale > 6h
       const toRefresh = ids
         ? allItems.filter(i => ids.includes(i.id) && i.sourceTcgplayerId)
         : allItems.filter(i => {
@@ -543,7 +527,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
           updated++;
         }
 
-        // Respect 10 req/min — pause 6s between batches
         if (i + BATCH < toRefresh.length) {
           await new Promise(r => setTimeout(r, 6000));
         }
@@ -556,8 +539,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // GET /api/prices/live?tcgplayerId=xxx&condition=Near+Mint&printing=Normal
-  // Single card live price lookup — uses cache first, falls back to JustTCG
   app.get("/api/prices/live", async (req: any, res) => {
     try {
       const { tcgplayerId, condition, printing } = req.query as Record<string, string>;
@@ -573,7 +554,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // Uploads
   app.get("/api/uploads", async (req: any, res) => {
     res.json(await storage.listUploads(req.user.id));
   });
@@ -594,7 +574,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(review);
   });
 
-  // ── SSE progress stream for upload jobs ───────────────────────────────────
   app.get("/api/uploads/progress/:token", (req: any, res: any) => {
     const { token } = req.params;
     res.setHeader("Content-Type", "text/event-stream");
@@ -604,12 +583,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
     const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    // Poll every 200ms until done or client disconnects
     const interval = setInterval(() => {
       const job = pendingJobs.get(token);
       if (!job) { send({ error: "Job not found" }); clearInterval(interval); res.end(); return; }
 
-      // Drain buffered steps
       while (job.steps.length) {
         const step = job.steps.shift()!;
         send({ label: step.label, pct: step.pct });
@@ -631,7 +608,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     req.on("close", () => clearInterval(interval));
   });
 
-  // ── POST upload ────────────────────────────────────────────────────────────────
   app.post("/api/uploads", (req: any, res: any, next: any) => {
     upload.single("file")(req, res, (err: any) => {
       if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE")
@@ -705,7 +681,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const ambiguousItems: any[] = [];
       const repricingCandidates: any[] = [];
 
-      // ── PERF: single bulk fetch replaces N×DB round-trips in the loop below
       const [lookupMaps, thr] = await Promise.all([
         storage.getInventoryLookupMaps(userId),
         storage.getRepricingThresholds(userId),
@@ -715,7 +690,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
       progress("Matching rows…", 55);
 
       for (const row of validRows) {
-        // Resolve existing item using in-memory Maps (zero additional DB calls)
         let existing =
           (row.sourceProductId && byProductId.get(row.sourceProductId)) ||
           (row.sourceTcgplayerId && byTcgplayerId.get(row.sourceTcgplayerId)) ||
@@ -787,7 +761,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const result = { upload: newUpload, review, summary };
 
-      // Signal SSE stream that the job is done
       if (progressToken) {
         const job = pendingJobs.get(progressToken);
         if (job) {
@@ -808,12 +781,9 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // ── SSE progress token registration ───────────────────────────────────────
-  // Client calls this first to get a token, then opens the SSE stream, then POSTs the file.
   app.post("/api/uploads/progress-token", (_req: any, res: any) => {
     const token = crypto.randomUUID();
     pendingJobs.set(token, { status: "pending", steps: [] });
-    // Auto-cleanup after 5 minutes in case client never connects
     setTimeout(() => pendingJobs.delete(token), 5 * 60 * 1000);
     res.json({ token });
   });
@@ -905,7 +875,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
         return res.status(500).json({ error: rpcError.message });
       }
 
-      // ── Fire-and-forget: enrich new items with live JustTCG prices ──────────
       const newItemIds = rpcNewItems.map((i: any) => i.inventoryItemId);
       setImmediate(() => enrichNewItemsWithLivePrices(userId, newItemIds));
 
@@ -925,7 +894,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // DELETE upload — DB ON DELETE CASCADE handles parsed_rows, merge_reviews, price_snapshots.
   app.delete("/api/uploads/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -943,7 +911,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // Inventory
   app.get("/api/inventory", async (req: any, res) => {
     const { game, condition, status, search } = req.query as Record<string, string>;
     const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });
@@ -957,8 +924,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }));
   });
 
-  // Export full active inventory as an .xlsx file — defined before /:id so the
-  // param route doesn't shadow it.
   app.get("/api/inventory/export", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -1009,7 +974,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.updateInventoryItem(req.user.id, req.params.id, patch));
   });
 
-  // Bulk delete — defined before /:id so "bulk" isn't captured as an :id param.
   app.delete("/api/inventory/bulk", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -1025,7 +989,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // DELETE inventory item — storage.deleteInventoryItem handles the cascade
   app.delete("/api/inventory/:id", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -1047,7 +1010,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.getSnapshotsByItem(req.user.id, req.params.id));
   });
 
-  // Labels
   app.get("/api/labels/new", async (req: any, res) => {
     try { res.json(await enrichLabelItems(req.user.id, "new")); }
     catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -1074,10 +1036,12 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
+  // ── POST /api/labels/export ─────────────────────────────────────────────────────────
+  // format defaults to "xlsx" (Niimbot native). CSV available for Mac users.
   app.post("/api/labels/export", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { ids, queueType, format = "csv", stickerMode = "single" } = req.body as {
+      const { ids, queueType, format = "xlsx", stickerMode = "single" } = req.body as {
         ids: string[];
         queueType: string;
         format?: "xlsx" | "csv";
@@ -1155,7 +1119,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
         return res.send(buffer);
       }
 
-      // CSV (default)
+      // CSV — fallback for Mac / non-Niimbot users
       const csvContent = isDual ? buildNiimbotDualCsv(enriched) : buildNiimbotCsv(enriched);
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}.csv"`);
@@ -1166,7 +1130,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // Shows
   app.get("/api/shows", async (req: any, res) => {
     res.json(await storage.listShowLedgers(req.user.id));
   });
@@ -1193,7 +1156,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json({ success: true });
   });
 
-  // Snapshots
   app.get("/api/snapshots/history", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -1239,7 +1201,6 @@ export function registerRoutes(httpServer: Server, app: Express) {
     }
   });
 
-  // Settings
   app.get("/api/settings/thresholds", async (req: any, res) => {
     res.json(await storage.getRepricingThresholds(req.user.id));
   });
