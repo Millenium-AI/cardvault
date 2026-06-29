@@ -26,7 +26,7 @@ const DEFAULT_COLUMN_ORDER = ["card", "condition", "game", "qty", "market", "pri
 type ColumnKey = typeof DEFAULT_COLUMN_ORDER[number];
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
-  card:      "Card",
+  card:      "Card Name",
   condition: "Cond",
   game:      "Game",
   qty:       "Qty",
@@ -77,9 +77,25 @@ function DraggableColHeader({
         const dragged = e.dataTransfer.getData("text/plain") as ColumnKey;
         if (dragged && dragged !== id) onMove(dragged, id);
       }}
-      className="px-3 py-2.5 text-xs font-medium text-muted-foreground cursor-grab active:cursor-grabbing select-none whitespace-nowrap"
+      className="group px-3 py-2.5 text-xs font-medium text-muted-foreground cursor-grab active:cursor-grabbing select-none whitespace-nowrap border-r border-border/40 last:border-r-0"
     >
-      {children}
+      <div className="flex items-center gap-1.5">
+        <div className="flex flex-col gap-[3px] opacity-25 group-hover:opacity-60 transition-opacity shrink-0">
+          <div className="flex gap-[3px]">
+            <div className="w-[3px] h-[3px] rounded-full bg-current" />
+            <div className="w-[3px] h-[3px] rounded-full bg-current" />
+          </div>
+          <div className="flex gap-[3px]">
+            <div className="w-[3px] h-[3px] rounded-full bg-current" />
+            <div className="w-[3px] h-[3px] rounded-full bg-current" />
+          </div>
+          <div className="flex gap-[3px]">
+            <div className="w-[3px] h-[3px] rounded-full bg-current" />
+            <div className="w-[3px] h-[3px] rounded-full bg-current" />
+          </div>
+        </div>
+        <span>{children}</span>
+      </div>
     </th>
   );
 }
@@ -744,7 +760,7 @@ function InventoryRow({
   function renderCell(col: ColumnKey) {
     switch (col) {
       case "card": return (
-        <td key="card" className="px-3 py-2.5">
+        <td key="card" className="px-3 py-2.5 border-r border-border/40">
           <div className="flex items-center gap-2">
             {selectMode ? (
               <button
@@ -761,43 +777,45 @@ function InventoryRow({
             )}
             <div>
               <div className="text-sm font-medium text-foreground truncate max-w-[280px]">{item.productName}</div>
-              <div className="text-xs text-muted-foreground truncate max-w-[280px]">
-                {item.number}{meta.sourceSetName ? ` · ${meta.sourceSetName}` : ""}
+              <div className="flex items-center gap-1.5 mt-0.5">
+                {(item.number || meta.sourceSetName) && (
+                  <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                    {item.number}{meta.sourceSetName ? ` · ${meta.sourceSetName}` : ""}
+                  </span>
+                )}
+                <LabelStatusBadge status={item.labelStatus} />
               </div>
             </div>
           </div>
         </td>
       );
       case "condition": return (
-        <td key="condition" className="px-3 py-2.5 text-xs whitespace-nowrap">
-          <div className="flex items-center gap-1.5">
-            <ConditionBadge condition={item.condition} abbreviated />
-            <LabelStatusBadge status={item.labelStatus} />
-          </div>
+        <td key="condition" className="px-3 py-2.5 text-xs whitespace-nowrap text-center border-r border-border/40">
+          <ConditionBadge condition={item.condition} abbreviated />
         </td>
       );
       case "game": return (
-        <td key="game" className="px-3 py-2.5 text-xs text-muted-foreground capitalize whitespace-nowrap">
+        <td key="game" className="px-3 py-2.5 text-xs text-muted-foreground capitalize whitespace-nowrap text-center border-r border-border/40">
           {item.game?.replace("-", " ")}
         </td>
       );
       case "qty": return (
-        <td key="qty" className="px-3 py-2.5 text-center whitespace-nowrap">
+        <td key="qty" className="px-3 py-2.5 text-center whitespace-nowrap border-r border-border/40">
           <span className="text-sm font-mono font-medium text-foreground">{item.currentQuantity}</span>
         </td>
       );
       case "market": return (
-        <td key="market" className="px-3 py-2.5 text-right whitespace-nowrap">
+        <td key="market" className="px-3 py-2.5 text-center whitespace-nowrap border-r border-border/40">
           <span className="text-sm font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
         </td>
       );
       case "print": return (
-        <td key="print" className="px-3 py-2.5 text-right whitespace-nowrap">
+        <td key="print" className="px-3 py-2.5 text-center whitespace-nowrap border-r border-border/40">
           <span className="text-sm font-mono font-semibold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
         </td>
       );
       case "total": return (
-        <td key="total" className="px-3 py-2.5 text-right whitespace-nowrap">
+        <td key="total" className="px-3 py-2.5 text-center whitespace-nowrap">
           <span className="text-sm font-mono text-muted-foreground">
             ${((item.currentRawMarketPrice || 0) * item.currentQuantity).toFixed(2)}
           </span>
@@ -1134,7 +1152,7 @@ export default function Inventory() {
                           {COLUMN_LABELS.card}
                         </div>
                       ) : (
-                        COLUMN_LABELS[col]
+                        <span className="w-full text-center block">{COLUMN_LABELS[col]}</span>
                       )}
                     </DraggableColHeader>
                   ))}
