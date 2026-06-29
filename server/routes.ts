@@ -473,6 +473,20 @@ async function refreshExistingInventoryPrices(
   }
 }
 
+// ── TCGplayer URL builder ─────────────────────────────────────────────────────
+function buildTcgplayerUrl(item: any): string | null {
+  // 1. Try matchMetadataJson first (most items store IDs here)
+  try {
+    const meta = JSON.parse(item.matchMetadataJson || "{}");
+    if (meta.sourceProductId) return `https://www.tcgplayer.com/product/${meta.sourceProductId}`;
+    if (meta.sourceTcgplayerId) return `https://www.tcgplayer.com/product/${meta.sourceTcgplayerId}`;
+  } catch {}
+  // 2. Fall back to top-level columns on the inventory item
+  if (item.sourceProductId) return `https://www.tcgplayer.com/product/${item.sourceProductId}`;
+  if (item.sourceTcgplayerId) return `https://www.tcgplayer.com/product/${item.sourceTcgplayerId}`;
+  return null;
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────────
 export function registerRoutes(httpServer: Server, app: Express) {
 
@@ -1045,18 +1059,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.get("/api/inventory", async (req: any, res) => {
     const { game, condition, status, search } = req.query as Record<string, string>;
     const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });
-    res.json(items.map(item => {
-      let tcgplayerUrl: string | null = null;
-      try {
-        const meta = JSON.parse(item.matchMetadataJson || "{}");
-        if (meta.sourceProductId) {
-          tcgplayerUrl = `https://www.tcgplayer.com/product/${meta.sourceProductId}`;
-        } else if (meta.sourceTcgplayerId) {
-          tcgplayerUrl = `https://www.tcgplayer.com/product/${meta.sourceTcgplayerId}`;
-        }
-      } catch {}
-      return { ...item, tcgplayerUrl };
-    }));
+    res.json(items.map(item => ({ ...item, tcgplayerUrl: buildTcgplayerUrl(item) })));
   });
 
   app.get("/api/inventory/export", async (req: any, res) => {
