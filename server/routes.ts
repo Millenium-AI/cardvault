@@ -203,7 +203,7 @@ function checkRepricingThreshold(
   return { triggered: false, rule: "" };
 }
 
-// ── Niimbot CSV export ────────────────────────────────────────────────────────────────
+// ── Niimbot single sticker CSV export ────────────────────────────────────────────────────
 function buildNiimbotCsv(items: any[]): string {
   const headers = ["Condition", "Current Market Price", "Product Name", "Number", "Internal ID"];
   const rows = items.flatMap(item => {
@@ -217,6 +217,41 @@ function buildNiimbotCsv(items: any[]): string {
     ].join(",");
     return Array(qty).fill(row);
   });
+  return [headers.join(","), ...rows].join("\n");
+}
+
+// ── Niimbot dual sticker CSV export — A/B side split ─────────────────────────────────────
+function buildNiimbotDualCsv(items: any[]): string {
+  // Expand by quantity first (same as single)
+  const expanded: any[] = items.flatMap(item => {
+    const qty = Math.max(1, parseInt(item.quantity) || 1);
+    return Array(qty).fill(item);
+  });
+
+  const nA = Math.ceil(expanded.length / 2);
+  const sideA = expanded.slice(0, nA);
+  const sideB = expanded.slice(nA);
+
+  const headers = [
+    "Condition A", "Price A", "Name A", "Number A",
+    "Condition B", "Price B", "Name B", "Number B",
+  ];
+
+  const rows = sideA.map((a, i) => {
+    const b = sideB[i] ?? null;
+    const cell = (v: any) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    return [
+      cell(CONDITION_SHORT[a.condition] || a.condition || ""),
+      cell(`$${a.roundedPrintPrice || 0}`),
+      cell(a.productName || ""),
+      cell(a.number || ""),
+      cell(b ? (CONDITION_SHORT[b.condition] || b.condition || "") : ""),
+      cell(b ? `$${b.roundedPrintPrice || 0}` : ""),
+      cell(b?.productName || ""),
+      cell(b?.number || ""),
+    ].join(",");
+  });
+
   return [headers.join(","), ...rows].join("\n");
 }
 
@@ -1042,7 +1077,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/labels/export", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { ids, queueType } = req.body as { ids: string[]; queueType: string };
+      const { ids, queueType, format = "csv", stickerMode = "single" } = req.body as {
+        ids: string[];
+        queueType: string;
+        format?: "xlsx" | "csv";
+        stickerMode?: "single" | "dual";
+      };
+
       const allItems = await storage.listLabelQueueItems(userId, queueType);
       const enriched = await Promise.all(
         allItems
@@ -1060,10 +1101,66 @@ export function registerRoutes(httpServer: Server, app: Express) {
             };
           })
       );
+
       await storage.bulkUpdateLabelQueueExportStatus(userId, ids, "exported");
+
+      const isDual = stickerMode === "dual";
+      const filename = `niimbot-labels-${queueType}-${isDual ? "AB-" : ""}${Date.now()}`;
+
+      if (format === "xlsx") {
+        let sheetRows: object[];
+
+        if (isDual) {
+          const expanded: any[] = enriched.flatMap(item => {
+            const qty = Math.max(1, parseInt(item.quantity) || 1);
+            return Array(qty).fill(item);
+          });
+          const nA = Math.ceil(expanded.length / 2);
+          const sideA = expanded.slice(0, nA);
+          const sideB = expanded.slice(nA);
+          sheetRows = sideA.map((a, i) => {
+            const b = sideB[i] ?? null;
+            return {
+              "Condition A": CONDITION_SHORT[a.condition] || a.condition || "",
+              "Price A": `$${a.roundedPrintPrice || 0}`,
+              "Name A": a.productName || "",
+              "Number A": a.number || "",
+              "Condition B": b ? (CONDITION_SHORT[b.condition] || b.condition || "") : "",
+              "Price B": b ? `$${b.roundedPrintPrice || 0}` : "",
+              "Name B": b?.productName || "",
+              "Number B": b?.number || "",
+            };
+          });
+        } else {
+          sheetRows = enriched.flatMap(item => {
+            const qty = Math.max(1, parseInt(item.quantity) || 1);
+            const row = {
+              "Condition": CONDITION_SHORT[item.condition] || item.condition || "",
+              "Current Market Price": `$${item.roundedPrintPrice || 0}`,
+              "Product Name": item.productName || "",
+              "Number": item.number || "",
+              "Internal ID": item.inventoryItemId || item.id || "",
+            };
+            return Array(qty).fill(row);
+          });
+        }
+
+        const ws = XLSX.utils.json_to_sheet(sheetRows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Labels");
+        const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}.xlsx"`);
+        return res.send(buffer);
+      }
+
+      // CSV (default)
+      const csvContent = isDual ? buildNiimbotDualCsv(enriched) : buildNiimbotCsv(enriched);
       res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", `attachment; filename="niimbot-labels-${queueType}-${Date.now()}.csv"`);
-      res.send(buildNiimbotCsv(enriched));
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}.csv"`);
+      res.send(csvContent);
+
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
