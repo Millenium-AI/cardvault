@@ -6,13 +6,6 @@ import {
   Check, X, Trash2, CheckSquare, Square, Minus, Pencil, Download,
   Tag, RefreshCcw, LayoutList, LayoutGrid, Grid2X2,
 } from "lucide-react";
-import {
-  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
-} from "@dnd-kit/core";
-import type { DragEndEvent } from "@dnd-kit/core";
-import {
-  SortableContext, horizontalListSortingStrategy, useSortable, arrayMove,
-} from "@dnd-kit/sortable";
 import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,19 +35,49 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   total:     "Total",
 };
 
-// ── Draggable column header ───────────────────────────────────────────────────
-function DraggableColHeader({ id, children }: { id: string; children: React.ReactNode }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  const transformStr = transform
-    ? `translate3d(${transform.x}px, ${transform.y}px, 0) scaleX(${transform.scaleX ?? 1}) scaleY(${transform.scaleY ?? 1})`
-    : undefined;
+// ── Column order helpers ───────────────────────────────────────────────────────
+function mergeColumnOrder(saved: string[]): ColumnKey[] {
+  const base = [...DEFAULT_COLUMN_ORDER];
+  const filtered = saved.filter((c): c is ColumnKey => (base as readonly string[]).includes(c));
+  const missing = base.filter(c => !filtered.includes(c));
+  return [...filtered, ...missing];
+}
+
+function moveColumn(order: ColumnKey[], from: ColumnKey, to: ColumnKey): ColumnKey[] {
+  const next = [...order];
+  const fromIndex = next.indexOf(from);
+  const toIndex = next.indexOf(to);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return order;
+  next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, from);
+  return next;
+}
+
+// ── Draggable column header (native HTML5) ────────────────────────────────────
+function DraggableColHeader({
+  id, children, onMove,
+}: {
+  id: ColumnKey;
+  children: React.ReactNode;
+  onMove: (dragged: ColumnKey, target: ColumnKey) => void;
+}) {
   return (
     <th
-      ref={setNodeRef}
-      style={{ transform: transformStr, transition, opacity: isDragging ? 0.5 : 1 }}
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onDragOver={e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }}
+      onDrop={e => {
+        e.preventDefault();
+        const dragged = e.dataTransfer.getData("text/plain") as ColumnKey;
+        if (dragged && dragged !== id) onMove(dragged, id);
+      }}
       className="px-3 py-2.5 text-xs font-medium text-muted-foreground cursor-grab active:cursor-grabbing select-none whitespace-nowrap"
-      {...attributes}
-      {...listeners}
     >
       {children}
     </th>
@@ -825,18 +848,17 @@ export default function Inventory() {
 
   const [columnOrder, setColumnOrder] = useState<ColumnKey[]>([...DEFAULT_COLUMN_ORDER]);
 
-  const sensors = useSensors(useSensor(PointerSensor));
-
   useEffect(() => {
     apiRequest("GET", "/api/settings/inventory-columns")
       .then(r => r.json())
-      .then(d => { if (Array.isArray(d.order)) setColumnOrder(d.order as ColumnKey[]); })
+      .then(d => { if (Array.isArray(d.order)) setColumnOrder(mergeColumnOrder(d.order)); })
       .catch(() => {});
   }, []);
 
-  function handleColumnReorder(newOrder: ColumnKey[]) {
-    setColumnOrder(newOrder);
-    apiRequest("POST", "/api/settings/inventory-columns", { order: newOrder }).catch(() => {});
+  function handleColumnMove(dragged: ColumnKey, target: ColumnKey) {
+    const next = moveColumn(columnOrder, dragged, target);
+    setColumnOrder(next);
+    apiRequest("POST", "/api/settings/inventory-columns", { order: next }).catch(() => {});
   }
 
   const [selectMode, setSelectMode] = useState(false);
@@ -1094,47 +1116,29 @@ export default function Inventory() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={(event: DragEndEvent) => {
-                    const { active, over } = event;
-                    if (over && active.id !== over.id) {
-                      const oldIndex = columnOrder.indexOf(active.id as ColumnKey);
-                      const newIndex = columnOrder.indexOf(over.id as ColumnKey);
-                      handleColumnReorder(arrayMove(columnOrder, oldIndex, newIndex));
-                    }
-                  }}
-                >
-                  <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
-                    <tr className="border-b border-border bg-muted/40">
-                      {columnOrder.map(col => (
-                        col === "card" ? (
-                          <DraggableColHeader key="card" id="card">
-                            <div className="flex items-center gap-2">
-                              {selectMode && (
-                                <button
-                                  onClick={e => { e.stopPropagation(); (selectedIds.size === sorted.length && sorted.length > 0 ? deselectAll : selectAll)(); }}
-                                  className="text-muted-foreground hover:text-primary transition-colors"
-                                  onPointerDown={e => e.stopPropagation()}
-                                >
-                                  {selectedIds.size === sorted.length && sorted.length > 0
-                                    ? <CheckSquare size={14} className="text-primary" />
-                                    : someSelected ? <CheckSquare size={14} className="text-primary/50" /> : <Square size={14} />}
-                                </button>
-                              )}
-                              {COLUMN_LABELS.card}
-                            </div>
-                          </DraggableColHeader>
-                        ) : (
-                          <DraggableColHeader key={col} id={col}>
-                            {COLUMN_LABELS[col]}
-                          </DraggableColHeader>
-                        )
-                      ))}
-                    </tr>
-                  </SortableContext>
-                </DndContext>
+                <tr className="border-b border-border bg-muted/40">
+                  {columnOrder.map(col => (
+                    <DraggableColHeader key={col} id={col} onMove={handleColumnMove}>
+                      {col === "card" ? (
+                        <div className="flex items-center gap-2">
+                          {selectMode && (
+                            <button
+                              onClick={e => { e.stopPropagation(); (selectedIds.size === sorted.length && sorted.length > 0 ? deselectAll : selectAll)(); }}
+                              className="text-muted-foreground hover:text-primary transition-colors"
+                            >
+                              {selectedIds.size === sorted.length && sorted.length > 0
+                                ? <CheckSquare size={14} className="text-primary" />
+                                : someSelected ? <CheckSquare size={14} className="text-primary/50" /> : <Square size={14} />}
+                            </button>
+                          )}
+                          {COLUMN_LABELS.card}
+                        </div>
+                      ) : (
+                        COLUMN_LABELS[col]
+                      )}
+                    </DraggableColHeader>
+                  ))}
+                </tr>
               </thead>
               <tbody>
                 {isLoading
