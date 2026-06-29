@@ -6,6 +6,14 @@ import {
   Check, X, Trash2, CheckSquare, Square, Minus, Pencil, Download,
   Tag, RefreshCcw, LayoutList, LayoutGrid, Grid2X2,
 } from "lucide-react";
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+} from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import {
+  SortableContext, horizontalListSortingStrategy, useSortable, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +28,36 @@ import { format, parseISO } from "date-fns";
 // ── Types ─────────────────────────────────────────────────────────────────────
 type LabelFilter = "all" | "needs_label" | "needs_repricing" | "label_created";
 type ViewMode = "list" | "grid-sm" | "grid-lg";
+
+// ── Column definitions ────────────────────────────────────────────────────────
+const DEFAULT_COLUMN_ORDER = ["card", "condition", "game", "qty", "market", "print", "total"] as const;
+type ColumnKey = typeof DEFAULT_COLUMN_ORDER[number];
+
+const COLUMN_LABELS: Record<ColumnKey, string> = {
+  card:      "Card",
+  condition: "Cond",
+  game:      "Game",
+  qty:       "Qty",
+  market:    "Market $",
+  print:     "Print $",
+  total:     "Total",
+};
+
+// ── Draggable column header ───────────────────────────────────────────────────
+function DraggableColHeader({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <th
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}
+      className="px-3 py-2.5 text-xs font-medium text-muted-foreground cursor-grab active:cursor-grabbing select-none whitespace-nowrap"
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </th>
+  );
+}
 
 // ── Label status config ───────────────────────────────────────────────────────
 const LABEL_STATUS_CONFIG: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
@@ -660,9 +698,13 @@ function BulkActionBar({
 
 // ── List mode row ─────────────────────────────────────────────────────────────
 function InventoryRow({
-  item, selected, onSelect, selectMode,
+  item, selected, onSelect, selectMode, columnOrder,
 }: {
-  item: any; selected: boolean; onSelect: (id: string, checked: boolean) => void; selectMode: boolean;
+  item: any;
+  selected: boolean;
+  onSelect: (id: string, checked: boolean) => void;
+  selectMode: boolean;
+  columnOrder: ColumnKey[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -675,6 +717,72 @@ function InventoryRow({
     if (!next) setEditing(false);
   }
 
+  function renderCell(col: ColumnKey) {
+    switch (col) {
+      case "card": return (
+        <td key="card" className="px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            {selectMode ? (
+              <button
+                onClick={e => { e.stopPropagation(); onSelect(item.id, !selected); }}
+                className="text-muted-foreground hover:text-primary transition-colors shrink-0"
+              >
+                {selected ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} />}
+              </button>
+            ) : (
+              <ChevronDown
+                size={13}
+                className={`text-muted-foreground transition-transform duration-200 shrink-0 ${expanded ? "" : "-rotate-90"}`}
+              />
+            )}
+            <div>
+              <div className="text-sm font-medium text-foreground truncate max-w-[280px]">{item.productName}</div>
+              <div className="text-xs text-muted-foreground truncate max-w-[280px]">
+                {item.number}{meta.sourceSetName ? ` · ${meta.sourceSetName}` : ""}
+              </div>
+            </div>
+          </div>
+        </td>
+      );
+      case "condition": return (
+        <td key="condition" className="px-3 py-2.5 text-xs whitespace-nowrap">
+          <div className="flex items-center gap-1.5">
+            <ConditionBadge condition={item.condition} abbreviated />
+            <LabelStatusBadge status={item.labelStatus} />
+          </div>
+        </td>
+      );
+      case "game": return (
+        <td key="game" className="px-3 py-2.5 text-xs text-muted-foreground capitalize whitespace-nowrap">
+          {item.game?.replace("-", " ")}
+        </td>
+      );
+      case "qty": return (
+        <td key="qty" className="px-3 py-2.5 text-center whitespace-nowrap">
+          <span className="text-sm font-mono font-medium text-foreground">{item.currentQuantity}</span>
+        </td>
+      );
+      case "market": return (
+        <td key="market" className="px-3 py-2.5 text-right whitespace-nowrap">
+          <span className="text-sm font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+        </td>
+      );
+      case "print": return (
+        <td key="print" className="px-3 py-2.5 text-right whitespace-nowrap">
+          <span className="text-sm font-mono font-semibold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
+        </td>
+      );
+      case "total": return (
+        <td key="total" className="px-3 py-2.5 text-right whitespace-nowrap">
+          <span className="text-sm font-mono text-muted-foreground">
+            ${((item.currentRawMarketPrice || 0) * item.currentQuantity).toFixed(2)}
+          </span>
+        </td>
+      );
+      default: return null;
+    }
+  }
+
   return (
     <>
       <tr
@@ -684,46 +792,11 @@ function InventoryRow({
         }`}
         onClick={toggle}
       >
-        <td className="px-3 py-2.5 w-7" onClick={e => e.stopPropagation()}>
-          {selectMode ? (
-            <button onClick={() => onSelect(item.id, !selected)} className="text-muted-foreground hover:text-primary transition-colors">
-              {selected ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} />}
-            </button>
-          ) : (
-            <ChevronDown size={13} className={`text-muted-foreground transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`} />
-          )}
-        </td>
-        <td className="px-3 py-2.5">
-          <div className="text-sm font-medium text-foreground truncate max-w-[300px]">{item.productName}</div>
-          <div className="text-xs text-muted-foreground truncate max-w-[300px]">
-            {item.number}{meta.sourceSetName ? ` · ${meta.sourceSetName}` : ""}
-          </div>
-        </td>
-        <td className="px-3 py-2.5 text-xs whitespace-nowrap">
-          <div className="flex items-center gap-1.5">
-            <ConditionBadge condition={item.condition} abbreviated />
-            <LabelStatusBadge status={item.labelStatus} />
-          </div>
-        </td>
-        <td className="px-3 py-2.5 text-xs text-muted-foreground capitalize whitespace-nowrap">{item.game?.replace("-", " ")}</td>
-        <td className="px-3 py-2.5 text-center whitespace-nowrap">
-          <span className="text-sm font-mono font-medium text-foreground">{item.currentQuantity}</span>
-        </td>
-        <td className="px-3 py-2.5 text-right whitespace-nowrap">
-          <span className="text-sm font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
-        </td>
-        <td className="px-3 py-2.5 text-right whitespace-nowrap">
-          <span className="text-sm font-mono font-semibold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
-        </td>
-        <td className="px-3 py-2.5 text-right whitespace-nowrap">
-          <span className="text-sm font-mono text-muted-foreground">
-            ${((item.currentRawMarketPrice || 0) * item.currentQuantity).toFixed(2)}
-          </span>
-        </td>
+        {columnOrder.map(col => renderCell(col))}
       </tr>
       {expanded && !selectMode && (
         <tr className="border-b border-border/50 bg-muted/20">
-          <td colSpan={8} className="px-4 py-3">
+          <td colSpan={columnOrder.length} className="px-4 py-3">
             <ExpandedDetail item={item} meta={meta} editing={editing} setEditing={setEditing} stopProp />
           </td>
         </tr>
@@ -748,6 +821,22 @@ export default function Inventory() {
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     try { return (localStorage.getItem("inventory-view-mode") as ViewMode) || "list"; } catch { return "list"; }
   });
+
+  const [columnOrder, setColumnOrder] = useState<ColumnKey[]>([...DEFAULT_COLUMN_ORDER]);
+
+  const sensors = useSensors(useSensor(PointerSensor));
+
+  useEffect(() => {
+    apiRequest("GET", "/api/settings/inventory-columns")
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.order)) setColumnOrder(d.order as ColumnKey[]); })
+      .catch(() => {});
+  }, []);
+
+  function handleColumnReorder(newOrder: ColumnKey[]) {
+    setColumnOrder(newOrder);
+    apiRequest("POST", "/api/settings/inventory-columns", { order: newOrder }).catch(() => {});
+  }
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -1005,37 +1094,59 @@ export default function Inventory() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/40">
-                  <th className="w-7 px-3 py-2.5">
-                    {selectMode && (
-                      <button onClick={selectedIds.size === sorted.length && sorted.length > 0 ? deselectAll : selectAll}
-                        className="text-muted-foreground hover:text-primary transition-colors">
-                        {selectedIds.size === sorted.length && sorted.length > 0
-                          ? <CheckSquare size={14} className="text-primary" />
-                          : someSelected ? <CheckSquare size={14} className="text-primary/50" /> : <Square size={14} />}
-                      </button>
-                    )}
-                  </th>
-                  <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Card</th>
-                  <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Cond</th>
-                  <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Game</th>
-                  <th className="text-center px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Qty</th>
-                  <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Market $</th>
-                  <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Print $</th>
-                  <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Total</th>
-                </tr>
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={(event: DragEndEvent) => {
+                    const { active, over } = event;
+                    if (over && active.id !== over.id) {
+                      const oldIndex = columnOrder.indexOf(active.id as ColumnKey);
+                      const newIndex = columnOrder.indexOf(over.id as ColumnKey);
+                      handleColumnReorder(arrayMove(columnOrder, oldIndex, newIndex));
+                    }
+                  }}
+                >
+                  <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
+                    <tr className="border-b border-border bg-muted/40">
+                      {columnOrder.map(col => (
+                        col === "card" ? (
+                          <DraggableColHeader key="card" id="card">
+                            <div className="flex items-center gap-2">
+                              {selectMode && (
+                                <button
+                                  onClick={e => { e.stopPropagation(); (selectedIds.size === sorted.length && sorted.length > 0 ? deselectAll : selectAll)(); }}
+                                  className="text-muted-foreground hover:text-primary transition-colors"
+                                  onPointerDown={e => e.stopPropagation()}
+                                >
+                                  {selectedIds.size === sorted.length && sorted.length > 0
+                                    ? <CheckSquare size={14} className="text-primary" />
+                                    : someSelected ? <CheckSquare size={14} className="text-primary/50" /> : <Square size={14} />}
+                                </button>
+                              )}
+                              {COLUMN_LABELS.card}
+                            </div>
+                          </DraggableColHeader>
+                        ) : (
+                          <DraggableColHeader key={col} id={col}>
+                            {COLUMN_LABELS[col]}
+                          </DraggableColHeader>
+                        )
+                      ))}
+                    </tr>
+                  </SortableContext>
+                </DndContext>
               </thead>
               <tbody>
                 {isLoading
                   ? Array.from({ length: 8 }).map((_, i) => (
                       <tr key={i} className="border-b border-border/50">
-                        <td colSpan={8} className="px-3 py-2.5"><Skeleton className="h-10 w-full" /></td>
+                        <td colSpan={columnOrder.length} className="px-3 py-2.5"><Skeleton className="h-10 w-full" /></td>
                       </tr>
                     ))
                   : sorted.length === 0
-                  ? <tr><td colSpan={8} className="px-3 py-12 text-center text-muted-foreground text-sm">{emptyMsg}</td></tr>
+                  ? <tr><td colSpan={columnOrder.length} className="px-3 py-12 text-center text-muted-foreground text-sm">{emptyMsg}</td></tr>
                   : sorted.map((item: any) => (
-                      <InventoryRow key={item.id} item={item} selected={selectedIds.has(item.id)} onSelect={handleSelect} selectMode={selectMode} />
+                      <InventoryRow key={item.id} item={item} selected={selectedIds.has(item.id)} onSelect={handleSelect} selectMode={selectMode} columnOrder={columnOrder} />
                     ))}
               </tbody>
             </table>
