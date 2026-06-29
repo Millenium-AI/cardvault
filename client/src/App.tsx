@@ -8,8 +8,6 @@ import { AppShell } from "@/components/AppShell";
 import Dashboard from "@/pages/Dashboard";
 import Uploads from "@/pages/Uploads";
 import Inventory from "@/pages/Inventory";
-import NewLabels from "@/pages/NewLabels";
-import RepricingQueue from "@/pages/RepricingQueue";
 import Shows from "@/pages/Shows";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
@@ -72,8 +70,6 @@ function AppRoutes() {
         <Route path="/" component={Dashboard} />
         <Route path="/uploads" component={Uploads} />
         <Route path="/inventory" component={Inventory} />
-        <Route path="/new-labels" component={NewLabels} />
-        <Route path="/repricing" component={RepricingQueue} />
         <Route path="/shows" component={Shows} />
         <Route path="/settings" component={Settings} />
         <Route path="/admin" component={Admin} />

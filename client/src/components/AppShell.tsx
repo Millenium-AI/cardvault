@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import {
-  LayoutDashboard, Upload, Package, Tag, RefreshCcw,
+  LayoutDashboard, Upload, Package,
   Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut,
   MoreHorizontal, X
 } from "lucide-react";
@@ -12,8 +12,6 @@ const nav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/uploads", label: "Uploads", icon: Upload },
   { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/new-labels", label: "New Labels", icon: Tag },
-  { href: "/repricing", label: "Repricing", icon: RefreshCcw },
   { href: "/shows", label: "Shows", icon: Tent },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -21,12 +19,10 @@ const nav = [
 const mobileNavPrimary = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/new-labels", label: "Labels", icon: Tag },
-  { href: "/repricing", label: "Repricing", icon: RefreshCcw },
+  { href: "/uploads", label: "Uploads", icon: Upload },
 ];
 
 const mobileNavSecondary = [
-  { href: "/uploads", label: "Uploads", icon: Upload },
   { href: "/shows", label: "Shows", icon: Tent },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

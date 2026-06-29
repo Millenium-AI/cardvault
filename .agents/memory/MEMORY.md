@@ -1,0 +1,2 @@
+- [CardVault label_status migration](cardvault-label-status.md) — label_status column on inventory_items is the source of truth for Niimbot export; user must run migration SQL in Supabase.
+- [CardVault export endpoint redesign](cardvault-export-endpoint.md) — POST /api/labels/export now accepts {game, format, stickerMode}, queries inventory_items by label_status instead of label_queue_items.

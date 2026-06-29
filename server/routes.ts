@@ -397,6 +397,82 @@ async function enrichNewItemsWithLivePrices(
   }
 }
 
+// ── Background price refresh for existing inventory ────────────────────────────
+async function refreshExistingInventoryPrices(
+  userId: string,
+  excludeIds: string[],
+  game: string,
+) {
+  try {
+    const thr = await storage.getRepricingThresholds(userId);
+    const allItems = await storage.listInventoryItems(userId, { game: game !== "all" ? game : undefined });
+    const toRefresh = allItems.filter(i => {
+      if (excludeIds.includes(i.id)) return false;
+      if (!i.sourceTcgplayerId) return false;
+      const fetchedAt = i.priceLastFetchedAt;
+      if (!fetchedAt) return true;
+      return Date.now() - new Date(fetchedAt).getTime() > 6 * 60 * 60 * 1000;
+    });
+
+    if (!toRefresh.length) return;
+
+    const BATCH = 20;
+    for (let i = 0; i < toRefresh.length; i += BATCH) {
+      const chunk = toRefresh.slice(i, i + BATCH);
+      const priceMap = await batchFetchPrices(
+        chunk.map(item => ({
+          id: item.id,
+          tcgplayerId: item.sourceTcgplayerId!,
+          condition: item.condition ?? "Near Mint",
+          printing: (() => {
+            try { return JSON.parse(item.matchMetadataJson || "{}").sourcePrinting ?? null; }
+            catch { return null; }
+          })(),
+        }))
+      );
+
+      for (const item of chunk) {
+        const priceResult = priceMap.get(item.id);
+        if (!priceResult) continue;
+
+        const newPrice = priceResult.price;
+        const oldPrice = item.currentRawMarketPrice ?? null;
+        const { triggered } = oldPrice !== null
+          ? checkRepricingThreshold(newPrice, oldPrice, thr)
+          : { triggered: false };
+
+        const updates: Record<string, any> = {
+          current_raw_market_price:    newPrice,
+          current_rounded_print_price: Math.ceil(newPrice),
+          price_last_fetched_at:       new Date().toISOString(),
+          price_change_24hr:           priceResult.priceChange24hr,
+          price_change_7d:             priceResult.priceChange7d,
+          justtcg_card_uuid:           priceResult.cardUuid,
+          justtcg_variant_uuid:        priceResult.variantUuid,
+        };
+
+        if (triggered && item.labelStatus !== "needs_label") {
+          updates.label_status = "needs_repricing";
+        }
+
+        await supabaseAdmin
+          .from("inventory_items")
+          .update(updates)
+          .eq("id", item.id)
+          .eq("user_id", userId);
+      }
+
+      if (i + BATCH < toRefresh.length) {
+        await new Promise(r => setTimeout(r, 6000));
+      }
+    }
+
+    console.log("[JustTCG] refreshExistingInventoryPrices: refreshed " + toRefresh.length + " items for user " + userId);
+  } catch (err: any) {
+    console.error("[JustTCG] refreshExistingInventoryPrices error:", err.message);
+  }
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────────
 export function registerRoutes(httpServer: Server, app: Express) {
 
@@ -876,7 +952,30 @@ export function registerRoutes(httpServer: Server, app: Express) {
       }
 
       const newItemIds = rpcNewItems.map((i: any) => i.inventoryItemId);
+
+      // Set label_status = 'needs_label' for all newly created items
+      if (newItemIds.length > 0) {
+        await supabaseAdmin
+          .from("inventory_items")
+          .update({ label_status: "needs_label" })
+          .eq("user_id", userId)
+          .in("id", newItemIds);
+      }
+
+      // Set label_status = 'needs_repricing' for items that triggered repricing
+      // but only if they're not already marked needs_label
+      const repricingIds = rpcRepricing.map((r: any) => r.existingId).filter(Boolean);
+      if (repricingIds.length > 0) {
+        await supabaseAdmin
+          .from("inventory_items")
+          .update({ label_status: "needs_repricing" })
+          .eq("user_id", userId)
+          .in("id", repricingIds)
+          .neq("label_status", "needs_label");
+      }
+
       setImmediate(() => enrichNewItemsWithLivePrices(userId, newItemIds));
+      setImmediate(() => refreshExistingInventoryPrices(userId, newItemIds, game));
 
       res.json({ success: true });
     } catch (e: any) {
@@ -1037,53 +1136,58 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ── POST /api/labels/export ─────────────────────────────────────────────────────────
-  // format defaults to "xlsx" (Niimbot native). CSV available for Mac users.
+  // Queries inventory_items by label_status (needs_label | needs_repricing), exports, then
+  // marks all exported items as label_created. Body: { game?, format?, stickerMode? }
   app.post("/api/labels/export", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { ids, queueType, format = "xlsx", stickerMode = "single" } = req.body as {
-        ids: string[];
-        queueType: string;
+      const { game = "all", format = "xlsx", stickerMode = "single" } = req.body as {
+        game?: string;
         format?: "xlsx" | "csv";
         stickerMode?: "single" | "dual";
       };
 
-      const allItems = await storage.listLabelQueueItems(userId, queueType);
-      const enriched = await Promise.all(
-        allItems
-          .filter(i => ids.includes(i.id))
-          .map(async item => {
-            const inv = await storage.getInventoryItem(userId, item.inventoryItemId);
-            return {
-              id: item.id,
-              inventoryItemId: item.inventoryItemId,
-              condition: inv?.condition || "",
-              roundedPrintPrice: item.roundedPrintPrice,
-              productName: inv?.productName || "",
-              number: inv?.number || "",
-              quantity: inv?.currentQuantity || 1,
-            };
-          })
-      );
+      const pendingItems = await storage.listInventoryItems(userId, {
+        game: game !== "all" ? game : undefined,
+        labelStatuses: ["needs_label", "needs_repricing"],
+      });
 
-      await storage.bulkUpdateLabelQueueExportStatus(userId, ids, "exported");
+      if (!pendingItems.length) {
+        return res.status(400).json({ error: "No items pending label export" });
+      }
+
+      const exportedIds = pendingItems.map(i => i.id);
+
+      const enriched = pendingItems.map(item => ({
+        id: item.id,
+        inventoryItemId: item.id,
+        condition: item.condition || "",
+        roundedPrintPrice: item.currentRoundedPrintPrice ?? 0,
+        productName: item.productName || "",
+        number: item.number || "",
+        quantity: item.currentQuantity || 1,
+      }));
+
+      // Mark all as label_created
+      await storage.bulkUpdateLabelStatus(userId, exportedIds, "label_created");
 
       const isDual = stickerMode === "dual";
-      const filename = `niimbot-labels-${queueType}-${isDual ? "AB-" : ""}${Date.now()}`;
+      const gamePart = game !== "all" ? `-${game}` : "";
+      const filename = `niimbot-labels${gamePart}-${isDual ? "AB-" : ""}${Date.now()}`;
 
       if (format === "xlsx") {
         let sheetRows: object[];
 
         if (isDual) {
           const expanded: any[] = enriched.flatMap(item => {
-            const qty = Math.max(1, parseInt(item.quantity) || 1);
+            const qty = Math.max(1, item.quantity || 1);
             return Array(qty).fill(item);
           });
           const nA = Math.ceil(expanded.length / 2);
           const sideA = expanded.slice(0, nA);
           const sideB = expanded.slice(nA);
-          sheetRows = sideA.map((a, i) => {
-            const b = sideB[i] ?? null;
+          sheetRows = sideA.map((a: any, i: number) => {
+            const b: any = sideB[i] ?? null;
             return {
               "Condition A": CONDITION_SHORT[a.condition] || a.condition || "",
               "Price A": `$${a.roundedPrintPrice || 0}`,
@@ -1097,13 +1201,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
           });
         } else {
           sheetRows = enriched.flatMap(item => {
-            const qty = Math.max(1, parseInt(item.quantity) || 1);
+            const qty = Math.max(1, item.quantity || 1);
             const row = {
               "Condition": CONDITION_SHORT[item.condition] || item.condition || "",
               "Current Market Price": `$${item.roundedPrintPrice || 0}`,
               "Product Name": item.productName || "",
               "Number": item.number || "",
-              "Internal ID": item.inventoryItemId || item.id || "",
+              "Internal ID": item.inventoryItemId || "",
             };
             return Array(qty).fill(row);
           });

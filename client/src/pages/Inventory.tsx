@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, ArrowLeft, Minus, Pencil } from "lucide-react";
+import { apiRequest, getAuthHeader, queryClient } from "@/lib/queryClient";
+import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, ArrowLeft, Minus, Pencil, Download, Tag, RefreshCcw } from "lucide-react";
 import { GameTileGrid } from "@/components/GameTileGrid";
 import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
@@ -164,6 +164,24 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
   );
 }
 
+// ── Label status badge ────────────────────────────────────────────────────────
+const LABEL_STATUS_CONFIG: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
+  needs_label:    { label: "Needs Label",    className: "bg-amber-500/15 text-amber-400 border-amber-500/30",  icon: <Tag size={9} /> },
+  needs_repricing:{ label: "Needs Repricing",className: "bg-blue-500/15  text-blue-400  border-blue-500/30",   icon: <RefreshCcw size={9} /> },
+  label_created:  { label: "Label Created",  className: "bg-green-500/15 text-green-400 border-green-500/30", icon: <Check size={9} /> },
+};
+
+function LabelStatusBadge({ status }: { status?: string }) {
+  if (!status || status === "label_created") return null;
+  const cfg = LABEL_STATUS_CONFIG[status];
+  if (!cfg) return null;
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-none ${cfg.className}`}>
+      {cfg.icon} {cfg.label}
+    </span>
+  );
+}
+
 // ── Small pill/badge chip ─────────────────────────────────────────────────────
 function Chip({ children }: { children: React.ReactNode }) {
   return (
@@ -322,6 +340,7 @@ function InventoryCard({
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <ConditionBadge condition={item.condition} abbreviated />
             <span className="text-[10px] text-muted-foreground capitalize">{item.game?.replace("-", " ")}</span>
+            <LabelStatusBadge status={item.labelStatus} />
           </div>
         </div>
 
@@ -418,7 +437,12 @@ function InventoryRow({
             </div>
           </div>
         </td>
-        <td className="px-3 py-2.5 text-xs whitespace-nowrap"><ConditionBadge condition={item.condition} abbreviated /></td>
+        <td className="px-3 py-2.5 text-xs whitespace-nowrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <ConditionBadge condition={item.condition} abbreviated />
+            <LabelStatusBadge status={item.labelStatus} />
+          </div>
+        </td>
         <td className="px-3 py-2.5 text-xs text-muted-foreground capitalize whitespace-nowrap">{item.game?.replace("-", " ")}</td>
         <td className="px-3 py-2.5 text-center whitespace-nowrap">
           <span className="text-sm font-mono font-medium text-foreground">{item.currentQuantity}</span>
@@ -447,6 +471,8 @@ function InventoryRow({
   );
 }
 
+type LabelFilter = "all" | "needs_label" | "needs_repricing" | "label_created";
+
 // ── Inventory page ────────────────────────────────────────────────────────────
 export default function Inventory() {
   const { toast } = useToast();
@@ -455,9 +481,23 @@ export default function Inventory() {
   const game = selectedGame ?? "all";
   const [condition, setCondition] = useState("all");
   const [sortBy, setSortBy] = useState("lastSeenAt");
+  const [labelFilter, setLabelFilter] = useState<LabelFilter>("all");
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Close export dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const { data: items = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inventory", game, condition, search],
@@ -471,13 +511,59 @@ export default function Inventory() {
     },
   });
 
-  const sorted = [...items].sort((a: any, b: any) => {
+  // Export labels mutation — uses raw fetch so we can read the binary blob
+  const exportMut = useMutation({
+    mutationFn: async ({ format, stickerMode }: { format: "xlsx" | "csv"; stickerMode: "single" | "dual" }) => {
+      const authHeader = await getAuthHeader();
+      const res = await fetch("/api/labels/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader },
+        body: JSON.stringify({ game, format, stickerMode }),
+      });
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `niimbot-labels-${Date.now()}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      setExportOpen(false);
+      toast({ title: "Labels exported", description: "Download started — check your downloads folder." });
+    },
+    onError: (e: any) => {
+      setExportOpen(false);
+      toast({ title: "Export failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const sortedAll = [...items].sort((a: any, b: any) => {
     if (sortBy === "price") return (b.currentRawMarketPrice || 0) - (a.currentRawMarketPrice || 0);
     if (sortBy === "quantity") return b.currentQuantity - a.currentQuantity;
     if (sortBy === "value") return ((b.currentRawMarketPrice || 0) * b.currentQuantity) - ((a.currentRawMarketPrice || 0) * a.currentQuantity);
     if (sortBy === "name") return a.productName.localeCompare(b.productName);
     return b.lastSeenAt?.localeCompare(a.lastSeenAt || "") || 0;
   });
+
+  const sorted = labelFilter === "all"
+    ? sortedAll
+    : sortedAll.filter((i: any) => i.labelStatus === labelFilter);
+
+  // Counts per label status for filter pills
+  const labelCounts = {
+    needs_label:     items.filter((i: any) => i.labelStatus === "needs_label").length,
+    needs_repricing: items.filter((i: any) => i.labelStatus === "needs_repricing").length,
+    label_created:   items.filter((i: any) => i.labelStatus === "label_created").length,
+  };
+  const pendingExportCount = labelCounts.needs_label + labelCounts.needs_repricing;
 
   const totalValue = items.reduce((s: number, i: any) => s + (i.currentRawMarketPrice || 0) * i.currentQuantity, 0);
   const totalUnits = items.reduce((s: number, i: any) => s + i.currentQuantity, 0);
@@ -552,6 +638,72 @@ export default function Inventory() {
         </div>
       </div>
 
+      {/* Label Status Filter Pills */}
+      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+        {(
+          [
+            { key: "all",              label: "All",              count: items.length },
+            { key: "needs_label",      label: "Needs Label",      count: labelCounts.needs_label,      className: "text-amber-400" },
+            { key: "needs_repricing",  label: "Needs Repricing",  count: labelCounts.needs_repricing,  className: "text-blue-400" },
+            { key: "label_created",    label: "Label Created",    count: labelCounts.label_created,    className: "text-green-400" },
+          ] as const
+        ).map(({ key, label, count, className: cls }) => (
+          <button
+            key={key}
+            onClick={() => setLabelFilter(key as LabelFilter)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              labelFilter === key
+                ? "border-primary bg-primary/15 text-primary"
+                : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+            }`}
+          >
+            <span>{label}</span>
+            <span className={`font-mono tabular-nums ${labelFilter === key ? "text-primary" : (cls || "text-muted-foreground")}`}>{count}</span>
+          </button>
+        ))}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Export Labels dropdown */}
+        <div className="relative" ref={exportRef}>
+          <Button
+            data-testid="button-export-labels"
+            size="sm"
+            className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+            onClick={() => setExportOpen(prev => !prev)}
+            disabled={exportMut.isPending}
+          >
+            <Download size={13} />
+            {exportMut.isPending ? "Exporting…" : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
+            <ChevronDown size={12} className={`transition-transform ${exportOpen ? "rotate-180" : ""}`} />
+          </Button>
+          {exportOpen && (
+            <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
+              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Excel (Niimbot)</div>
+              <button
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                onClick={() => exportMut.mutate({ format: "xlsx", stickerMode: "single" })}
+              >Single-side labels</button>
+              <button
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                onClick={() => exportMut.mutate({ format: "xlsx", stickerMode: "dual" })}
+              >Dual A/B labels</button>
+              <div className="my-1 border-t border-border" />
+              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CSV (Mac)</div>
+              <button
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                onClick={() => exportMut.mutate({ format: "csv", stickerMode: "single" })}
+              >Single-side CSV</button>
+              <button
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                onClick={() => exportMut.mutate({ format: "csv", stickerMode: "dual" })}
+              >Dual A/B CSV</button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <div className="relative flex-1 min-w-[150px]">
@@ -603,14 +755,14 @@ export default function Inventory() {
           </SelectContent>
         </Select>
 
-        {/* ── Bulk Edit button (replaces Export Labels) ── */}
         <Button
           data-testid="button-bulk-edit"
           size="sm"
-          className="h-9 px-4 text-sm font-semibold gap-2 bg-green-600 text-white hover:bg-green-700 shadow-sm"
+          variant="outline"
+          className="h-9 px-3 text-xs gap-1.5"
           onClick={() => setSelectMode(true)}
         >
-          <CheckSquare size={15} />
+          <CheckSquare size={14} />
           Bulk Edit
         </Button>
       </div>

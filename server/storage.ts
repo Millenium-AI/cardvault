@@ -57,6 +57,9 @@ export interface InventoryItem {
   firstSeenAt: string;
   lastSeenAt: string;
   status: string;
+  labelStatus?: string;
+  priceLastFetchedAt?: string | null;
+  notes?: string | null;
 }
 
 export interface PriceSnapshot {
@@ -262,7 +265,7 @@ class SupabaseStorage {
     return { byProductId, byTcgplayerId, byMatchKey };
   }
 
-  async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string }): Promise<InventoryItem[]> {
+  async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string; labelStatuses?: string[] }): Promise<InventoryItem[]> {
     let query = supabaseAdmin.from('inventory_items').select('*')
       .eq('user_id', userId)
       .eq('status', filters?.status || 'active')
@@ -270,6 +273,7 @@ class SupabaseStorage {
 
     if (filters?.game) query = query.eq('game', filters.game);
     if (filters?.condition) query = query.eq('condition', filters.condition);
+    if (filters?.labelStatuses?.length) query = query.in('label_status', filters.labelStatuses);
 
     const { data } = await query;
     let items = (data || []).map(toCamel<InventoryItem>);
@@ -282,6 +286,16 @@ class SupabaseStorage {
       );
     }
     return items;
+  }
+
+  async bulkUpdateLabelStatus(userId: string, ids: string[], status: string): Promise<void> {
+    if (!ids.length) return;
+    const { error } = await supabaseAdmin
+      .from('inventory_items')
+      .update({ label_status: status })
+      .eq('user_id', userId)
+      .in('id', ids);
+    if (error) throw new Error(error.message);
   }
 
   async updateInventoryItem(userId: string, id: string, data: Partial<InventoryItem>): Promise<InventoryItem | undefined> {
