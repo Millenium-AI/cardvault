@@ -881,7 +881,7 @@ export default function Inventory() {
 
       {/* ── Row 2: Search + filters ──────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
-        <div className="relative flex-1 min-w-[150px]">
+        <div className="relative flex-1 min-w-[150px] max-w-[260px]">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             data-testid="input-search"
