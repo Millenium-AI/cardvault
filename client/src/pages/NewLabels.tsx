@@ -6,6 +6,7 @@ import { Download, CheckSquare, Square, Tag, ArrowLeft, Trash2, ChevronDown, Fil
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/AuthContext";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { GameTileGrid } from "@/components/GameTileGrid";
 import { useGameParam } from "@/lib/useGameParam";
@@ -14,6 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -29,6 +31,7 @@ export default function NewLabels() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<"all" | "pending" | "exported" | "skipped">("pending");
   const { toast } = useToast();
+  const { isAdmin } = useAuth();
   const [selectedGame, setSelectedGame] = useGameParam();
 
   const { data: items = [], isLoading } = useQuery<any[]>({
@@ -58,14 +61,14 @@ export default function NewLabels() {
   };
 
   const exportMut = useMutation({
-    mutationFn: async ({ ids, fmt }: { ids: string[]; fmt: "xlsx" | "csv" }) => {
-      const res = await apiRequest("POST", "/api/labels/export", { ids, queueType: "new", format: fmt });
+    mutationFn: async ({ ids, fmt, stickerMode }: { ids: string[]; fmt: "xlsx" | "csv"; stickerMode: "single" | "dual" }) => {
+      const res = await apiRequest("POST", "/api/labels/export", { ids, queueType: "new", format: fmt, stickerMode });
       if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `new-labels-${Date.now()}.${fmt}`;
+      a.download = `new-labels-${stickerMode === "dual" ? "AB-" : ""}${Date.now()}.${fmt}`;
       a.click();
       URL.revokeObjectURL(url);
     },
@@ -110,7 +113,46 @@ export default function NewLabels() {
 
   const totalSelected = selected.size;
 
-  // ── Tile picker ─────────────────────────────────────────────────────────────
+  // Shared dropdown content for both header and floating bar
+  const ExportMenuContent = () => (
+    <DropdownMenuContent align="end" className="w-52">
+      <DropdownMenuItem
+        onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx", stickerMode: "single" })}
+        className="gap-2 cursor-pointer"
+      >
+        <FileSpreadsheet size={14} className="text-emerald-500" />
+        Excel — Single sticker
+      </DropdownMenuItem>
+      {isAdmin && (
+        <DropdownMenuItem
+          onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx", stickerMode: "dual" })}
+          className="gap-2 cursor-pointer"
+        >
+          <FileSpreadsheet size={14} className="text-emerald-500 opacity-60" />
+          Excel — Dual sticker (A/B)
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv", stickerMode: "single" })}
+        className="gap-2 cursor-pointer"
+      >
+        <FileText size={14} className="text-blue-400" />
+        CSV — Single sticker
+      </DropdownMenuItem>
+      {isAdmin && (
+        <DropdownMenuItem
+          onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv", stickerMode: "dual" })}
+          className="gap-2 cursor-pointer"
+        >
+          <FileText size={14} className="text-blue-400 opacity-60" />
+          CSV — Dual sticker (A/B)
+        </DropdownMenuItem>
+      )}
+    </DropdownMenuContent>
+  );
+
+  // ── Tile picker ─────────────────────────────────────────────────────────────────
   if (selectedGame === null) {
     return (
       <div>
@@ -155,7 +197,7 @@ export default function NewLabels() {
             </Button>
           )}
 
-          {/* ── Export Labels split button (header) ── */}
+          {/* ── Export Labels dropdown (header) ── */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -170,22 +212,7 @@ export default function NewLabels() {
                 <ChevronDown size={13} className="ml-0.5 opacity-70" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem
-                onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx" })}
-                className="gap-2 cursor-pointer"
-              >
-                <FileSpreadsheet size={14} className="text-emerald-500" />
-                Excel (.xlsx)
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv" })}
-                className="gap-2 cursor-pointer"
-              >
-                <FileText size={14} className="text-blue-400" />
-                CSV (.csv)
-              </DropdownMenuItem>
-            </DropdownMenuContent>
+            <ExportMenuContent />
           </DropdownMenu>
         </div>
       </div>
@@ -392,22 +419,7 @@ export default function NewLabels() {
                 <ChevronDown size={13} className="ml-0.5 opacity-70" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem
-                onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "xlsx" })}
-                className="gap-2 cursor-pointer"
-              >
-                <FileSpreadsheet size={14} className="text-emerald-500" />
-                Excel (.xlsx)
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => exportMut.mutate({ ids: Array.from(selected), fmt: "csv" })}
-                className="gap-2 cursor-pointer"
-              >
-                <FileText size={14} className="text-blue-400" />
-                CSV (.csv)
-              </DropdownMenuItem>
-            </DropdownMenuContent>
+            <ExportMenuContent />
           </DropdownMenu>
         </div>
       )}
