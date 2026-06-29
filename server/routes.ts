@@ -1073,6 +1073,24 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(await storage.updateInventoryItem(req.user.id, req.params.id, patch));
   });
 
+  app.patch("/api/inventory/bulk", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { ids, condition, currentQuantity } = req.body as {
+        ids: string[];
+        condition?: string;
+        currentQuantity?: number;
+      };
+      if (!Array.isArray(ids) || ids.length === 0)
+        return res.status(400).json({ error: "ids must be a non-empty array" });
+      await storage.bulkPatchInventoryItems(userId, ids, { condition, currentQuantity });
+      res.json({ success: true, updated: ids.length });
+    } catch (e: any) {
+      console.error("[bulk patch inventory]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.delete("/api/inventory/bulk", async (req: any, res) => {
     try {
       const userId = req.user.id;

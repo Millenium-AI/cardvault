@@ -1,28 +1,34 @@
 import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, getAuthHeader, queryClient } from "@/lib/queryClient";
-import { Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink, Check, X, Trash2, CheckSquare, Square, ArrowLeft, Minus, Pencil, Download, Tag, RefreshCcw } from "lucide-react";
-import { GameTileGrid } from "@/components/GameTileGrid";
+import {
+  Search, ChevronDown, TrendingUp, TrendingDown, ExternalLink,
+  Check, X, Trash2, CheckSquare, Square, Minus, Pencil, Download,
+  Tag, RefreshCcw, LayoutList, LayoutGrid, Grid2X2,
+} from "lucide-react";
 import { useGameParam } from "@/lib/useGameParam";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { useToast } from "@/hooks/use-toast";
 import { format, parseISO } from "date-fns";
 
-// Placeholder image map for the game tiles — keyed by the stored game value.
-const GAME_IMAGES: Record<string, string> = {
-  all: "",
-  pokemon: "",
-  "one-piece": "",
-  sorcery: "",
-  "dragon-ball": "",
+// ── Types ─────────────────────────────────────────────────────────────────────
+type LabelFilter = "all" | "needs_label" | "needs_repricing" | "label_created";
+type ViewMode = "list" | "grid-sm" | "grid-lg";
+
+// ── Label status config ───────────────────────────────────────────────────────
+const LABEL_STATUS_CONFIG: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
+  needs_label:     { label: "Needs Label",     className: "bg-amber-500/15 text-amber-400 border-amber-500/30", icon: <Tag size={9} /> },
+  needs_repricing: { label: "Needs Repricing", className: "bg-blue-500/15  text-blue-400  border-blue-500/30",  icon: <RefreshCcw size={9} /> },
+  label_created:   { label: "Label Created",   className: "bg-green-500/15 text-green-400 border-green-500/30", icon: <Check size={9} /> },
 };
 
-// ── Price History — financial-style timeline ──────────────────────────────────
+// ── Price History ─────────────────────────────────────────────────────────────
 function PriceHistory({ itemId }: { itemId: string }) {
   const { data: snaps = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inventory", itemId, "snapshots"],
@@ -111,7 +117,6 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
   return (
     <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3 animate-in fade-in-0 slide-in-from-top-1 duration-200">
       <div className="text-[11px] font-semibold uppercase tracking-wider text-primary">Edit Item</div>
-
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <div className="text-[11px] text-muted-foreground font-medium">Quantity</div>
@@ -127,7 +132,6 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
             onChange={e => setPrice(e.target.value)} className="h-8 text-sm font-mono" />
         </div>
       </div>
-
       <div className="space-y-1">
         <div className="text-[11px] text-muted-foreground font-medium">Condition</div>
         <Select value={condition} onValueChange={setCondition}>
@@ -143,13 +147,11 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
           </SelectContent>
         </Select>
       </div>
-
       <div className="space-y-1">
         <div className="text-[11px] text-muted-foreground font-medium">Notes</div>
         <Textarea data-testid="input-edit-notes" value={notes} onChange={e => setNotes(e.target.value)}
           rows={2} className="text-sm resize-none" placeholder="e.g. scanner miscounted" />
       </div>
-
       <div className="flex gap-2 pt-1">
         <Button data-testid="button-save-edit" size="sm" onClick={handleSave}
           disabled={mutation.isPending} className="h-8 text-xs gap-1.5">
@@ -164,13 +166,7 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
   );
 }
 
-// ── Label status badge ────────────────────────────────────────────────────────
-const LABEL_STATUS_CONFIG: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
-  needs_label:    { label: "Needs Label",    className: "bg-amber-500/15 text-amber-400 border-amber-500/30",  icon: <Tag size={9} /> },
-  needs_repricing:{ label: "Needs Repricing",className: "bg-blue-500/15  text-blue-400  border-blue-500/30",   icon: <RefreshCcw size={9} /> },
-  label_created:  { label: "Label Created",  className: "bg-green-500/15 text-green-400 border-green-500/30", icon: <Check size={9} /> },
-};
-
+// ── LabelStatusBadge ──────────────────────────────────────────────────────────
 function LabelStatusBadge({ status }: { status?: string }) {
   if (!status || status === "label_created") return null;
   const cfg = LABEL_STATUS_CONFIG[status];
@@ -182,7 +178,7 @@ function LabelStatusBadge({ status }: { status?: string }) {
   );
 }
 
-// ── Small pill/badge chip ─────────────────────────────────────────────────────
+// ── Chip ──────────────────────────────────────────────────────────────────────
 function Chip({ children }: { children: React.ReactNode }) {
   return (
     <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground">
@@ -191,15 +187,11 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Expanded detail content ───────────────────────────────────────────────────
+// ── ExpandedDetail (list mode inline) ─────────────────────────────────────────
 function ExpandedDetail({
   item, meta, editing, setEditing, stopProp = false,
 }: {
-  item: any;
-  meta: any;
-  editing: boolean;
-  setEditing: (v: boolean) => void;
-  stopProp?: boolean;
+  item: any; meta: any; editing: boolean; setEditing: (v: boolean) => void; stopProp?: boolean;
 }) {
   const { toast } = useToast();
   const wrap = (e: React.MouseEvent) => { if (stopProp) e.stopPropagation(); };
@@ -223,7 +215,7 @@ function ExpandedDetail({
     if (confirm(`Delete "${item.productName}"? This cannot be undone.`)) deleteMut.mutate();
   }
 
-  const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity || item.tcgplayerUrl;
+  const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity;
 
   return (
     <div className="rounded-xl border border-border bg-card/60 p-4 space-y-4" onClick={wrap}>
@@ -232,52 +224,39 @@ function ExpandedDetail({
           {meta.sourceSetName && <Chip>{meta.sourceSetName}</Chip>}
           {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
           {meta.sourceRarity && <Chip>{meta.sourceRarity}</Chip>}
-          {item.tcgplayerUrl && (
-            <a
-              href={item.tcgplayerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
-              title="View on TCGplayer"
-              aria-label="View on TCGplayer"
-              className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border bg-muted/50 text-muted-foreground transition-colors hover:text-primary hover:border-primary/40"
-            >
-              <ExternalLink size={12} />
-            </a>
-          )}
         </div>
       )}
-
       <PriceHistory itemId={item.id} />
-
       {!editing && item.notes && (
         <div className="text-xs">
           <span className="text-muted-foreground">Notes: </span>
           <span className="italic text-foreground/80">{item.notes}</span>
         </div>
       )}
-
+      {item.tcgplayerUrl && !editing && (
+        <a
+          href={item.tcgplayerUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={e => e.stopPropagation()}
+          className="flex items-center justify-center gap-1.5 w-full rounded-md border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+        >
+          View on TCGplayer <ExternalLink size={12} />
+        </a>
+      )}
       {editing ? (
         <InlineEditPanel item={item} onDone={() => setEditing(false)} />
       ) : (
         <div className="flex items-center gap-2 pt-0.5">
-          <Button
-            data-testid="button-edit-item"
-            variant="outline"
-            size="sm"
+          <Button data-testid="button-edit-item" variant="outline" size="sm"
             className="h-8 text-xs gap-1.5"
-            onClick={e => { e.stopPropagation(); setEditing(true); }}
-          >
+            onClick={e => { e.stopPropagation(); setEditing(true); }}>
             <Pencil size={12} /> Edit item
           </Button>
-          <Button
-            data-testid="button-delete-item"
-            variant="outline"
-            size="sm"
+          <Button data-testid="button-delete-item" variant="outline" size="sm"
             disabled={deleteMut.isPending}
             className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
-            onClick={handleDelete}
-          >
+            onClick={handleDelete}>
             <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
           </Button>
         </div>
@@ -286,108 +265,392 @@ function ExpandedDetail({
   );
 }
 
-// ── Mobile card ───────────────────────────────────────────────────────────────
-function InventoryCard({
-  item,
-  selected,
-  onSelect,
-  selectMode,
-}: {
-  item: any;
-  selected: boolean;
-  onSelect: (id: string, checked: boolean) => void;
-  selectMode: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
-  const totalValue = (item.currentRawMarketPrice || 0) * item.currentQuantity;
-
-  function toggle() {
-    if (selectMode) { onSelect(item.id, !selected); return; }
-    const next = !expanded;
-    setExpanded(next);
-    if (!next) setEditing(false);
-  }
-
+// ── ViewModeToggle ────────────────────────────────────────────────────────────
+function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMode) => void }) {
+  const modes: { mode: ViewMode; icon: React.ReactNode; label: string }[] = [
+    { mode: "list",    icon: <LayoutList size={14} />, label: "List" },
+    { mode: "grid-sm", icon: <LayoutGrid size={14} />, label: "Small Grid" },
+    { mode: "grid-lg", icon: <Grid2X2 size={14} />,    label: "Large Grid" },
+  ];
   return (
-    <div
-      data-testid={`card-inventory-${item.id}`}
-      className={`stat-card p-3 space-y-2 transition-colors ${selected ? "ring-1 ring-primary bg-primary/5" : ""}`}
-    >
-      <div className="flex gap-3">
-        {selectMode && (
-          <button
-            onClick={e => { e.stopPropagation(); onSelect(item.id, !selected); }}
-            className="shrink-0 self-center text-muted-foreground hover:text-primary transition-colors"
-          >
-            {selected ? <CheckSquare size={16} className="text-primary" /> : <Square size={16} />}
-          </button>
-        )}
-
-        {item.photoUrl ? (
-          <img src={item.photoUrl} alt="" crossOrigin="anonymous"
-            className="w-12 h-[67px] rounded object-contain bg-muted shrink-0" />
-        ) : (
-          <div className="w-12 h-[67px] rounded bg-muted shrink-0" />
-        )}
-
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-foreground leading-tight line-clamp-2">{item.productName}</div>
-          <div className="text-xs text-muted-foreground mt-0.5 truncate">
-            {item.number}{meta.sourceSetName ? ` · ${meta.sourceSetName}` : ""}
-          </div>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-            <ConditionBadge condition={item.condition} abbreviated />
-            <span className="text-[10px] text-muted-foreground capitalize">{item.game?.replace("-", " ")}</span>
-            <LabelStatusBadge status={item.labelStatus} />
-          </div>
-        </div>
-
-        <button onClick={toggle} className="shrink-0 text-muted-foreground p-1 self-start -mr-1">
-          <ChevronDown size={16} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+    <div className="inline-flex rounded-md border border-border overflow-hidden shrink-0">
+      {modes.map(({ mode, icon, label }) => (
+        <button
+          key={mode}
+          title={label}
+          onClick={() => onChange(mode)}
+          className={`flex items-center justify-center h-8 w-8 transition-colors ${
+            value === mode
+              ? "bg-primary/15 text-primary border-primary/40"
+              : "text-muted-foreground hover:text-foreground bg-transparent"
+          }`}
+        >
+          {icon}
         </button>
-      </div>
-
-      <div className="flex items-center justify-end gap-4">
-        <div className="text-right">
-          <div className="text-[10px] text-muted-foreground">Market</div>
-          <div className="text-sm font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[10px] text-muted-foreground">Print</div>
-          <div className="text-sm font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "—"}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[10px] text-muted-foreground">Qty</div>
-          <div className="text-sm font-mono font-bold text-foreground">{item.currentQuantity}</div>
-        </div>
-      </div>
-
-      <div className="text-xs text-muted-foreground text-right">
-        Total: <span className="font-mono text-foreground">${totalValue.toFixed(2)}</span>
-      </div>
-
-      {expanded && !selectMode && (
-        <div className="pt-2 border-t border-border">
-          <ExpandedDetail item={item} meta={meta} editing={editing} setEditing={setEditing} />
-        </div>
-      )}
+      ))}
     </div>
   );
 }
 
-// ── Desktop row ───────────────────────────────────────────────────────────────
-function InventoryRow({
-  item,
-  selected,
-  onSelect,
-  selectMode,
+// ── InventoryGridCard ─────────────────────────────────────────────────────────
+function InventoryGridCard({
+  item, size, selected, onSelect, selectMode, onOpen,
 }: {
   item: any;
+  size: "sm" | "lg";
   selected: boolean;
   onSelect: (id: string, checked: boolean) => void;
   selectMode: boolean;
+  onOpen: () => void;
+}) {
+  const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
+
+  function handleClick() {
+    if (selectMode) { onSelect(item.id, !selected); return; }
+    onOpen();
+  }
+
+  if (size === "sm") {
+    return (
+      <div
+        data-testid={`card-grid-sm-${item.id}`}
+        onClick={handleClick}
+        className={`relative stat-card p-2.5 cursor-pointer transition-colors ${
+          selected ? "ring-1 ring-primary bg-primary/5" : "hover:bg-accent/20"
+        }`}
+      >
+        {selectMode && (
+          <div className="absolute top-2 left-2 z-10">
+            {selected
+              ? <CheckSquare size={15} className="text-primary drop-shadow" />
+              : <Square size={15} className="text-muted-foreground" />}
+          </div>
+        )}
+        <div className="flex justify-center mb-2">
+          {item.photoUrl
+            ? <img src={item.photoUrl} alt="" crossOrigin="anonymous" className="w-14 h-[78px] rounded object-contain bg-muted" />
+            : <div className="w-14 h-[78px] rounded bg-muted" />}
+        </div>
+        <div className="text-xs font-medium text-foreground truncate leading-tight">{item.productName}</div>
+        <div className="flex items-center gap-1 mt-1 flex-wrap">
+          <ConditionBadge condition={item.condition} abbreviated />
+          <LabelStatusBadge status={item.labelStatus} />
+        </div>
+        <div className="flex items-center justify-between mt-1.5">
+          <span className="text-[10px] text-muted-foreground font-mono">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+          <span className="text-[10px] font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      data-testid={`card-grid-lg-${item.id}`}
+      onClick={handleClick}
+      className={`relative stat-card p-3 cursor-pointer transition-colors ${
+        selected ? "ring-1 ring-primary bg-primary/5" : "hover:bg-accent/20"
+      }`}
+    >
+      {selectMode && (
+        <div className="absolute top-3 left-3 z-10">
+          {selected
+            ? <CheckSquare size={15} className="text-primary drop-shadow" />
+            : <Square size={15} className="text-muted-foreground" />}
+        </div>
+      )}
+      <div className="flex gap-3">
+        <div className="shrink-0">
+          {item.photoUrl
+            ? <img src={item.photoUrl} alt="" crossOrigin="anonymous" className="w-[88px] h-[123px] rounded object-contain bg-muted" />
+            : <div className="w-[88px] h-[123px] rounded bg-muted" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-foreground line-clamp-2 leading-tight">{item.productName}</div>
+          {meta.sourceSetName && (
+            <div className="text-xs text-muted-foreground truncate mt-0.5">{meta.sourceSetName}</div>
+          )}
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            <ConditionBadge condition={item.condition} abbreviated />
+            <span className="text-[10px] text-muted-foreground capitalize">{item.game?.replace("-", " ")}</span>
+          </div>
+          <div className="mt-0.5">
+            <LabelStatusBadge status={item.labelStatus} />
+          </div>
+          <div className="mt-2 space-y-0.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Market</span>
+              <span className="font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Print</span>
+              <span className="font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Qty</span>
+              <span className="font-mono text-foreground">{item.currentQuantity}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── InventoryDetailSheet (grid mode slide-over) ───────────────────────────────
+function InventoryDetailSheet({
+  item, open, onClose,
+}: {
+  item: any; open: boolean; onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const meta = item ? (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })() : {};
+
+  useEffect(() => { if (!open) setEditing(false); }, [open]);
+
+  const deleteMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/inventory/${item.id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      toast({ title: "Deleted", description: "Item removed from inventory." });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete item.", variant: "destructive" });
+    },
+  });
+
+  function handleDelete() {
+    if (confirm(`Delete "${item?.productName}"? This cannot be undone.`)) deleteMut.mutate();
+  }
+
+  if (!item) return null;
+  const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity;
+
+  return (
+    <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <SheetContent side="right" className="w-full sm:max-w-md p-0 overflow-y-auto">
+        {item.photoUrl && (
+          <div className="w-full bg-muted/30 flex items-center justify-center pt-10">
+            <img src={item.photoUrl} alt="" crossOrigin="anonymous"
+              className="w-full max-h-48 object-contain rounded-lg" />
+          </div>
+        )}
+        {!item.photoUrl && <div className="pt-10" />}
+
+        <div className="p-5 space-y-4">
+          <div>
+            <div className="text-lg font-semibold text-foreground leading-tight pr-6">{item.productName}</div>
+            {item.number && <div className="text-xs text-muted-foreground mt-0.5">#{item.number}</div>}
+          </div>
+
+          {hasChips && (
+            <div className="flex flex-wrap gap-1.5">
+              {meta.sourceSetName && <Chip>{meta.sourceSetName}</Chip>}
+              {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
+              {meta.sourceRarity && <Chip>{meta.sourceRarity}</Chip>}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <ConditionBadge condition={item.condition} abbreviated />
+            <span className="text-xs text-muted-foreground capitalize">{item.game?.replace("-", " ")}</span>
+            <LabelStatusBadge status={item.labelStatus} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {([
+              { label: "Qty",    value: String(item.currentQuantity),                          highlight: false },
+              { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "—"}`,   highlight: false },
+              { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "—"}`,             highlight: true  },
+            ] as const).map(({ label, value, highlight }) => (
+              <div key={label} className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-center">
+                <div className="text-[10px] text-muted-foreground">{label}</div>
+                <div className={`text-sm font-mono font-semibold mt-0.5 ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          <PriceHistory itemId={item.id} />
+
+          {!editing && item.notes && (
+            <div className="text-xs">
+              <span className="text-muted-foreground">Notes: </span>
+              <span className="italic text-foreground/80">{item.notes}</span>
+            </div>
+          )}
+
+          {item.tcgplayerUrl && !editing && (
+            <a
+              href={item.tcgplayerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 w-full rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+            >
+              View on TCGplayer <ExternalLink size={14} />
+            </a>
+          )}
+
+          {editing ? (
+            <InlineEditPanel item={item} onDone={() => setEditing(false)} />
+          ) : (
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 flex-1"
+                onClick={() => setEditing(true)}>
+                <Pencil size={12} /> Edit item
+              </Button>
+              <Button variant="outline" size="sm"
+                disabled={deleteMut.isPending}
+                className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+                onClick={handleDelete}>
+                <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ── BulkActionBar (floating) ──────────────────────────────────────────────────
+function BulkActionBar({
+  selectedIds, allCount, onSelectAll, onDeselectAll, onCancel,
+}: {
+  selectedIds: Set<string>;
+  allCount: number;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
+  onCancel: () => void;
+}) {
+  const { toast } = useToast();
+  const [pendingCondition, setPendingCondition] = useState("");
+  const [pendingQty, setPendingQty] = useState("");
+  const ids = Array.from(selectedIds);
+  const someSelected = selectedIds.size > 0;
+  const allSelected = allCount > 0 && selectedIds.size === allCount;
+
+  const bulkPatchMut = useMutation({
+    mutationFn: async (patch: { condition?: string; currentQuantity?: number }) => {
+      const res = await apiRequest("PATCH", "/api/inventory/bulk", { ids, ...patch });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      toast({ title: "Updated", description: `${ids.length} item${ids.length !== 1 ? "s" : ""} updated.` });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Bulk update failed.", variant: "destructive" });
+    },
+  });
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", "/api/inventory/bulk", { ids });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      toast({ title: "Deleted", description: `${ids.length} item${ids.length !== 1 ? "s" : ""} removed.` });
+      onCancel();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Bulk delete failed.", variant: "destructive" });
+    },
+  });
+
+  function applyCondition(cond: string) {
+    if (!cond || !someSelected) return;
+    bulkPatchMut.mutate({ condition: cond });
+    setPendingCondition("");
+  }
+
+  function applyQty() {
+    const qty = parseInt(pendingQty, 10);
+    if (isNaN(qty) || qty < 0 || !someSelected) return;
+    bulkPatchMut.mutate({ currentQuantity: qty });
+    setPendingQty("");
+  }
+
+  function handleDelete() {
+    if (!someSelected) return;
+    if (confirm(`Delete ${ids.length} item${ids.length !== 1 ? "s" : ""}? This cannot be undone.`)) {
+      bulkDeleteMut.mutate();
+    }
+  }
+
+  return (
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-2 duration-200">
+      <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-card shadow-xl px-4 py-2.5">
+        <button
+          onClick={allSelected ? onDeselectAll : onSelectAll}
+          className="text-muted-foreground hover:text-primary transition-colors shrink-0"
+          title={allSelected ? "Deselect all" : "Select all"}
+        >
+          {allSelected
+            ? <CheckSquare size={15} className="text-primary" />
+            : <Square size={15} />}
+        </button>
+        <span className="text-xs text-muted-foreground whitespace-nowrap">{selectedIds.size} selected</span>
+
+        <div className="h-5 w-px bg-border" />
+
+        <Select value={pendingCondition} onValueChange={applyCondition} disabled={bulkPatchMut.isPending || !someSelected}>
+          <SelectTrigger className="h-7 text-xs w-[130px]">
+            <SelectValue placeholder="Set condition…" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="Near Mint">NM</SelectItem>
+            <SelectItem value="Lightly Played">LP</SelectItem>
+            <SelectItem value="Moderately Played">MP</SelectItem>
+            <SelectItem value="Heavily Played">HP</SelectItem>
+            <SelectItem value="Damaged">DMG</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="flex items-center gap-1">
+          <Input
+            type="number"
+            min="0"
+            placeholder="Qty"
+            value={pendingQty}
+            onChange={e => setPendingQty(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && applyQty()}
+            className="h-7 w-14 text-xs font-mono px-2"
+          />
+          <Button size="sm" variant="outline" className="h-7 text-xs px-2 shrink-0"
+            onClick={applyQty}
+            disabled={!pendingQty || !someSelected || bulkPatchMut.isPending}>
+            Apply
+          </Button>
+        </div>
+
+        <div className="h-5 w-px bg-border" />
+
+        <Button size="sm" variant="ghost"
+          className="h-7 text-xs gap-1 text-red-400 hover:text-red-300 hover:bg-red-500/10 px-2 shrink-0"
+          onClick={handleDelete}
+          disabled={!someSelected || bulkDeleteMut.isPending}>
+          <Trash2 size={12} />{bulkDeleteMut.isPending ? "Deleting…" : "Delete"}
+        </Button>
+
+        <button onClick={onCancel} className="text-muted-foreground hover:text-foreground transition-colors shrink-0" title="Exit bulk mode">
+          <X size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── List mode row ─────────────────────────────────────────────────────────────
+function InventoryRow({
+  item, selected, onSelect, selectMode,
+}: {
+  item: any; selected: boolean; onSelect: (id: string, checked: boolean) => void; selectMode: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -411,10 +674,7 @@ function InventoryRow({
       >
         <td className="px-3 py-2.5 w-7" onClick={e => e.stopPropagation()}>
           {selectMode ? (
-            <button
-              onClick={() => onSelect(item.id, !selected)}
-              className="text-muted-foreground hover:text-primary transition-colors"
-            >
+            <button onClick={() => onSelect(item.id, !selected)} className="text-muted-foreground hover:text-primary transition-colors">
               {selected ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} />}
             </button>
           ) : (
@@ -422,23 +682,13 @@ function InventoryRow({
           )}
         </td>
         <td className="px-3 py-2.5">
-          <div className="flex items-center gap-3">
-            {item.photoUrl ? (
-              <img src={item.photoUrl} alt="" crossOrigin="anonymous"
-                className="w-12 h-[67px] rounded object-contain bg-muted shrink-0" />
-            ) : (
-              <div className="w-12 h-[67px] rounded bg-muted shrink-0" />
-            )}
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground truncate max-w-[280px]">{item.productName}</div>
-              <div className="text-xs text-muted-foreground truncate max-w-[280px]">
-                {item.number}{meta.sourceSetName ? ` · ${meta.sourceSetName}` : ""}
-              </div>
-            </div>
+          <div className="text-sm font-medium text-foreground truncate max-w-[300px]">{item.productName}</div>
+          <div className="text-xs text-muted-foreground truncate max-w-[300px]">
+            {item.number}{meta.sourceSetName ? ` · ${meta.sourceSetName}` : ""}
           </div>
         </td>
         <td className="px-3 py-2.5 text-xs whitespace-nowrap">
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5">
             <ConditionBadge condition={item.condition} abbreviated />
             <LabelStatusBadge status={item.labelStatus} />
           </div>
@@ -459,7 +709,6 @@ function InventoryRow({
           </span>
         </td>
       </tr>
-
       {expanded && !selectMode && (
         <tr className="border-b border-border/50 bg-muted/20">
           <td colSpan={8} className="px-4 py-3">
@@ -471,11 +720,10 @@ function InventoryRow({
   );
 }
 
-type LabelFilter = "all" | "needs_label" | "needs_repricing" | "label_created";
-
 // ── Inventory page ────────────────────────────────────────────────────────────
 export default function Inventory() {
   const { toast } = useToast();
+
   const [search, setSearch] = useState("");
   const [selectedGame, setSelectedGame] = useGameParam();
   const game = selectedGame ?? "all";
@@ -485,10 +733,21 @@ export default function Inventory() {
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try { return (localStorage.getItem("inventory-view-mode") as ViewMode) || "list"; } catch { return "list"; }
+  });
+
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Close export dropdown when clicking outside
+  const [sheetItem, setSheetItem] = useState<any>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  function handleViewMode(v: ViewMode) {
+    setViewMode(v);
+    try { localStorage.setItem("inventory-view-mode", v); } catch { }
+  }
+
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
@@ -511,7 +770,6 @@ export default function Inventory() {
     },
   });
 
-  // Export labels mutation — uses raw fetch so we can read the binary blob
   const exportMut = useMutation({
     mutationFn: async ({ format, stickerMode }: { format: "xlsx" | "csv"; stickerMode: "single" | "dual" }) => {
       const authHeader = await getAuthHeader();
@@ -546,10 +804,10 @@ export default function Inventory() {
   });
 
   const sortedAll = [...items].sort((a: any, b: any) => {
-    if (sortBy === "price") return (b.currentRawMarketPrice || 0) - (a.currentRawMarketPrice || 0);
+    if (sortBy === "price")    return (b.currentRawMarketPrice || 0) - (a.currentRawMarketPrice || 0);
     if (sortBy === "quantity") return b.currentQuantity - a.currentQuantity;
-    if (sortBy === "value") return ((b.currentRawMarketPrice || 0) * b.currentQuantity) - ((a.currentRawMarketPrice || 0) * a.currentQuantity);
-    if (sortBy === "name") return a.productName.localeCompare(b.productName);
+    if (sortBy === "value")    return ((b.currentRawMarketPrice || 0) * b.currentQuantity) - ((a.currentRawMarketPrice || 0) * a.currentQuantity);
+    if (sortBy === "name")     return a.productName.localeCompare(b.productName);
     return b.lastSeenAt?.localeCompare(a.lastSeenAt || "") || 0;
   });
 
@@ -557,7 +815,6 @@ export default function Inventory() {
     ? sortedAll
     : sortedAll.filter((i: any) => i.labelStatus === labelFilter);
 
-  // Counts per label status for filter pills
   const labelCounts = {
     needs_label:     items.filter((i: any) => i.labelStatus === "needs_label").length,
     needs_repricing: items.filter((i: any) => i.labelStatus === "needs_repricing").length,
@@ -576,56 +833,28 @@ export default function Inventory() {
     });
   }
 
-  function selectAll() { setSelectedIds(new Set(sorted.map((i: any) => i.id))); }
-  function deselectAll() { setSelectedIds(new Set()); }
+  function selectAll()    { setSelectedIds(new Set(sorted.map((i: any) => i.id))); }
+  function deselectAll()  { setSelectedIds(new Set()); }
   function exitSelectMode() { setSelectMode(false); setSelectedIds(new Set()); }
 
-  const allSelected = sorted.length > 0 && selectedIds.size === sorted.length;
   const someSelected = selectedIds.size > 0;
 
-  const bulkDeleteMut = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const res = await apiRequest("DELETE", "/api/inventory/bulk", { ids });
-      return res.json();
-    },
-    onSuccess: (_, ids) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      toast({ title: "Deleted", description: `${ids.length} item${ids.length !== 1 ? "s" : ""} removed from inventory.` });
-      exitSelectMode();
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to delete items.", variant: "destructive" });
-    },
-  });
-
-  function handleBulkDelete() {
-    if (!someSelected) return;
-    bulkDeleteMut.mutate(Array.from(selectedIds));
+  function openSheet(item: any) {
+    setSheetItem(item);
+    setSheetOpen(true);
   }
 
-  // ── Tile picker ─────────────────────────────────────────────────────────────
-  if (selectedGame === null) {
-    return (
-      <div>
-        <h1 className="text-lg font-semibold text-foreground mb-4">Inventory</h1>
-        <GameTileGrid items={items} images={GAME_IMAGES} onSelect={setSelectedGame} />
-      </div>
-    );
-  }
+  // Keep sheet item in sync with latest data
+  const liveSheetItem = sheetItem
+    ? (items.find((i: any) => i.id === sheetItem.id) ?? sheetItem)
+    : null;
+
+  const emptyMsg = "No inventory — upload a CSV to get started";
 
   return (
     <div>
-      <div className="sticky top-0 z-30 -mx-4 md:-mx-6 px-4 md:px-6 py-2 mb-3 bg-background/95 backdrop-blur border-b border-border/60">
-        <button
-          data-testid="button-back-to-games"
-          onClick={() => setSelectedGame(null)}
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft size={14} /> Games
-        </button>
-      </div>
-
-      <div className="flex flex-col gap-1 mb-4 sm:flex-row sm:items-center sm:justify-between">
+      {/* ── Row 1: Page header ───────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1 mb-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-lg font-semibold text-foreground">Inventory</h1>
         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
           <span className="font-mono">{items.length.toLocaleString()} SKUs</span>
@@ -638,73 +867,7 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Label Status Filter Pills */}
-      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-        {(
-          [
-            { key: "all",              label: "All",              count: items.length },
-            { key: "needs_label",      label: "Needs Label",      count: labelCounts.needs_label,      className: "text-amber-400" },
-            { key: "needs_repricing",  label: "Needs Repricing",  count: labelCounts.needs_repricing,  className: "text-blue-400" },
-            { key: "label_created",    label: "Label Created",    count: labelCounts.label_created,    className: "text-green-400" },
-          ] as const
-        ).map(({ key, label, count, className: cls }) => (
-          <button
-            key={key}
-            onClick={() => setLabelFilter(key as LabelFilter)}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-              labelFilter === key
-                ? "border-primary bg-primary/15 text-primary"
-                : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
-            }`}
-          >
-            <span>{label}</span>
-            <span className={`font-mono tabular-nums ${labelFilter === key ? "text-primary" : (cls || "text-muted-foreground")}`}>{count}</span>
-          </button>
-        ))}
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Export Labels dropdown */}
-        <div className="relative" ref={exportRef}>
-          <Button
-            data-testid="button-export-labels"
-            size="sm"
-            className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-            onClick={() => setExportOpen(prev => !prev)}
-            disabled={exportMut.isPending}
-          >
-            <Download size={13} />
-            {exportMut.isPending ? "Exporting…" : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
-            <ChevronDown size={12} className={`transition-transform ${exportOpen ? "rotate-180" : ""}`} />
-          </Button>
-          {exportOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
-              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Excel (Niimbot)</div>
-              <button
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                onClick={() => exportMut.mutate({ format: "xlsx", stickerMode: "single" })}
-              >Single-side labels</button>
-              <button
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                onClick={() => exportMut.mutate({ format: "xlsx", stickerMode: "dual" })}
-              >Dual A/B labels</button>
-              <div className="my-1 border-t border-border" />
-              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CSV (Mac)</div>
-              <button
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                onClick={() => exportMut.mutate({ format: "csv", stickerMode: "single" })}
-              >Single-side CSV</button>
-              <button
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                onClick={() => exportMut.mutate({ format: "csv", stickerMode: "dual" })}
-              >Dual A/B CSV</button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Filters */}
+      {/* ── Row 2: Search + filters ──────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <div className="relative flex-1 min-w-[150px]">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -754,91 +917,171 @@ export default function Inventory() {
             <SelectItem value="name">Name A-Z</SelectItem>
           </SelectContent>
         </Select>
-
         <Button
           data-testid="button-bulk-edit"
           size="sm"
-          variant="outline"
+          variant={selectMode ? "default" : "outline"}
           className="h-9 px-3 text-xs gap-1.5"
-          onClick={() => setSelectMode(true)}
+          onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
         >
           <CheckSquare size={14} />
-          Bulk Edit
+          {selectMode ? "Cancel" : "Bulk Edit"}
         </Button>
       </div>
 
-      {/* Bulk actions toolbar — visible only in select mode */}
-      {selectMode && (
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={allSelected ? deselectAll : selectAll}>
-            {allSelected ? <Square size={13} /> : <CheckSquare size={13} />}
-            {allSelected ? "Deselect All" : "Select All"}
-          </Button>
-          <Button
-            variant="destructive" size="sm" className="h-8 text-xs gap-1.5"
-            disabled={!someSelected || bulkDeleteMut.isPending} onClick={handleBulkDelete}
+      {/* ── Row 3: Label pills + view toggle + export ────────────────────── */}
+      <div className="flex items-center gap-1.5 mb-4 flex-wrap">
+        {(
+          [
+            { key: "all",             label: "All",             count: items.length },
+            { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     className: "text-amber-400" },
+            { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, className: "text-blue-400" },
+            { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   className: "text-green-400" },
+          ] as const
+        ).map(({ key, label, count, className: cls }) => (
+          <button
+            key={key}
+            onClick={() => setLabelFilter(key as LabelFilter)}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              labelFilter === key
+                ? "border-primary bg-primary/15 text-primary"
+                : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+            }`}
           >
-            <Trash2 size={13} />
-            {bulkDeleteMut.isPending ? "Deleting…" : someSelected ? `Delete (${selectedIds.size})` : "Delete"}
+            <span>{label}</span>
+            <span className={`font-mono tabular-nums ${labelFilter === key ? "text-primary" : (cls || "text-muted-foreground")}`}>{count}</span>
+          </button>
+        ))}
+
+        <div className="flex-1" />
+
+        <ViewModeToggle value={viewMode} onChange={handleViewMode} />
+
+        <div className="relative" ref={exportRef}>
+          <Button
+            data-testid="button-export-labels"
+            size="sm"
+            className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+            onClick={() => setExportOpen(prev => !prev)}
+            disabled={exportMut.isPending}
+          >
+            <Download size={13} />
+            {exportMut.isPending ? "Exporting…" : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
+            <ChevronDown size={12} className={`transition-transform ${exportOpen ? "rotate-180" : ""}`} />
           </Button>
-          <Button variant="ghost" size="sm" className="h-8 text-xs gap-1.5 text-muted-foreground" onClick={exitSelectMode}>
-            <X size={13} /> Cancel
-          </Button>
-          {someSelected && <span className="text-xs text-muted-foreground ml-1">{selectedIds.size} selected</span>}
+          {exportOpen && (
+            <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
+              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Excel (Niimbot)</div>
+              <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                onClick={() => exportMut.mutate({ format: "xlsx", stickerMode: "single" })}>Single-side labels</button>
+              <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                onClick={() => exportMut.mutate({ format: "xlsx", stickerMode: "dual" })}>Dual A/B labels</button>
+              <div className="my-1 border-t border-border" />
+              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">CSV (Mac)</div>
+              <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                onClick={() => exportMut.mutate({ format: "csv", stickerMode: "single" })}>Single-side CSV</button>
+              <button className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                onClick={() => exportMut.mutate({ format: "csv", stickerMode: "dual" })}>Dual A/B CSV</button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── List view ────────────────────────────────────────────────────── */}
+      {viewMode === "list" && (
+        <div className="stat-card p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/40">
+                  <th className="w-7 px-3 py-2.5">
+                    {selectMode && (
+                      <button onClick={selectedIds.size === sorted.length && sorted.length > 0 ? deselectAll : selectAll}
+                        className="text-muted-foreground hover:text-primary transition-colors">
+                        {selectedIds.size === sorted.length && sorted.length > 0
+                          ? <CheckSquare size={14} className="text-primary" />
+                          : someSelected ? <CheckSquare size={14} className="text-primary/50" /> : <Square size={14} />}
+                      </button>
+                    )}
+                  </th>
+                  <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Card</th>
+                  <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Cond</th>
+                  <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Game</th>
+                  <th className="text-center px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Qty</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Market $</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Print $</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading
+                  ? Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={i} className="border-b border-border/50">
+                        <td colSpan={8} className="px-3 py-2.5"><Skeleton className="h-10 w-full" /></td>
+                      </tr>
+                    ))
+                  : sorted.length === 0
+                  ? <tr><td colSpan={8} className="px-3 py-12 text-center text-muted-foreground text-sm">{emptyMsg}</td></tr>
+                  : sorted.map((item: any) => (
+                      <InventoryRow key={item.id} item={item} selected={selectedIds.has(item.id)} onSelect={handleSelect} selectMode={selectMode} />
+                    ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      {/* Mobile */}
-      <div className="sm:hidden space-y-2">
-        {isLoading
-          ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-lg" />)
+      {/* ── Small grid view ──────────────────────────────────────────────── */}
+      {viewMode === "grid-sm" && (
+        isLoading
+          ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+              {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-40 rounded-lg" />)}
+            </div>
           : sorted.length === 0
-          ? <div className="py-12 text-center text-muted-foreground text-sm">No inventory — upload a CSV to get started</div>
-          : sorted.map((item: any) => (
-              <InventoryCard key={item.id} item={item} selected={selectedIds.has(item.id)} onSelect={handleSelect} selectMode={selectMode} />
-            ))
-        }
-      </div>
+          ? <div className="py-12 text-center text-muted-foreground text-sm">{emptyMsg}</div>
+          : <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+              {sorted.map((item: any) => (
+                <InventoryGridCard key={item.id} item={item} size="sm"
+                  selected={selectedIds.has(item.id)} onSelect={handleSelect}
+                  selectMode={selectMode} onOpen={() => openSheet(item)} />
+              ))}
+            </div>
+      )}
 
-      {/* Desktop */}
-      <div className="hidden sm:block stat-card p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                <th className="w-7 px-3 py-2.5">
-                  {selectMode && (
-                    <button onClick={allSelected ? deselectAll : selectAll} className="text-muted-foreground hover:text-primary transition-colors">
-                      {allSelected ? <CheckSquare size={14} className="text-primary" /> : someSelected ? <CheckSquare size={14} className="text-primary/50" /> : <Square size={14} />}
-                    </button>
-                  )}
-                </th>
-                <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground">Card</th>
-                <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Cond</th>
-                <th className="text-left px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Game</th>
-                <th className="text-center px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Qty</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Market $</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Print $</th>
-                <th className="text-right px-3 py-2.5 text-xs font-medium text-muted-foreground whitespace-nowrap">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i} className="border-b border-border/50">
-                      <td colSpan={8} className="px-3 py-2.5"><Skeleton className="h-10 w-full" /></td>
-                    </tr>
-                  ))
-                : sorted.length === 0
-                ? <tr><td colSpan={8} className="px-3 py-12 text-center text-muted-foreground text-sm">No inventory — upload a CSV to get started</td></tr>
-                : sorted.map((item: any) => (
-                    <InventoryRow key={item.id} item={item} selected={selectedIds.has(item.id)} onSelect={handleSelect} selectMode={selectMode} />
-                  ))
-              }
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* ── Large grid view ──────────────────────────────────────────────── */}
+      {viewMode === "grid-lg" && (
+        isLoading
+          ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-lg" />)}
+            </div>
+          : sorted.length === 0
+          ? <div className="py-12 text-center text-muted-foreground text-sm">{emptyMsg}</div>
+          : <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {sorted.map((item: any) => (
+                <InventoryGridCard key={item.id} item={item} size="lg"
+                  selected={selectedIds.has(item.id)} onSelect={handleSelect}
+                  selectMode={selectMode} onOpen={() => openSheet(item)} />
+              ))}
+            </div>
+      )}
+
+      {/* ── Grid detail sheet ─────────────────────────────────────────────── */}
+      <InventoryDetailSheet
+        item={liveSheetItem}
+        open={sheetOpen}
+        onClose={() => { setSheetOpen(false); setSheetItem(null); }}
+      />
+
+      {/* ── Floating bulk action bar ─────────────────────────────────────── */}
+      {selectMode && (
+        <BulkActionBar
+          selectedIds={selectedIds}
+          allCount={sorted.length}
+          onSelectAll={selectAll}
+          onDeselectAll={deselectAll}
+          onCancel={exitSelectMode}
+        />
+      )}
     </div>
   );
 }

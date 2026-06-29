@@ -288,6 +288,20 @@ class SupabaseStorage {
     return items;
   }
 
+  async bulkPatchInventoryItems(userId: string, ids: string[], patch: { condition?: string; currentQuantity?: number }): Promise<void> {
+    if (!ids.length) return;
+    const update: Record<string, any> = {};
+    if (patch.condition !== undefined) update.condition = patch.condition;
+    if (patch.currentQuantity !== undefined) update.current_quantity = patch.currentQuantity;
+    if (!Object.keys(update).length) return;
+    const { error } = await supabaseAdmin
+      .from('inventory_items')
+      .update(update)
+      .eq('user_id', userId)
+      .in('id', ids);
+    if (error) throw new Error(error.message);
+  }
+
   async bulkUpdateLabelStatus(userId: string, ids: string[], status: string): Promise<void> {
     if (!ids.length) return;
     const { error } = await supabaseAdmin
