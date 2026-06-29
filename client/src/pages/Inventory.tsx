@@ -905,11 +905,11 @@ export default function Inventory() {
           </SelectContent>
         </Select>
         <Select value={condition} onValueChange={setCondition}>
-          <SelectTrigger data-testid="select-filter-condition" className="w-[90px] h-9 text-xs">
-            <SelectValue placeholder="Cond." />
+          <SelectTrigger data-testid="select-filter-condition" className="w-[130px] h-9 text-xs">
+            <SelectValue placeholder="All Conditions" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Conds.</SelectItem>
+            <SelectItem value="all">All Conditions</SelectItem>
             <SelectItem value="Near Mint">NM</SelectItem>
             <SelectItem value="Lightly Played">LP</SelectItem>
             <SelectItem value="Moderately Played">MP</SelectItem>
