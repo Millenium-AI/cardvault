@@ -101,7 +101,7 @@ function ReviewFilterBar({
         <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
         <input
           type="text"
-          placeholder="Search name, #, condition…"
+          placeholder="Search by name, card #, or condition…"
           value={search}
           onChange={e => onSearch(e.target.value)}
           className="w-full pl-7 pr-3 h-7 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none transition-colors"
@@ -125,7 +125,7 @@ function ReviewFilterBar({
       </div>
 
       {/* Row count badge */}
-      {(search.trim() || sort !== "name") && (
+      {search.trim() && (
         <span className="text-xs text-muted-foreground tabular-nums shrink-0">
           {totalVisible}/{totalAll}
         </span>

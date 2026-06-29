@@ -1017,7 +1017,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
       let tcgplayerUrl: string | null = null;
       try {
         const meta = JSON.parse(item.matchMetadataJson || "{}");
-        if (meta.sourceProductId) tcgplayerUrl = `https://www.tcgplayer.com/product/${meta.sourceProductId}`;
+        if (meta.sourceProductId) {
+          tcgplayerUrl = `https://www.tcgplayer.com/product/${meta.sourceProductId}`;
+        } else if (meta.sourceTcgplayerId) {
+          tcgplayerUrl = `https://www.tcgplayer.com/product/${meta.sourceTcgplayerId}`;
+        }
       } catch {}
       return { ...item, tcgplayerUrl };
     }));

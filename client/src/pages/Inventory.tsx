@@ -168,7 +168,7 @@ function InlineEditPanel({ item, onDone }: { item: any; onDone: () => void }) {
 
 // ── LabelStatusBadge ──────────────────────────────────────────────────────────
 function LabelStatusBadge({ status }: { status?: string }) {
-  if (!status || status === "label_created") return null;
+  if (!status) return null;
   const cfg = LABEL_STATUS_CONFIG[status];
   if (!cfg) return null;
   return (
@@ -233,33 +233,40 @@ function ExpandedDetail({
           <span className="italic text-foreground/80">{item.notes}</span>
         </div>
       )}
-      {item.tcgplayerUrl && !editing && (
-        <a
-          href={item.tcgplayerUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={e => e.stopPropagation()}
-          className="flex items-center justify-center gap-1.5 w-full rounded-md border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-        >
-          View on TCGplayer <ExternalLink size={12} />
-        </a>
-      )}
+      {console.log("tcgplayerUrl:", item.tcgplayerUrl, "| id:", item.id) as unknown as null}
       {editing ? (
         <InlineEditPanel item={item} onDone={() => setEditing(false)} />
       ) : (
-        <div className="flex items-center gap-2 pt-0.5">
-          <Button data-testid="button-edit-item" variant="outline" size="sm"
-            className="h-8 text-xs gap-1.5"
-            onClick={e => { e.stopPropagation(); setEditing(true); }}>
-            <Pencil size={12} /> Edit item
-          </Button>
-          <Button data-testid="button-delete-item" variant="outline" size="sm"
-            disabled={deleteMut.isPending}
-            className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
-            onClick={handleDelete}>
-            <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
-          </Button>
-        </div>
+        <>
+          <div className="flex items-center gap-2 pt-0.5">
+            <Button data-testid="button-edit-item" variant="outline" size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={e => { e.stopPropagation(); setEditing(true); }}>
+              <Pencil size={12} /> Edit item
+            </Button>
+            <Button data-testid="button-delete-item" variant="outline" size="sm"
+              disabled={deleteMut.isPending}
+              className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+              onClick={handleDelete}>
+              <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
+            </Button>
+          </div>
+          {item.tcgplayerUrl ? (
+            <a
+              href={item.tcgplayerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="flex items-center justify-center gap-1.5 w-full rounded-md border border-blue-500/40 px-3 py-2 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors mt-2"
+            >
+              View on TCGplayer <ExternalLink size={12} />
+            </a>
+          ) : (
+            <div className="flex items-center justify-center gap-1.5 w-full rounded-md border border-border px-3 py-2 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed mt-2">
+              View on TCGplayer <ExternalLink size={12} />
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -484,32 +491,37 @@ function InventoryDetailSheet({
             </div>
           )}
 
-          {item.tcgplayerUrl && !editing && (
-            <a
-              href={item.tcgplayerUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1.5 w-full rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-            >
-              View on TCGplayer <ExternalLink size={14} />
-            </a>
-          )}
-
           {editing ? (
             <InlineEditPanel item={item} onDone={() => setEditing(false)} />
           ) : (
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 flex-1"
-                onClick={() => setEditing(true)}>
-                <Pencil size={12} /> Edit item
-              </Button>
-              <Button variant="outline" size="sm"
-                disabled={deleteMut.isPending}
-                className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
-                onClick={handleDelete}>
-                <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
-              </Button>
-            </div>
+            <>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 flex-1"
+                  onClick={() => setEditing(true)}>
+                  <Pencil size={12} /> Edit item
+                </Button>
+                <Button variant="outline" size="sm"
+                  disabled={deleteMut.isPending}
+                  className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+                  onClick={handleDelete}>
+                  <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
+                </Button>
+              </div>
+              {item.tcgplayerUrl ? (
+                <a
+                  href={item.tcgplayerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 w-full rounded-md border border-blue-500/40 px-3 py-2 text-sm font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors"
+                >
+                  View on TCGplayer <ExternalLink size={14} />
+                </a>
+              ) : (
+                <div className="flex items-center justify-center gap-1.5 w-full rounded-md border border-border px-3 py-2 text-sm font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+                  View on TCGplayer <ExternalLink size={14} />
+                </div>
+              )}
+            </>
           )}
         </div>
       </SheetContent>
