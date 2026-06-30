@@ -36,6 +36,16 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   total:     "Total",
 };
 
+const COLUMN_ALIGN: Record<ColumnKey, string> = {
+  card:      "text-left",
+  condition: "text-center",
+  game:      "text-left",
+  qty:       "text-right",
+  market:    "text-right",
+  print:     "text-right",
+  total:     "text-right",
+};
+
 function mergeColumnOrder(saved: string[]): ColumnKey[] {
   const base = [...DEFAULT_COLUMN_ORDER];
   const filtered = saved.filter((c): c is ColumnKey => (base as readonly string[]).includes(c));
@@ -67,13 +77,17 @@ function DraggableColHeader({
       onDragStart={e => { e.dataTransfer.setData("text/plain", id); e.dataTransfer.effectAllowed = "move"; }}
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
       onDrop={e => { e.preventDefault(); const d = e.dataTransfer.getData("text/plain") as ColumnKey; if (d && d !== id) onMove(d, id); }}
-      className="group px-3 py-2.5 text-xs font-medium text-muted-foreground cursor-grab active:cursor-grabbing select-none whitespace-nowrap border-r border-border/40 last:border-r-0"
+      className={cn(
+        "group px-4 py-3 text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wide",
+        "cursor-grab active:cursor-grabbing select-none whitespace-nowrap",
+        COLUMN_ALIGN[id]
+      )}
     >
-      <div className="flex items-center gap-1.5">
-        <div className="flex flex-col gap-[3px] opacity-25 group-hover:opacity-60 transition-opacity shrink-0">
-          <div className="flex gap-[3px]"><div className="w-[3px] h-[3px] rounded-full bg-current" /><div className="w-[3px] h-[3px] rounded-full bg-current" /></div>
-          <div className="flex gap-[3px]"><div className="w-[3px] h-[3px] rounded-full bg-current" /><div className="w-[3px] h-[3px] rounded-full bg-current" /></div>
-          <div className="flex gap-[3px]"><div className="w-[3px] h-[3px] rounded-full bg-current" /><div className="w-[3px] h-[3px] rounded-full bg-current" /></div>
+      <div className={cn("flex items-center gap-1.5", COLUMN_ALIGN[id] === "text-right" && "flex-row-reverse")}>
+        <div className="flex flex-col gap-[3px] opacity-0 group-hover:opacity-40 transition-opacity shrink-0">
+          <div className="flex gap-[3px]"><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /></div>
+          <div className="flex gap-[3px]"><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /></div>
+          <div className="flex gap-[3px]"><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /></div>
         </div>
         <span>{children}</span>
       </div>
@@ -767,20 +781,20 @@ function InventoryRow({
   function renderCell(col: ColumnKey) {
     switch (col) {
       case "card": return (
-        <td key="card" className="px-3 py-2.5 border-r border-border/40">
-          <div className="flex items-center gap-2">
+        <td key="card" className="px-4 py-3">
+          <div className="flex items-center gap-2.5">
             {selectMode ? (
               <button onClick={e => { e.stopPropagation(); onSelect(item.id, !selected); }}
-                className="text-muted-foreground hover:text-primary transition-colors shrink-0">
-                {selected ? <CheckSquare size={14} className="text-primary" /> : <Square size={14} />}
+                className="text-muted-foreground/50 hover:text-primary transition-colors shrink-0">
+                {selected ? <CheckSquare size={13} className="text-primary" /> : <Square size={13} />}
               </button>
             ) : (
-              <ChevronDown size={13}
-                className={`text-muted-foreground transition-transform duration-200 shrink-0 ${expanded ? "" : "-rotate-90"}`} />
+              <ChevronDown size={12}
+                className={`text-muted-foreground/40 transition-transform duration-200 shrink-0 ${expanded ? "" : "-rotate-90"}`} />
             )}
             <div className="flex flex-col gap-0.5 min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-sm font-medium text-foreground truncate max-w-[280px]">
+                <span className="text-[13px] font-medium text-foreground truncate max-w-[300px] leading-snug">
                   {meta.cleanName || item.productName}
                 </span>
                 {meta.displaySuffix && (
@@ -789,10 +803,10 @@ function InventoryRow({
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-1 min-w-0 text-xs text-muted-foreground">
-                {item.number && <span className="shrink-0">{item.number}</span>}
-                {item.number && meta.sourceSetName && <span className="shrink-0">·</span>}
-                {meta.sourceSetName && <span className="truncate max-w-[160px]">{meta.sourceSetName}</span>}
+              <div className="flex items-center gap-1 min-w-0 text-[11px] text-muted-foreground/50">
+                {item.number && <span className="shrink-0 tabular-nums">{item.number}</span>}
+                {item.number && meta.sourceSetName && <span className="shrink-0 mx-0.5">·</span>}
+                {meta.sourceSetName && <span className="truncate max-w-[180px]">{meta.sourceSetName}</span>}
                 {item.labelCreatedAt && <LabelStatusBadge status={item.labelStatus} />}
               </div>
             </div>
@@ -800,33 +814,33 @@ function InventoryRow({
         </td>
       );
       case "condition": return (
-        <td key="condition" className="px-3 py-2.5 text-xs whitespace-nowrap text-center border-r border-border/40">
+        <td key="condition" className="px-4 py-3 text-center whitespace-nowrap">
           <ConditionBadge condition={item.condition} abbreviated />
         </td>
       );
       case "game": return (
-        <td key="game" className="px-3 py-2.5 text-xs text-muted-foreground capitalize whitespace-nowrap text-center border-r border-border/40">
-          {item.game?.replace("-", " ")}
+        <td key="game" className="px-4 py-3 text-[11px] text-muted-foreground/40 capitalize whitespace-nowrap">
+          {item.game?.replace(/-/g, " ")}
         </td>
       );
       case "qty": return (
-        <td key="qty" className="px-3 py-2.5 text-center whitespace-nowrap border-r border-border/40">
-          <span className="text-sm font-mono font-medium text-foreground">{item.currentQuantity}</span>
+        <td key="qty" className="px-4 py-3 text-right whitespace-nowrap">
+          <span className="text-sm font-mono tabular-nums font-medium text-foreground">{item.currentQuantity}</span>
         </td>
       );
       case "market": return (
-        <td key="market" className="px-3 py-2.5 text-center whitespace-nowrap border-r border-border/40">
-          <span className="text-sm font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+        <td key="market" className="px-4 py-3 text-right whitespace-nowrap">
+          <span className="text-sm font-mono tabular-nums text-muted-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
         </td>
       );
       case "print": return (
-        <td key="print" className="px-3 py-2.5 text-center whitespace-nowrap border-r border-border/40">
-          <span className="text-sm font-mono font-semibold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
+        <td key="print" className="px-4 py-3 text-right whitespace-nowrap">
+          <span className="text-sm font-mono tabular-nums font-semibold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
         </td>
       );
       case "total": return (
-        <td key="total" className="px-3 py-2.5 text-center whitespace-nowrap">
-          <span className="text-sm font-mono text-muted-foreground">
+        <td key="total" className="px-4 py-3 text-right whitespace-nowrap">
+          <span className="text-xs font-mono tabular-nums text-muted-foreground/50">
             ${((item.currentRawMarketPrice || 0) * item.currentQuantity).toFixed(2)}
           </span>
         </td>
@@ -838,15 +852,18 @@ function InventoryRow({
   return (
     <>
       <tr data-testid={`row-inventory-${item.id}`}
-        className={`border-b border-border/50 cursor-pointer transition-colors ${
-          selected ? "bg-primary/10 hover:bg-primary/15" : "hover:bg-accent/30"
-        }`}
+        className={cn(
+          "border-b border-border/20 cursor-pointer transition-colors group/row",
+          selected
+            ? "bg-primary/8 hover:bg-primary/12"
+            : "hover:bg-accent/15"
+        )}
         onClick={toggle}>
         {columnOrder.map(col => renderCell(col))}
       </tr>
       {expanded && !selectMode && (
-        <tr className="border-b border-border/50 bg-muted/20">
-          <td colSpan={columnOrder.length} className="px-4 py-3">
+        <tr className="border-b border-border/20 bg-muted/10">
+          <td colSpan={columnOrder.length} className="px-6 py-4">
             <ExpandedDetail item={item} meta={meta} editing={editing} setEditing={setEditing} stopProp />
           </td>
         </tr>
@@ -1252,7 +1269,7 @@ export default function Inventory() {
 
       {/* ── List view ── */}
       {viewMode === "list" && (
-        <div className="stat-card p-0 overflow-hidden">
+        <div className="rounded-lg border border-border/40 bg-card overflow-hidden shadow-sm">
           {/* Mobile card list */}
           <div className="md:hidden divide-y divide-border/50">
             {isLoading
@@ -1282,23 +1299,23 @@ export default function Inventory() {
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/40">
+                <tr className="border-b border-border/30">
                   {columnOrder.map(col => (
                     <DraggableColHeader key={col} id={col} onMove={handleColumnMove}>
                       {col === "card" ? (
                         <div className="flex items-center gap-2">
                           {selectMode && (
                             <button onClick={e => { e.stopPropagation(); (selectedIds.size === sorted.length && sorted.length > 0 ? deselectAll : selectAll)(); }}
-                              className="text-muted-foreground hover:text-primary transition-colors">
+                              className="text-muted-foreground/50 hover:text-primary transition-colors">
                               {selectedIds.size === sorted.length && sorted.length > 0
-                                ? <CheckSquare size={14} className="text-primary" />
-                                : someSelected ? <CheckSquare size={14} className="text-primary/50" /> : <Square size={14} />}
+                                ? <CheckSquare size={13} className="text-primary" />
+                                : someSelected ? <CheckSquare size={13} className="text-primary/50" /> : <Square size={13} />}
                             </button>
                           )}
                           {COLUMN_LABELS.card}
                         </div>
                       ) : (
-                        <span className="w-full text-center block">{COLUMN_LABELS[col]}</span>
+                        COLUMN_LABELS[col]
                       )}
                     </DraggableColHeader>
                   ))}
@@ -1307,8 +1324,8 @@ export default function Inventory() {
               <tbody>
                 {isLoading
                   ? Array.from({ length: 8 }).map((_, i) => (
-                      <tr key={i} className="border-b border-border/50">
-                        <td colSpan={columnOrder.length} className="px-3 py-2.5"><Skeleton className="h-10 w-full" /></td>
+                      <tr key={i} className="border-b border-border/20">
+                        <td colSpan={columnOrder.length} className="px-4 py-3"><Skeleton className="h-9 w-full" /></td>
                       </tr>
                     ))
                   : sorted.length === 0
