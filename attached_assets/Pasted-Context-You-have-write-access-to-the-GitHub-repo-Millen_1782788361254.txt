@@ -1,0 +1,41 @@
+Context: You have write access to the GitHub repo Millenium-AI/cardvault. There are two fixes needed in a single commit.
+
+Fix 1 — Revert DraggableColHeader styling changes in client/src/pages/Inventory.tsx
+The last commit (cdcb7fd) changed the DraggableColHeader <th> className. Revert it back to the original values:
+
+font-normal → font-medium
+
+text-muted-foreground/50 → text-muted-foreground/60
+
+tracking-[0.06em] → tracking-wide
+
+Then fix the actual alignment issue: the column header text alignment doesn't match the data cells below. The DraggableColHeader inner <div> uses flexbox which ignores the text-left/text-right/text-center from COLUMN_ALIGN[id] on the <th>. Fix this by adding justify-start, justify-end, or justify-center to the inner <div> based on COLUMN_ALIGN[id]:
+
+text-left → justify-start
+
+text-right → justify-end
+
+text-center → justify-center
+
+Fix 2 — Remove dropdowns from Uploads page in client/src/pages/Uploads.tsx
+Remove both the Game and Source dropdown selectors from the upload form UI entirely. The game is already auto-detected from the CSV via the existing detectGameFromFile function. Keep that logic intact — just stop showing the dropdowns to the user.
+
+Specific changes:
+
+Remove sourceType state and its setter
+
+Remove the grid grid-cols-2 gap-2 div containing both <Select> dropdowns and the detectedLabel sparkle indicator
+
+Keep game state (still needed to pass to the FormData)
+
+Keep detectGameFromFile call in handleFile and setGame(slug) — the auto-detection should still run silently
+
+In uploadMut.mutationFn, remove form.append("sourceType", sourceType) — or default it to "tcgplayer" as a hardcoded constant if the backend requires it
+
+Remove the Sparkles import if it's no longer used
+
+Remove the Select, SelectContent, SelectItem, SelectTrigger, SelectValue imports only if they are no longer used anywhere else in the file (the sort dropdown inside ReviewFilterBar still uses them, so keep those imports)
+
+The upload dropzone and progress bar should remain exactly as-is.
+
+Push both changes in a single commit to main with message: fix: revert header styling, fix col alignment, remove upload dropdowns

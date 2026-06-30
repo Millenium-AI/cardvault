@@ -78,12 +78,17 @@ function DraggableColHeader({
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
       onDrop={e => { e.preventDefault(); const d = e.dataTransfer.getData("text/plain") as ColumnKey; if (d && d !== id) onMove(d, id); }}
       className={cn(
-        "group px-4 py-3 text-[11px] font-normal text-muted-foreground/50 uppercase tracking-[0.06em]",
+        "group px-4 py-3 text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wide",
         "cursor-grab active:cursor-grabbing select-none whitespace-nowrap",
         COLUMN_ALIGN[id]
       )}
     >
-      <div className={cn("flex items-center gap-1.5", COLUMN_ALIGN[id] === "text-right" && "flex-row-reverse")}>
+      <div className={cn(
+        "flex items-center gap-1.5",
+        COLUMN_ALIGN[id] === "text-right"  && "flex-row-reverse justify-end",
+        COLUMN_ALIGN[id] === "text-center" && "justify-center",
+        COLUMN_ALIGN[id] === "text-left"   && "justify-start",
+      )}>
         <div className="flex flex-col gap-[3px] opacity-0 group-hover:opacity-40 transition-opacity shrink-0">
           <div className="flex gap-[3px]"><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /></div>
           <div className="flex gap-[3px]"><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /></div>

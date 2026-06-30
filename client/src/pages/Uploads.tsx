@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeader } from "@/lib/queryClient";
-import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2, Search, ArrowUpDown, Sparkles } from "lucide-react";
+import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2, Search, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -516,8 +516,6 @@ function UploadProgress({ label, pct }: { label: string; pct: number }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function Uploads() {
   const [game, setGame] = useState("pokemon");
-  const [detectedGame, setDetectedGame] = useState<string | null>(null);
-  const [sourceType, setSourceType] = useState("tcgplayer");
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showReview, setShowReview] = useState(false);
@@ -569,7 +567,7 @@ export default function Uploads() {
       const form = new FormData();
       form.append("file", file);
       form.append("game", game);
-      form.append("sourceType", sourceType);
+      form.append("sourceType", "tcgplayer");
       form.append("progressToken", token);
 
       const res = await fetch(`${API_BASE}/api/uploads`, { method: "POST", body: form, headers: authHeader });
@@ -613,12 +611,7 @@ export default function Uploads() {
 
     // Auto-detect game from file before uploading
     const slug = await detectGameFromFile(file);
-    if (slug) {
-      setGame(slug);
-      setDetectedGame(slug);
-    } else {
-      setDetectedGame(null);
-    }
+    if (slug) setGame(slug);
 
     uploadMut.mutate(file);
   };
@@ -626,10 +619,6 @@ export default function Uploads() {
   const formatDate = (d: string) => {
     try { return format(parseISO(d), "M/d/yy HH:mm"); } catch { return d; }
   };
-
-  const detectedLabel = detectedGame
-    ? GAMES.find(g => g.value === detectedGame)?.label ?? null
-    : null;
 
   return (
     <div>
@@ -644,40 +633,6 @@ export default function Uploads() {
           {/* Upload form */}
           <div className="stat-card space-y-3">
             <div className="text-sm font-semibold">Upload CSV</div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Game</label>
-                <Select value={game} onValueChange={v => { setGame(v); setDetectedGame(null); }}>
-                  <SelectTrigger data-testid="select-game" className="text-xs h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {GAMES.map(g => (
-                      <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {detectedLabel && (
-                  <div className="flex items-center gap-1 mt-1">
-                    <Sparkles size={10} className="text-primary shrink-0" />
-                    <span className="text-[10px] text-primary font-medium">Auto-detected: {detectedLabel}</span>
-                  </div>
-                )}
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Source</label>
-                <Select value={sourceType} onValueChange={setSourceType}>
-                  <SelectTrigger data-testid="select-source" className="text-xs h-9">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="tcgplayer">TCGplayer</SelectItem>
-                    <SelectItem value="collectr">Collectr</SelectItem>
-                    <SelectItem value="manual">Manual</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
 
             <div
               data-testid="upload-dropzone"
