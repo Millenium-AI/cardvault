@@ -588,16 +588,17 @@ export default function Uploads() {
               onDrop={e => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
               onClick={() => !uploadMut.isPending && fileRef.current?.click()}
               className={cn(
-                "border-2 border-dashed rounded-lg p-6 text-center transition-colors active:scale-[0.98]",
+                "border-2 border-dashed rounded-2xl min-h-[160px] flex flex-col items-center justify-center gap-2 text-center transition-colors active:opacity-70",
                 uploadMut.isPending ? "cursor-default opacity-70" : "cursor-pointer hover:border-primary/50 hover:bg-accent/30",
                 isDragging ? "border-primary bg-primary/5" : "border-border"
               )}
             >
-              <Upload size={22} className="mx-auto mb-2 text-muted-foreground" />
-              <div className="text-sm text-muted-foreground">
-                {uploadMut.isPending ? "Processing…" : "Tap or drop CSV or Excel"}
+              <Upload size={28} className="text-muted-foreground" />
+              <div className="text-sm font-medium text-foreground">
+                {uploadMut.isPending ? "Processing…" : "Tap to Upload"}
               </div>
-              <div className="text-xs text-muted-foreground mt-1">TCGplayer CSV or .xlsx supported</div>
+              <div className="text-xs text-muted-foreground">CSV or Excel (.xlsx) · TCGplayer supported</div>
+              <div className="text-[11px] text-muted-foreground/60 hidden sm:block">or drag and drop a file here</div>
               <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </div>

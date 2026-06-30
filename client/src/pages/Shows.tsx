@@ -365,11 +365,22 @@ export default function Shows() {
         <Button
           data-testid="button-new-show"
           onClick={() => { setEditShow(null); setModalOpen(true); }}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
+          className="hidden sm:flex bg-primary text-primary-foreground hover:bg-primary/90"
         >
           <Plus size={15} className="mr-2" /> New Show
         </Button>
       </div>
+
+      {/* Mobile FAB */}
+      <button
+        data-testid="button-new-show-fab"
+        onClick={() => { setEditShow(null); setModalOpen(true); }}
+        className="sm:hidden fixed bottom-[72px] right-4 z-30 w-14 h-14 rounded-full shadow-lg flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+        aria-label="New Show"
+        style={{ bottom: "calc(env(safe-area-inset-bottom) + 64px)" }}
+      >
+        <Plus size={24} />
+      </button>
 
       {/* Summary cards */}
       {shows.length > 0 && (
