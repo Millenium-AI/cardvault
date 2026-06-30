@@ -917,6 +917,17 @@ export default function Inventory() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  // ── Auto-refetch when user switches back to this browser tab ──────────────
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
   const { data: items = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inventory", game, condition, search],
     queryFn: async () => {
@@ -927,6 +938,7 @@ export default function Inventory() {
       const res = await apiRequest("GET", `/api/inventory?${params}`);
       return res.json();
     },
+    refetchOnWindowFocus: true,
   });
 
   const exportMut = useMutation({
