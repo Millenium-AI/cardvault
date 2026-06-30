@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeader } from "@/lib/queryClient";
-import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2, Search, ArrowUpDown } from "lucide-react";
+import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2, Search, ArrowUpDown, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,6 +16,85 @@ const statusColors: Record<string, string> = {
   failed: "text-red-400 bg-red-400/10",
   rejected: "text-muted-foreground bg-muted",
 };
+
+// ── Game list ─────────────────────────────────────────────────────────────────
+
+const GAMES: { value: string; label: string }[] = [
+  { value: "pokemon",    label: "Pokémon" },
+  { value: "pokemon-jp", label: "Pokémon JP" },
+  { value: "one-piece",  label: "One Piece" },
+  { value: "sorcery",    label: "Sorcery" },
+  { value: "dragon-ball",label: "Dragon Ball" },
+  { value: "mtg",        label: "MTG" },
+  { value: "star-wars",  label: "Star Wars" },
+  { value: "other",      label: "Other" },
+];
+
+// ── Auto-detect game from CSV/XLSX headers + first data row ──────────────────
+
+/**
+ * Reads just enough of the file to extract the header row and first data row,
+ * then maps the "Product Line" value to one of our game slugs.
+ * Returns null if detection fails or the file is XLSX (handled separately).
+ */
+async function detectGameFromFile(file: File): Promise<string | null> {
+  try {
+    const isXlsx =
+      file.name.toLowerCase().endsWith(".xlsx") ||
+      file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+    let productLine = "";
+
+    if (isXlsx) {
+      // For XLSX we dynamically import xlsx (already a dep) and read sheet row 1
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", sheetRows: 2 });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "" });
+      if (rows.length > 0) {
+        productLine =
+          String(rows[0]["Product Line"] ?? rows[0]["product_line"] ?? rows[0]["Game"] ?? "");
+      }
+    } else {
+      // CSV: read first 4KB — enough for header + first data row
+      const slice = file.slice(0, 4096);
+      const text = await slice.text();
+      const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return null;
+
+      // Parse header row
+      const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim());
+      const plIdx = headers.findIndex(
+        h => h.toLowerCase() === "product line" || h.toLowerCase() === "product_line" || h.toLowerCase() === "game"
+      );
+      if (plIdx === -1) return null;
+
+      // Parse first data row
+      const values = lines[1].split(",").map(v => v.replace(/^"|"$/g, "").trim());
+      productLine = values[plIdx] ?? "";
+    }
+
+    return mapProductLineToSlug(productLine);
+  } catch {
+    return null;
+  }
+}
+
+function mapProductLineToSlug(productLine: string): string | null {
+  const pl = productLine.toLowerCase();
+  if (pl.includes("one piece"))                             return "one-piece";
+  if (pl.includes("pokemon") || pl.includes("pokémon")) {
+    // JP indicator: Japanese language marker or explicit "jp"
+    if (pl.includes("japan") || pl.includes(" jp") || pl.includes("(jp)")) return "pokemon-jp";
+    return "pokemon";
+  }
+  if (pl.includes("sorcery"))                               return "sorcery";
+  if (pl.includes("dragon ball"))                           return "dragon-ball";
+  if (pl.includes("magic") || pl === "mtg")                 return "mtg";
+  if (pl.includes("star wars"))                             return "star-wars";
+  return null;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -436,7 +515,8 @@ function UploadProgress({ label, pct }: { label: string; pct: number }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function Uploads() {
-  const [game, setGame] = useState("one-piece");
+  const [game, setGame] = useState("pokemon");
+  const [detectedGame, setDetectedGame] = useState<string | null>(null);
   const [sourceType, setSourceType] = useState("tcgplayer");
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -524,18 +604,32 @@ export default function Uploads() {
     onError: (e: any) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
   });
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     const name = file.name.toLowerCase();
     if (!name.endsWith(".csv") && !name.endsWith(".xlsx")) {
       toast({ title: "CSV or Excel (.xlsx) files only", variant: "destructive" });
       return;
     }
+
+    // Auto-detect game from file before uploading
+    const slug = await detectGameFromFile(file);
+    if (slug) {
+      setGame(slug);
+      setDetectedGame(slug);
+    } else {
+      setDetectedGame(null);
+    }
+
     uploadMut.mutate(file);
   };
 
   const formatDate = (d: string) => {
     try { return format(parseISO(d), "M/d/yy HH:mm"); } catch { return d; }
   };
+
+  const detectedLabel = detectedGame
+    ? GAMES.find(g => g.value === detectedGame)?.label ?? null
+    : null;
 
   return (
     <div>
@@ -553,18 +647,22 @@ export default function Uploads() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Game</label>
-                <Select value={game} onValueChange={setGame}>
+                <Select value={game} onValueChange={v => { setGame(v); setDetectedGame(null); }}>
                   <SelectTrigger data-testid="select-game" className="text-xs h-9">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="one-piece">One Piece</SelectItem>
-                    <SelectItem value="pokemon">Pokémon</SelectItem>
-                    <SelectItem value="sorcery">Sorcery</SelectItem>
-                    <SelectItem value="mtg">MTG</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    {GAMES.map(g => (
+                      <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {detectedLabel && (
+                  <div className="flex items-center gap-1 mt-1">
+                    <Sparkles size={10} className="text-primary shrink-0" />
+                    <span className="text-[10px] text-primary font-medium">Auto-detected: {detectedLabel}</span>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Source</label>
