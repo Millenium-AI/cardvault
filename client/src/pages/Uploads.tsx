@@ -273,6 +273,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
       queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/labels/new"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
       toast({ title: "Merge approved", description: "Inventory updated successfully." });
       onDone();
     },

@@ -127,6 +127,25 @@ function parseCSV(content: string): Record<string, string>[] {
     });
 }
 
+function detectGameFromProductLine(productLine: string | null, fallback: string): string {
+  if (!productLine) return fallback;
+  const pl = productLine.toLowerCase();
+  if (pl.includes("pokemon") || pl.includes("pokémon")) {
+    if (pl.includes("japan") || pl.includes(" jp") || pl.includes("(jp)")) return "pokemon-jp";
+    return "pokemon";
+  }
+  if (pl.includes("one piece")) return "one-piece";
+  if (pl.includes("sorcery")) return "sorcery";
+  if (pl.includes("dragon ball")) return "dragon-ball";
+  if (pl.includes("magic") || pl.includes("the gathering") || pl === "mtg") return "mtg";
+  if (pl.includes("star wars")) return "star-wars";
+  if (pl.includes("lorcana")) return "lorcana";
+  if (pl.includes("yu-gi-oh") || pl.includes("yugioh")) return "yugioh";
+  if (pl.includes("digimon")) return "digimon";
+  if (pl.includes("flesh and blood") || pl.includes("flesh & blood")) return "fab";
+  return fallback;
+}
+
 function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, uploadId: string): any {
   const k = (...candidates: string[]): string => {
     for (const c of candidates) {
@@ -144,6 +163,7 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
   const sourceProductId     = k("Product ID", "product_id") || null;
   const sourceTcgplayerId   = k("TCGplayer Id", "TCGplayer ID", "tcgplayer_id", "TCGplayerId") || null;
   const sourceProductLine   = k("Product Line", "product_line", "Game") || null;
+  const resolvedGame        = detectGameFromProductLine(sourceProductLine, game);
   const sourceSetName       = k("Set Name", "set_name", "Set", "Expansion") || null;
   const sourcePrinting      = k("Printing", "printing", "Foil", "Edition") || null;
   const sourceRarity        = k("Rarity", "rarity") || null;
@@ -157,13 +177,14 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
     id: crypto.randomUUID(),
     uploadId,
     rowIndex,
+    game: resolvedGame,
     productName: productName || "(unknown)",
     number: number || null,
     condition: condition || null,
     rawMarketPrice,
     roundedPrintPrice: ceilPrice(rawMarketPrice),
     addToQuantity,
-    normalizedMatchKey: buildMatchKey(productName, number, condition, sourcePrinting, sourceSetName, game),
+    normalizedMatchKey: buildMatchKey(productName, number, condition, sourcePrinting, sourceSetName, resolvedGame),
     sourceProductId,
     sourceTcgplayerId,
     sourceProductLine,
@@ -382,7 +403,7 @@ async function enrichNewItemsWithLivePrices(
             justtcg_card_uuid:           priceResult.cardUuid,
             justtcg_variant_uuid:        priceResult.variantUuid,
           })
-          .eq("inventory_item_id", item.id)
+          .eq("id", item.id)
           .eq("user_id", userId);
       }
 
@@ -643,7 +664,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
               justtcg_card_uuid:           priceResult.cardUuid,
               justtcg_variant_uuid:        priceResult.variantUuid,
             })
-            .eq("inventory_item_id", item.id)
+            .eq("id", item.id)
             .eq("user_id", userId);
 
           updated++;
@@ -924,13 +945,14 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const payload = JSON.parse(review.reviewPayload || "{}");
       const now = new Date().toISOString();
       const uploadRecord = await storage.getUpload(userId, uploadId);
-      const game = uploadRecord?.game || "pokemon";
+      const uploadLevelGame = uploadRecord?.game || "pokemon";
 
       const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
       const parsedById = new Map(allParsed.map(r => [r.id, r]));
 
       const rpcNewItems = (payload.newItems || []).map((row: any) => {
         const parsed = parsedById.get(row.id);
+        const resolvedGame = (parsed as any)?.game || uploadLevelGame;
         let photoUrl: string | null = null;
         try {
           const src = JSON.parse(parsed?.sourcePayload || "{}");
@@ -939,12 +961,12 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
         const rawName = (row.productName ?? "").trim();
         const csvNumber = (row.number ?? "").trim();
-        const { cleanName, displaySuffix } = parseProductName(rawName, game, csvNumber);
+        const { cleanName, displaySuffix } = parseProductName(rawName, resolvedGame, csvNumber);
 
         return {
           inventoryItemId: crypto.randomUUID(),
           parsedRowId: parsed?.id ?? null,
-          game,
+          game: resolvedGame,
           productName: row.productName,
           number: row.number ?? null,
           condition: row.condition ?? null,
@@ -1029,7 +1051,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
       }
 
       setImmediate(() => enrichNewItemsWithLivePrices(userId, newItemIds));
-      setImmediate(() => refreshExistingInventoryPrices(userId, newItemIds, game));
+      setImmediate(() => refreshExistingInventoryPrices(userId, newItemIds, uploadLevelGame));
 
       res.json({ success: true });
     } catch (e: any) {

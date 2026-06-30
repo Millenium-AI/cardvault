@@ -19,6 +19,7 @@ export interface ParsedRow {
   userId: string;
   uploadId: string;
   rowIndex: number;
+  game?: string | null;
   productName: string;
   number?: string | null;
   condition?: string | null;

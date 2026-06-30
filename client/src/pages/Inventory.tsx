@@ -946,6 +946,8 @@ export default function Inventory() {
       const res = await apiRequest("GET", `/api/inventory?${params}`);
       return res.json();
     },
+    staleTime: 0,
+    refetchOnMount: true,
     refetchOnWindowFocus: true,
   });
 
