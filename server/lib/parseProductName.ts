@@ -3,6 +3,34 @@ export type ParsedName = {
   displaySuffix?: string;
 };
 
+/**
+ * Patterns that should become a badge (displaySuffix).
+ * These are variant / print-run / promo distinguishers — NOT card numbers.
+ *
+ * One Piece examples:  (Parallel), (Alternate Art), (Winner Pack Vol. 6),
+ *   (Premium Card Collection -ONE PIECE FILM RED Edition-),
+ *   (Sealed Battle 2024 Vol. 2), (Gift Collection 2023),
+ *   (Tournament Pack Vol. 5), (Event Pack Vol. 4),
+ *   (OP-07 Pre-Release Tournament), (Retail Promo),
+ *   [Winner], [Participant]
+ *
+ * DBS / other examples: (SPR), (SR), (R), (SSP)
+ *
+ * Never a badge: bare card numbers like (099), (100), (104)
+ *   or inline suffixes like " - OP14-120" / " - FB02-085"
+ */
+const RARITY_TAGS = /^(SPR|SR|SSP|R|C|UC|AA|SEC|UR|PR|RR|RRR|ACE\s*SPEC)$/i;
+
+/** Returns true for tokens that are ONLY a bare collector number, e.g. "099", "100" */
+function isBareNumber(token: string): boolean {
+  return /^\d{2,4}$/.test(token.trim());
+}
+
+/** Returns true for inline set-code suffixes like "OP14-120" or "FB02-085" */
+function isInlineSetCode(s: string): boolean {
+  return /^[A-Z]{1,4}\d{1,2}-\d{3,4}$/.test(s.trim());
+}
+
 export function parseProductName(
   rawName: string,
   game: string,
@@ -10,92 +38,85 @@ export function parseProductName(
 ): ParsedName {
   const name = rawName.trim();
 
-  switch (game) {
-    case "sorcery": {
-      const cleanName = name.replace(/\s*\(foil\)\s*$/i, "").trim();
-      return { cleanName };
+  // ── One Piece ─────────────────────────────────────────────────────────────
+  if (game === "one-piece") {
+    let working = name;
+
+    // Strip trailing " - OPXX-NNN" style embedded card number (e.g. "Crocodile - OP14-120")
+    working = working.replace(/\s*-\s*[A-Z]{1,4}\d{1,2}-\d{3,4}\s*$/, "").trim();
+    // Also strip " (P-NNN)" or " - P-NNN" promo number patterns
+    working = working.replace(/\s*-\s*P-\d{3,4}\s*$/, "").trim();
+
+    // Collect ALL trailing parenthetical / bracket tokens, but:
+    //   - DROP tokens that are ONLY bare numbers like (099)
+    //   - KEEP everything else as badge parts
+    const badgeParts: string[] = [];
+    const parenRe = /\s*(?:\(([^)]+)\)|\[([^\]]+)\])\s*$/;
+    let safety = 10;
+    while (safety-- > 0) {
+      const m = working.match(parenRe);
+      if (!m) break;
+      const token = (m[1] ?? m[2]).trim();
+      working = working.slice(0, working.length - m[0].length).trim();
+      // Skip pure number tokens — they duplicate the card number column
+      if (isBareNumber(token) || isInlineSetCode(token)) continue;
+      badgeParts.unshift(token);
     }
 
-    case "one-piece": {
-      let working = name;
-
-      // Step 1 — strip trailing dash-number suffix: " - OPXX-NNN" etc.
-      working = working.replace(/\s*-\s*[A-Z]{2,4}\d{1,2}-\d{3,4}\s*$/, "").trim();
-
-      // Step 2 — collect all trailing parenthetical tokens
-      const suffixTokens: string[] = [];
-      const parenRe = /\s*\(([^)]+)\)\s*$/;
-      let safety = 20;
-      while (safety-- > 0) {
-        const m = working.match(parenRe);
-        if (!m) break;
-        const token = m[1].trim();
-        // Drop if it looks like a card number (pure digits or set-code pattern)
-        const isNumber = /^\d{2,4}$/.test(token) || /^[A-Z]{2,4}\d{1,2}-\d{3,4}$/.test(token);
-        if (!isNumber) suffixTokens.unshift(token);
-        working = working.slice(0, working.length - m[0].length).trim();
-      }
-
-      const cleanName = working;
-      const displaySuffix = suffixTokens.length ? suffixTokens.join(" · ") : undefined;
-      return { cleanName, displaySuffix };
-    }
-
-    case "dragon-ball": {
-      // Strip trailing " - XXXX-NNN" dash-number
-      let working = name.replace(/\s*-\s*[A-Z]{2,4}\d{2}-\d{3,4}\s*$/, "").trim();
-
-      // Pull trailing all-caps parenthetical (e.g. "(SPR)")
-      const suffixMatch = working.match(/\s*\(([A-Z]{1,6})\)\s*$/);
-      let displaySuffix: string | undefined;
-      if (suffixMatch) {
-        displaySuffix = suffixMatch[1];
-        working = working.slice(0, working.length - suffixMatch[0].length).trim();
-      }
-
-      return { cleanName: working, displaySuffix };
-    }
-
-    case "pokemon":
-    case "pokemon-japan": {
-      let working = name;
-      // Strip trailing " - NNN/NNN"
-      working = working.replace(/\s*-\s*\d+\/\d+\s*$/, "").trim();
-
-      // Pull trailing parenthetical as displaySuffix
-      const suffixMatch = working.match(/\s*\(([^)]+)\)\s*$/);
-      let displaySuffix: string | undefined;
-      if (suffixMatch) {
-        displaySuffix = suffixMatch[1].trim();
-        working = working.slice(0, working.length - suffixMatch[0].length).trim();
-      }
-
-      return { cleanName: working, displaySuffix };
-    }
-
-    case "star-wars": {
-      let working = name;
-      // Strip trailing "(Foil)" — already in Printing column
-      working = working.replace(/\s*\(foil\)\s*$/i, "").trim();
-
-      // Pull any other trailing parenthetical as displaySuffix (e.g. "(Hyperspace)")
-      const suffixMatch = working.match(/\s*\(([^)]+)\)\s*$/);
-      let displaySuffix: string | undefined;
-      if (suffixMatch) {
-        displaySuffix = suffixMatch[1].trim();
-        working = working.slice(0, working.length - suffixMatch[0].length).trim();
-      }
-
-      // NOTE: do NOT strip " - subtitle" for star-wars (legitimate part of card name)
-      return { cleanName: working, displaySuffix };
-    }
-
-    case "mtg": {
-      return { cleanName: name };
-    }
-
-    default: {
-      return { cleanName: name };
-    }
+    return {
+      cleanName: working,
+      displaySuffix: badgeParts.length ? badgeParts.join(" · ") : undefined,
+    };
   }
+
+  // ── Dragon Ball Super / other (DBS uses SPR, SR, SSP etc.) ────────────────
+  if (game === "dragon-ball" || game === "other") {
+    let working = name;
+
+    // Strip trailing " - XXXX-NNN" embedded card number
+    working = working.replace(/\s*-\s*[A-Z]{1,4}\d{1,2}-\d{3,4}\s*$/, "").trim();
+
+    // Pull trailing rarity tag in parens, e.g. (SPR), (SR), (SSP)
+    let displaySuffix: string | undefined;
+    const rarityMatch = working.match(/\s*\(([^)]+)\)\s*$/);
+    if (rarityMatch && RARITY_TAGS.test(rarityMatch[1].trim())) {
+      displaySuffix = rarityMatch[1].trim().toUpperCase();
+      working = working.slice(0, working.length - rarityMatch[0].length).trim();
+    }
+
+    return { cleanName: working, displaySuffix };
+  }
+
+  // ── Pokémon ───────────────────────────────────────────────────────────────
+  if (game === "pokemon" || game === "pokemon-japan") {
+    let working = name;
+    working = working.replace(/\s*-\s*\d+\/\d+\s*$/, "").trim();
+    const suffixMatch = working.match(/\s*\(([^)]+)\)\s*$/);
+    let displaySuffix: string | undefined;
+    if (suffixMatch) {
+      displaySuffix = suffixMatch[1].trim();
+      working = working.slice(0, working.length - suffixMatch[0].length).trim();
+    }
+    return { cleanName: working, displaySuffix };
+  }
+
+  // ── Star Wars ─────────────────────────────────────────────────────────────
+  if (game === "star-wars") {
+    let working = name.replace(/\s*\(foil\)\s*$/i, "").trim();
+    const suffixMatch = working.match(/\s*\(([^)]+)\)\s*$/);
+    let displaySuffix: string | undefined;
+    if (suffixMatch) {
+      displaySuffix = suffixMatch[1].trim();
+      working = working.slice(0, working.length - suffixMatch[0].length).trim();
+    }
+    return { cleanName: working, displaySuffix };
+  }
+
+  // ── Sorcery ───────────────────────────────────────────────────────────────
+  if (game === "sorcery") {
+    return { cleanName: name.replace(/\s*\(foil\)\s*$/i, "").trim() };
+  }
+
+  // ── MTG / default ─────────────────────────────────────────────────────────
+  return { cleanName: name };
 }
