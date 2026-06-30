@@ -78,7 +78,7 @@ function DraggableColHeader({
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
       onDrop={e => { e.preventDefault(); const d = e.dataTransfer.getData("text/plain") as ColumnKey; if (d && d !== id) onMove(d, id); }}
       className={cn(
-        "group px-4 py-3 text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wide",
+        "group px-4 py-3 text-[11px] font-normal text-muted-foreground/50 uppercase tracking-[0.06em]",
         "cursor-grab active:cursor-grabbing select-none whitespace-nowrap",
         COLUMN_ALIGN[id]
       )}
