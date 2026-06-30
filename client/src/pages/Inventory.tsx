@@ -775,15 +775,32 @@ function InventoryRow({
                 className={`text-muted-foreground transition-transform duration-200 shrink-0 ${expanded ? "" : "-rotate-90"}`}
               />
             )}
-            <div>
-              <div className="text-sm font-medium text-foreground truncate max-w-[280px]">{item.productName}</div>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                {(item.number || meta.sourceSetName) && (
-                  <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                    {item.number}{meta.sourceSetName ? ` · ${meta.sourceSetName}` : ""}
+            <div className="flex flex-col gap-0.5 min-w-0">
+              {/* Line 1: clean name + variant badge */}
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-sm font-medium text-foreground truncate max-w-[280px]">
+                  {meta.cleanName || item.productName}
+                </span>
+                {meta.displaySuffix && (
+                  <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-sm bg-primary/10 text-primary leading-tight">
+                    {meta.displaySuffix}
                   </span>
                 )}
-                <LabelStatusBadge status={item.labelStatus} />
+              </div>
+              {/* Line 2: number · set + label badge */}
+              <div className="flex items-center gap-1 min-w-0 text-xs text-muted-foreground">
+                {item.number && (
+                  <span className="shrink-0">{item.number}</span>
+                )}
+                {item.number && meta.sourceSetName && (
+                  <span className="shrink-0">·</span>
+                )}
+                {meta.sourceSetName && (
+                  <span className="truncate max-w-[160px]">{meta.sourceSetName}</span>
+                )}
+                {item.labelCreatedAt && (
+                  <LabelStatusBadge status={item.labelStatus} />
+                )}
               </div>
             </div>
           </div>
@@ -855,7 +872,7 @@ export default function Inventory() {
   const [selectedGame, setSelectedGame] = useGameParam();
   const game = selectedGame ?? "all";
   const [condition, setCondition] = useState("all");
-  const [sortBy, setSortBy] = useState("lastSeenAt");
+  const [sortBy, setSortBy] = useState("name");
   const [labelFilter, setLabelFilter] = useState<LabelFilter>("all");
   const [exportOpen, setExportOpen] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);

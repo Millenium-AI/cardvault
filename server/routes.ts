@@ -911,6 +911,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/uploads/:id/approve", async (req: any, res) => {
+    const { parseProductName } = await import("./lib/parseProductName.js");
     try {
       const userId = req.user.id;
       const uploadId = req.params.id;
@@ -935,6 +936,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
           const src = JSON.parse(parsed?.sourcePayload || "{}");
           photoUrl = src._photoUrl || src["Photo URL"] || null;
         } catch {}
+
+        const rawName = (row.productName ?? "").trim();
+        const csvNumber = (row.number ?? "").trim();
+        const { cleanName, displaySuffix } = parseProductName(rawName, game, csvNumber);
+
         return {
           inventoryItemId: crypto.randomUUID(),
           parsedRowId: parsed?.id ?? null,
@@ -953,6 +959,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
             sourcePrinting: parsed?.sourcePrinting ?? null,
             sourceProductLine: parsed?.sourceProductLine ?? null,
             sourceRarity: parsed?.sourceRarity ?? null,
+            cleanName,
+            displaySuffix: displaySuffix ?? null,
           }),
           sourceProductId: parsed?.sourceProductId ?? null,
           sourceTcgplayerId: parsed?.sourceTcgplayerId ?? null,
