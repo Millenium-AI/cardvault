@@ -45,6 +45,18 @@
   }
 }
 
+/* Force all scrolling to inner containers — required for Chrome iOS toolbar auto-hide */
+html, body, #root {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+  touch-action: manipulation;
+}
+
 @layer base {
   * {
     @apply border-border;

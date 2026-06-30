@@ -1,0 +1,240 @@
+You are fixing two specific mobile issues in the CardVault app (React + Vite + Tailwind). Read the following files completely before making any changes:
+
+1. client/index.html
+2. client/src/index.css  
+3. client/src/components/AppShell.tsx
+
+---
+
+## PROBLEM 1: BOTTOM NAV BLOCKING CONTENT IN CHROME ON IPHONE 17
+
+### Root Cause
+The `<main>` element uses `pb-20` (80px fixed padding) to clear the bottom nav. This is wrong for two reasons:
+1. iPhone 17 has a dynamic island + safe area inset that makes `env(safe-area-inset-bottom)` larger than on older models (approximately 34px on iPhone 17)
+2. Chrome on iOS has its OWN bottom tab bar (~49px) that sits ABOVE the OS safe area — `env(safe-area-inset-bottom)` does NOT account for Chrome's browser bar, only the OS inset
+
+### Fix in AppShell.tsx
+
+Replace the hardcoded `pb-20` on `<main>` with a CSS custom property approach:
+
+```css
+/* In index.css — add to @layer utilities */
+:root {
+  --bottom-nav-h: 56px; /* actual rendered height of your bottom nav */
+}
+
+/* The safe scroll padding for chrome browser mode */
+.main-scroll-area {
+  padding-bottom: calc(
+    var(--bottom-nav-h) + 
+    env(safe-area-inset-bottom) + 
+    8px
+  );
+}
+```
+
+Then in AppShell.tsx, change the `<main>` element:
+
+FROM:
+```tsx
+<main className="flex-1 overflow-y-auto pb-20 md:pb-0">
+```
+
+TO:
+```tsx
+<main 
+  className="flex-1 overflow-y-auto md:pb-0 main-scroll-area"
+  style={{ 
+    paddingBottom: 'calc(56px + env(safe-area-inset-bottom) + 8px)' 
+  }}
+>
+```
+
+The inline style ensures the `env()` function is evaluated at runtime by the browser — Tailwind cannot dynamically resolve CSS environment variables at build time in arbitrary values.
+
+Also update the bottom `<nav>` element's height to be explicit so content clears it properly:
+
+```tsx
+<nav
+  className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-stretch border-t border-border bg-[hsl(var(--sidebar-bg))]"
+  style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+>
+```
+
+Ensure the nav itself has an explicit minimum height of 56px on the inner content row. Wrap the nav items in an inner `<div className="flex items-stretch w-full min-h-[56px]">` so the nav grows with the safe area padding but the touch targets stay at 56px.
+
+---
+
+## PROBLEM 2: CHROME IOS TOOLBAR NOT AUTO-HIDING
+
+### Root Cause
+Chrome on iOS only auto-hides its top address bar and bottom tab bar when:
+1. The page has a `position: fixed` element at the bottom (your nav — already correct ✅)
+2. **The scroll happens on an inner element with `overflow-y: auto` or `overflow-y: scroll`** — NOT on `<body>` or `<html>`
+3. The scrollable inner element must be `height: 100%` of the viewport — not taller, not shorter
+
+Currently the outer `<div className="flex h-screen overflow-hidden">` in AppShell uses `h-screen`. On Chrome iOS, `h-screen` = the FULL viewport including the hidden browser UI, which is taller than the visible area. This means the scroll container appears "full" to Chrome and it never triggers toolbar hiding.
+
+### Fix
+Replace ALL instances of `h-screen`, `min-h-screen`, and `h-full` on the outermost containers with `h-dvh` (dynamic viewport height). `dvh` units respond to the ACTUAL visible viewport after Chrome's UI is accounted for, triggering proper scroll behavior.
+
+In AppShell.tsx, change:
+```tsx
+// FROM:
+<div className="flex h-screen overflow-hidden bg-background">
+
+// TO:
+<div className="flex h-dvh overflow-hidden bg-background">
+```
+
+Also ensure the `<main>` scroll container has `-webkit-overflow-scrolling: touch` for momentum scrolling on iOS:
+
+```tsx
+<main 
+  className="flex-1 overflow-y-auto md:pb-0 main-scroll-area"
+  style={{ 
+    WebkitOverflowScrolling: 'touch',
+    paddingBottom: 'calc(56px + env(safe-area-inset-bottom) + 8px)' 
+  }}
+>
+```
+
+In index.css, add globally:
+```css
+html, body, #root {
+  height: 100dvh;
+  overflow: hidden; /* force ALL scrolling to inner containers */
+}
+
+/* Prevent rubber-band scroll on body leaking through */
+body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: auto;
+}
+```
+
+This setup tells Chrome: "there is a fixed bottom nav, and scroll happens inside a dvh-constrained inner div" — exactly the conditions required for Chrome iOS toolbar auto-hide to activate.
+
+---
+
+## PROBLEM 3: PWA "ADD TO HOME SCREEN" OPTIMIZATION (APPLE BOOKMARK WEB APP)
+
+When a user saves CardVault to their iPhone home screen, iOS runs it in "standalone" mode — no Safari/Chrome chrome, full screen. You need to configure this properly in `client/index.html`.
+
+### Step 1 — Add PWA Meta Tags to index.html
+
+Add these tags inside `<head>`, directly after the existing `<meta name="viewport">` tag:
+
+```html
+<!-- PWA / Add to Home Screen -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="CardVault" />
+<meta name="theme-color" content="#0a0a0a" />
+
+<!-- Apple Touch Icons (required for home screen icon) -->
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png" />
+<link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png" />
+
+<!-- PWA Manifest -->
+<link rel="manifest" href="/manifest.json" />
+
+<!-- Splash screens for iPhone 17 (2556x1179 native) -->
+<link rel="apple-touch-startup-image"
+  media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)"
+  href="/splash/iphone14pro.png" />
+<link rel="apple-touch-startup-image"
+  media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)"
+  href="/splash/iphone14promax.png" />
+```
+
+Note: `black-translucent` status bar style means the app content renders BEHIND the status bar. This requires you to add `padding-top: env(safe-area-inset-top)` to your AppShell's outermost div when in standalone mode.
+
+### Step 2 — Create public/manifest.json
+
+Create the file `client/public/manifest.json`:
+
+```json
+{
+  "name": "CardVault",
+  "short_name": "CardVault",
+  "description": "Trading card inventory and valuation tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "apple touch icon"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "categories": ["finance", "utilities"],
+  "screenshots": []
+}
+```
+
+The `background_color` and `theme_color` should match your `--background` CSS variable which is `hsl(0 0% 4%)` = approximately `#0a0a0a`. [cite:7]
+
+### Step 3 — Detect Standalone Mode in AppShell.tsx
+
+When running as a PWA, there is no browser chrome, but the status bar is still there (with `black-translucent` it overlaps your content). Detect standalone mode and add top padding:
+
+```tsx
+// Add near the top of AppShell.tsx
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches 
+  || (window.navigator as any).standalone === true;
+```
+
+Then on the outermost div:
+```tsx
+<div 
+  className="flex h-dvh overflow-hidden bg-background"
+  style={{ 
+    paddingTop: isStandalone ? 'env(safe-area-inset-top)' : '0px' 
+  }}
+>
+```
+
+This adds the exact right amount of top padding ONLY in standalone mode, preventing the header from overlapping the dynamic island/status bar on iPhone 17.
+
+### Step 4 — PWA Bottom Nav Padding Adjustment
+
+In standalone mode, `env(safe-area-inset-bottom)` is LARGER (≈34px on iPhone 17) because there is no browser chrome — the OS home indicator sits directly below your app. Your `main-scroll-area` padding calculation already handles this correctly since it uses `env(safe-area-inset-bottom)` at runtime. No changes needed here.
+
+### Step 5 — Icons to Create
+
+You need to create and place these files in `client/public/`:
+- `apple-touch-icon.png` — 180×180px, no rounded corners (iOS applies them), use your green CardVault logo on dark background
+- `icon-192.png` — 192×192px, Android/PWA manifest
+- `icon-512.png` — 512×512px, used for splash screen generation on Android
+
+Generate these from your existing CardVault SVG logo (the green card icon in AppShell). Use a `#0a0a0a` background with the green logo centered at ~55% of the icon size.
+
+---
+
+## SUMMARY OF ALL FILES TO MODIFY
+
+1. **client/index.html** — add PWA meta tags, manifest link, apple touch icons, splash screen links
+2. **client/public/manifest.json** — CREATE NEW FILE
+3. **client/src/index.css** — add `html/body/#root { height: 100dvh; overflow: hidden }`, `overscroll-behavior: none`, `touch-action: manipulation` globally
+4. **client/src/components/AppShell.tsx** — `h-dvh` on outer div, `isStandalone` detection + `paddingTop`, fix `<main>` padding to use inline `env()` calc, add inner wrapper div to bottom nav for proper height separation
+
+Output complete file contents for each modified file. Do not output partial diffs.
