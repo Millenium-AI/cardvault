@@ -1140,21 +1140,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
     if (item) res.json(item);
   });
 
-  app.patch("/api/inventory/:id", async (req: any, res) => {
-    const item = await resolveInventoryItem(req.user.id, req.params.id, res);
-    if (!item) return;
-
-    const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes", "productName", "game", "status"];
-    const patch: Record<string, any> = {};
-    for (const key of allowed) {
-      if (req.body[key] !== undefined) patch[key] = req.body[key];
-    }
-    if (patch.currentRawMarketPrice !== undefined) {
-      patch.currentRoundedPrintPrice = Math.ceil(patch.currentRawMarketPrice);
-    }
-    res.json(await storage.updateInventoryItem(req.user.id, req.params.id, patch));
-  });
-
+  // NOTE: this must be registered BEFORE the /:id PATCH route below — Express
+  // matches routes in registration order, and /:id would otherwise treat the
+  // literal path segment "bulk" as an item id, 404 on lookup, and the real
+  // bulk handler would never run.
   app.patch("/api/inventory/bulk", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -1171,6 +1160,21 @@ export function registerRoutes(httpServer: Server, app: Express) {
       console.error("[bulk patch inventory]", e);
       res.status(500).json({ error: e.message });
     }
+  });
+
+  app.patch("/api/inventory/:id", async (req: any, res) => {
+    const item = await resolveInventoryItem(req.user.id, req.params.id, res);
+    if (!item) return;
+
+    const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes", "productName", "game", "status"];
+    const patch: Record<string, any> = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) patch[key] = req.body[key];
+    }
+    if (patch.currentRawMarketPrice !== undefined) {
+      patch.currentRoundedPrintPrice = Math.ceil(patch.currentRawMarketPrice);
+    }
+    res.json(await storage.updateInventoryItem(req.user.id, req.params.id, patch));
   });
 
   app.delete("/api/inventory/bulk", async (req: any, res) => {
