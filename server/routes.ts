@@ -762,7 +762,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
       const userId = req.user.id;
-      const { game = "pokemon", sourceType = "tcgplayer", progressToken } = req.body;
+      const { game = "unknown", sourceType = "tcgplayer", progressToken } = req.body;
 
       const progress = (label: string, pct: number) => {
         if (progressToken) sendProgress(progressToken, label, pct);
@@ -945,7 +945,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const payload = JSON.parse(review.reviewPayload || "{}");
       const now = new Date().toISOString();
       const uploadRecord = await storage.getUpload(userId, uploadId);
-      const uploadLevelGame = uploadRecord?.game || "pokemon";
+      const uploadLevelGame = uploadRecord?.game || "unknown";
 
       const allParsed = await storage.getParsedRowsByUpload(userId, uploadId);
       const parsedById = new Map(allParsed.map(r => [r.id, r]));
