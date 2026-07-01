@@ -96,7 +96,7 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
+      reusePort: process.env.NODE_ENV === "production",
     },
     () => {
       log(`serving on port ${port}`);
