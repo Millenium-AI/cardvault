@@ -18,7 +18,7 @@ const CONDITION_MAP: Record<string, string> = {
   'Lightly Played':    'LP',
   'Moderately Played': 'MP',
   'Heavily Played':    'HP',
-  'Damaged':           'D',
+  'Damaged':           'DMG',
 };
 
 export interface PriceResult {
@@ -44,17 +44,24 @@ function expiresAt(price: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
-// ── Low-level POST /v1/cards (batch) ─────────────────────────────────────────
-async function postBatchCards(
-  items: { tcgplayerId: string; condition: string; printing: string }[]
+// ── Low-level GET /v1/cards (batch) ──────────────────────────────────────────
+// JustTCG batch lookup uses GET with a JSON body (not POST).
+// Each item is looked up by tcgplayerId + optional condition/printing filters.
+async function getBatchCards(
+  items: { tcgplayerId: string; condition?: string; printing?: string }[]
 ): Promise<{ data: any[]; usage?: any }> {
-  const res = await fetch(`${BASE_URL}/cards`, {
-    method: 'POST',
+  // Build query string: tcgplayerId can appear multiple times for batch
+  const params = new URLSearchParams();
+  for (const item of items) {
+    params.append('tcgplayerId', item.tcgplayerId);
+  }
+
+  const res = await fetch(`${BASE_URL}/cards?${params.toString()}`, {
+    method: 'GET',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey()}`,
     },
-    body: JSON.stringify({ cards: items }),
   });
 
   if (!res.ok) {
@@ -127,9 +134,9 @@ export async function batchFetchPrices(
 
   if (!toFetch.length) return resultMap;
 
-  // 2. Call JustTCG for cache misses
+  // 2. Call JustTCG for cache misses — GET /v1/cards with tcgplayerIds
   try {
-    const response = await postBatchCards(
+    const response = await getBatchCards(
       toFetch.map(i => ({
         tcgplayerId: i.tcgplayerId,
         condition:   CONDITION_MAP[i.condition] ?? 'NM',
@@ -144,9 +151,9 @@ export async function batchFetchPrices(
       if (remaining < 10) console.warn('[JustTCG] ⚠️  Approaching daily API limit!');
     }
 
-    // 3. Map results back, write to cache
+    // 3. Map results back by tcgplayerId, write to cache
     for (const item of toFetch) {
-      const card = cards.find((c: any) => c.tcgplayerId === item.tcgplayerId);
+      const card = cards.find((c: any) => String(c.tcgplayerId) === String(item.tcgplayerId));
       if (!card) continue;
 
       const priceResult = extractPrice(card, item.condition, item.printing);
@@ -199,9 +206,9 @@ export async function fetchSinglePrice(
     };
   }
 
-  // Live fetch
+  // Live fetch — single item
   try {
-    const response = await postBatchCards([{
+    const response = await getBatchCards([{
       tcgplayerId,
       condition: CONDITION_MAP[condition] ?? 'NM',
       printing:  printing ?? 'Normal',
