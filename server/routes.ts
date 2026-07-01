@@ -624,8 +624,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
         ? allItems.filter(i => ids.includes(i.id) && i.sourceTcgplayerId)
         : allItems.filter(i => {
             if (!i.sourceTcgplayerId) return false;
-            if (!i.priceFetchedAt) return true;
-            const staleMs = Date.now() - new Date(i.priceFetchedAt).getTime();
+            if (!i.priceLastFetchedAt) return true;
+            const staleMs = Date.now() - new Date(i.priceLastFetchedAt).getTime();
             return staleMs > 6 * 60 * 60 * 1000;
           });
 
@@ -996,13 +996,20 @@ export function registerRoutes(httpServer: Server, app: Express) {
         };
       });
 
-      const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => ({
-        parsedRowId: parsedById.get(match.rowId)?.id ?? null,
-        existingId: match.existingId,
-        newQty: overrides[match.rowId]?.csvQty ?? match.csvQty ?? match.existingQty ?? 0,
-        rawMarketPrice: match.rawMarketPrice ?? null,
-        roundedPrintPrice: match.roundedPrintPrice ?? null,
-      }));
+      const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => {
+        const parsed = parsedById.get(match.rowId);
+        const dbGame = (parsed as any)?.game;
+        const reviewGame = match.game;
+        const resolvedGame = (overrides[match.rowId] as any)?.game || dbGame || reviewGame || uploadLevelGame;
+        return {
+          parsedRowId: parsed?.id ?? null,
+          existingId: match.existingId,
+          game: resolvedGame,
+          newQty: overrides[match.rowId]?.csvQty ?? match.csvQty ?? match.existingQty ?? 0,
+          rawMarketPrice: match.rawMarketPrice ?? null,
+          roundedPrintPrice: match.roundedPrintPrice ?? null,
+        };
+      });
 
       const rpcRepricing = (payload.repricingCandidates || [])
         .map((candidate: any) => {

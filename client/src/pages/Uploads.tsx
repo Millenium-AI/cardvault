@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
+import { gameLabel } from "@shared/gameLabels";
 
 const statusColors: Record<string, string> = {
   pending: "text-primary bg-primary/10",
@@ -19,16 +20,8 @@ const statusColors: Record<string, string> = {
 
 // ── Game list ─────────────────────────────────────────────────────────────────
 
-const GAMES: { value: string; label: string }[] = [
-  { value: "pokemon",    label: "Pokémon" },
-  { value: "pokemon-jp", label: "Pokémon JP" },
-  { value: "one-piece",  label: "One Piece" },
-  { value: "sorcery",    label: "Sorcery" },
-  { value: "dragon-ball",label: "Dragon Ball" },
-  { value: "mtg",        label: "MTG" },
-  { value: "star-wars",  label: "Star Wars" },
-  { value: "other",      label: "Other" },
-];
+const GAME_VALUES = ["pokemon", "pokemon-jp", "one-piece", "sorcery", "dragon-ball", "mtg", "star-wars", "lorcana", "yugioh", "digimon", "fab", "other"] as const;
+const GAMES: { value: string; label: string }[] = GAME_VALUES.map(value => ({ value, label: gameLabel(value) }));
 
 // ── Auto-detect game from CSV/XLSX headers + first data row ──────────────────
 
@@ -91,8 +84,12 @@ function mapProductLineToSlug(productLine: string): string | null {
   }
   if (pl.includes("sorcery"))                               return "sorcery";
   if (pl.includes("dragon ball"))                           return "dragon-ball";
-  if (pl.includes("magic") || pl === "mtg")                 return "mtg";
+  if (pl.includes("magic") || pl.includes("the gathering") || pl === "mtg") return "mtg";
   if (pl.includes("star wars"))                             return "star-wars";
+  if (pl.includes("lorcana"))                               return "lorcana";
+  if (pl.includes("yu-gi-oh") || pl.includes("yugioh"))     return "yugioh";
+  if (pl.includes("digimon"))                               return "digimon";
+  if (pl.includes("flesh and blood") || pl.includes("flesh & blood")) return "fab";
   return null;
 }
 
@@ -393,7 +390,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
                   const hasEdit = gameOverrides[row.id] || conditionOverrides[row.id] || priceOverrides[row.id];
                   return (
                     <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", hasEdit && "bg-amber-500/5")}>
-                      <td className="px-3 py-2 text-foreground">{gameOverrides[row.id] ?? row.game ?? "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{gameLabel(gameOverrides[row.id] ?? row.game) || "—"}</td>
                       <td className="px-3 py-2 text-foreground max-w-[160px] truncate">{row.productName}</td>
                       {!hideNumberCol && <td className="px-3 py-2 text-foreground">{row.number || "—"}</td>}
                       <td className="px-3 py-2 text-foreground">{conditionOverrides[row.id] ?? row.condition ?? "—"}</td>
@@ -438,7 +435,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
                   const hasEdit = overrideQty !== undefined || gameOverrides[row.rowId] || conditionOverrides[row.rowId] || priceOverrides[row.rowId];
                   return (
                     <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", hasEdit && "bg-amber-500/5")}>
-                      <td className="px-3 py-2 text-foreground">{gameOverrides[row.rowId] ?? row.game ?? "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{gameLabel(gameOverrides[row.rowId] ?? row.game) || "—"}</td>
                       <td className="px-3 py-2 text-foreground max-w-[160px] truncate">{row.productName}</td>
                       {!hideNumberCol && <td className="px-3 py-2 text-foreground">{row.number || "—"}</td>}
                       <td className="px-3 py-2 text-foreground">{conditionOverrides[row.rowId] ?? row.condition ?? "—"}</td>
@@ -501,7 +498,14 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-medium text-muted-foreground">Game</label>
-                <input type="text" value={editGame} onChange={e => setEditGame(e.target.value)} className="w-full h-8 px-2 mt-1 text-xs rounded border border-border bg-background text-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none" />
+                <Select value={editGame} onValueChange={setEditGame}>
+                  <SelectTrigger className="w-full h-8 mt-1 text-xs"><SelectValue placeholder="Select game" /></SelectTrigger>
+                  <SelectContent>
+                    {GAMES.map(g => (
+                      <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground">Condition</label>
@@ -759,7 +763,7 @@ export default function Uploads() {
                         </span>
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
-                        <span>{u.game}</span><span>·</span>
+                        <span>{gameLabel(u.game)}</span><span>·</span>
                         <span>{u.totalRows} rows</span><span>·</span>
                         <span className="flex items-center gap-0.5"><Clock size={9} />{formatDate(u.uploadedAt)}</span>
                       </div>

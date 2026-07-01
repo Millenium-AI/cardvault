@@ -7,6 +7,7 @@ import {
   Tag, RefreshCcw, LayoutList, LayoutGrid, Grid2X2, SlidersHorizontal,
 } from "lucide-react";
 import { useGameParam } from "@/lib/useGameParam";
+import { gameLabel } from "@shared/gameLabels";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -426,7 +427,7 @@ function InventoryGridCard({
           {meta.sourceSetName && <div className="text-xs text-muted-foreground truncate mt-0.5">{meta.sourceSetName}</div>}
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             <ConditionBadge condition={item.condition} abbreviated />
-            <span className="text-[10px] text-muted-foreground capitalize">{item.game?.replace("-", " ")}</span>
+            <span className="text-[10px] text-muted-foreground">{gameLabel(item.game)}</span>
           </div>
           <div className="mt-0.5"><LabelStatusBadge status={item.labelStatus} /></div>
           <div className="mt-2 space-y-0.5">
@@ -500,7 +501,7 @@ function InventoryDetailSheet({ item, open, onClose }: { item: any; open: boolea
           )}
           <div className="flex items-center gap-2 flex-wrap">
             <ConditionBadge condition={item.condition} abbreviated />
-            <span className="text-xs text-muted-foreground capitalize">{item.game?.replace("-", " ")}</span>
+            <span className="text-xs text-muted-foreground">{gameLabel(item.game)}</span>
             <LabelStatusBadge status={item.labelStatus} />
           </div>
           <div className="grid grid-cols-3 gap-2">
@@ -824,8 +825,8 @@ function InventoryRow({
         </td>
       );
       case "game": return (
-        <td key="game" className="px-4 py-3 text-[11px] text-muted-foreground/40 capitalize whitespace-nowrap">
-          {item.game?.replace(/-/g, " ")}
+        <td key="game" className="px-4 py-3 text-[11px] text-muted-foreground/40 whitespace-nowrap">
+          {gameLabel(item.game)}
         </td>
       );
       case "qty": return (
@@ -1197,11 +1198,11 @@ export default function Inventory() {
 
         <div className="flex items-center gap-1.5 mb-4 flex-wrap">
           {([
-            { key: "all",             label: "All",             count: items.length },
-            { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     className: "text-amber-400" },
-            { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, className: "text-blue-400" },
-            { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   className: "text-green-400" },
-          ] as const).map(({ key, label, count, className: cls }) => (
+            { key: "all",             label: "All",             count: items.length,                 className: undefined as string | undefined },
+            { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     className: "text-amber-400" as string | undefined },
+            { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, className: "text-blue-400" as string | undefined },
+            { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   className: "text-green-400" as string | undefined },
+          ]).map(({ key, label, count, className: cls }) => (
             <button key={key} onClick={() => setLabelFilter(key as LabelFilter)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                 labelFilter === key ? "border-primary bg-primary/15 text-primary" : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
