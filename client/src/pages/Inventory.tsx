@@ -7,6 +7,7 @@ import {
   Tag, RefreshCcw, LayoutList, LayoutGrid, Grid2X2, SlidersHorizontal,
 } from "lucide-react";
 import { useGameParam } from "@/lib/useGameParam";
+import { gameLabel } from "@shared/gameLabels";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -426,7 +427,7 @@ function InventoryGridCard({
           {meta.sourceSetName && <div className="text-xs text-muted-foreground truncate mt-0.5">{meta.sourceSetName}</div>}
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
             <ConditionBadge condition={item.condition} abbreviated />
-            <span className="text-[10px] text-muted-foreground capitalize">{item.game?.replace("-", " ")}</span>
+            <span className="text-[10px] text-muted-foreground">{gameLabel(item.game)}</span>
           </div>
           <div className="mt-0.5"><LabelStatusBadge status={item.labelStatus} /></div>
           <div className="mt-2 space-y-0.5">
@@ -500,7 +501,7 @@ function InventoryDetailSheet({ item, open, onClose }: { item: any; open: boolea
           )}
           <div className="flex items-center gap-2 flex-wrap">
             <ConditionBadge condition={item.condition} abbreviated />
-            <span className="text-xs text-muted-foreground capitalize">{item.game?.replace("-", " ")}</span>
+            <span className="text-xs text-muted-foreground">{gameLabel(item.game)}</span>
             <LabelStatusBadge status={item.labelStatus} />
           </div>
           <div className="grid grid-cols-3 gap-2">
@@ -824,8 +825,8 @@ function InventoryRow({
         </td>
       );
       case "game": return (
-        <td key="game" className="px-4 py-3 text-[11px] text-muted-foreground/40 capitalize whitespace-nowrap">
-          {item.game?.replace(/-/g, " ")}
+        <td key="game" className="px-4 py-3 text-[11px] text-muted-foreground/40 whitespace-nowrap">
+          {gameLabel(item.game)}
         </td>
       );
       case "qty": return (

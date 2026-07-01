@@ -3,22 +3,23 @@
 // field). Images come from a per-page `images` map keyed by the game `value`
 // so they can be swapped in later without touching this component.
 
+import { gameLabel } from "@shared/gameLabels";
+
 // Fixed tiles, always shown (even at count 0), in this order. `value` is the
-// stored game value used by the inventory filter + API; `label` is displayed.
+// stored game value used by the inventory filter + API; `label` is displayed
+// via the shared gameLabel() helper so capitalization always matches the
+// rest of the app (Merge Review, Inventory, etc.).
 const FIXED_GAMES: { value: string; label: string }[] = [
   { value: "all", label: "All Games" },
-  { value: "pokemon", label: "Pokémon" },
-  { value: "one-piece", label: "One Piece" },
-  { value: "sorcery", label: "Sorcery" },
-  { value: "dragon-ball", label: "Dragon Ball" },
+  { value: "pokemon", label: gameLabel("pokemon") },
+  { value: "one-piece", label: gameLabel("one-piece") },
+  { value: "sorcery", label: gameLabel("sorcery") },
+  { value: "dragon-ball", label: gameLabel("dragon-ball") },
 ];
 
 /** "one-piece" -> "One Piece" for dynamically discovered games. */
 function prettify(value: string): string {
-  return value
-    .split("-")
-    .map(w => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-    .join(" ");
+  return gameLabel(value);
 }
 
 /** Deterministic placeholder background colour from the game value. */

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
+import { gameLabel } from "@shared/gameLabels";
 
 const statusColors: Record<string, string> = {
   pending: "text-primary bg-primary/10",
@@ -393,7 +394,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
                   const hasEdit = gameOverrides[row.id] || conditionOverrides[row.id] || priceOverrides[row.id];
                   return (
                     <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", hasEdit && "bg-amber-500/5")}>
-                      <td className="px-3 py-2 text-foreground">{gameOverrides[row.id] ?? row.game ?? "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{gameLabel(gameOverrides[row.id] ?? row.game) || "—"}</td>
                       <td className="px-3 py-2 text-foreground max-w-[160px] truncate">{row.productName}</td>
                       {!hideNumberCol && <td className="px-3 py-2 text-foreground">{row.number || "—"}</td>}
                       <td className="px-3 py-2 text-foreground">{conditionOverrides[row.id] ?? row.condition ?? "—"}</td>
@@ -438,7 +439,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
                   const hasEdit = overrideQty !== undefined || gameOverrides[row.rowId] || conditionOverrides[row.rowId] || priceOverrides[row.rowId];
                   return (
                     <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", hasEdit && "bg-amber-500/5")}>
-                      <td className="px-3 py-2 text-foreground">{gameOverrides[row.rowId] ?? row.game ?? "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{gameLabel(gameOverrides[row.rowId] ?? row.game) || "—"}</td>
                       <td className="px-3 py-2 text-foreground max-w-[160px] truncate">{row.productName}</td>
                       {!hideNumberCol && <td className="px-3 py-2 text-foreground">{row.number || "—"}</td>}
                       <td className="px-3 py-2 text-foreground">{conditionOverrides[row.rowId] ?? row.condition ?? "—"}</td>
