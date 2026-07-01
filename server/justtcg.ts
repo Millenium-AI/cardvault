@@ -1,6 +1,16 @@
 /**
  * JustTCG API client — native fetch, zero npm dependencies.
  * Docs: https://justtcg.com/docs/sdk
+ *
+ * Caching model: `price_cache` has no user_id column — it is a single
+ * table shared across every user of the app, keyed purely on
+ * tcgplayerId|condition|printing. A cache hit from one user's upload
+ * transparently serves every other user's lookup for the same
+ * card+condition+printing. This file also de-dupes concurrent in-flight
+ * requests for the same card and caches every variant returned by a
+ * single card lookup (not just the one condition/printing requested),
+ * so the app burns as few JustTCG API calls as possible as usage grows
+ * across many users.
  */
 import { supabaseAdmin } from './supabase.js';
 
@@ -45,15 +55,15 @@ function expiresAt(price: number): string {
 }
 
 // ── Low-level GET /v1/cards (batch) ──────────────────────────────────────────
-// JustTCG batch lookup uses GET with a JSON body (not POST).
-// Each item is looked up by tcgplayerId + optional condition/printing filters.
+// A single call returns ALL variants (every condition + printing) for each
+// tcgplayerId requested — condition/printing are not sent as filters, so we
+// always get the full picture and can cache it all in one shot.
 async function getBatchCards(
-  items: { tcgplayerId: string; condition?: string; printing?: string }[]
+  tcgplayerIds: string[]
 ): Promise<{ data: any[]; usage?: any }> {
-  // Build query string: tcgplayerId can appear multiple times for batch
   const params = new URLSearchParams();
-  for (const item of items) {
-    params.append('tcgplayerId', item.tcgplayerId);
+  for (const id of tcgplayerIds) {
+    params.append('tcgplayerId', id);
   }
 
   const res = await fetch(`${BASE_URL}/cards?${params.toString()}`, {
@@ -69,7 +79,56 @@ async function getBatchCards(
     throw new Error(`JustTCG API ${res.status}: ${text}`);
   }
 
-  return res.json();
+  const json = await res.json();
+  const remaining = json?.usage?.apiDailyRequestsRemaining;
+  if (remaining !== undefined) {
+    console.log(`[JustTCG] Daily calls remaining: ${remaining}`);
+    if (remaining < 10) console.warn('[JustTCG] ⚠️  Approaching daily API limit!');
+  }
+  return json;
+}
+
+// ── In-flight request de-duplication ─────────────────────────────────────────
+// If two callers (different users, concurrent uploads) ask for the same
+// tcgplayerId at the same moment, only one live JustTCG call should happen —
+// everyone else awaits that same in-flight promise instead of firing their
+// own duplicate request. This matters once many users can trigger uploads
+// concurrently: without this, a burst of simultaneous uploads containing the
+// same popular cards would multiply API calls needlessly.
+const inFlightCardFetches = new Map<string, Promise<any[]>>();
+
+async function getCardsDeduped(tcgplayerIds: string[]): Promise<any[]> {
+  const uniqueIds = Array.from(new Set(tcgplayerIds));
+  const idsToFetch: string[] = [];
+  const waiters: Promise<any[]>[] = [];
+
+  for (const id of uniqueIds) {
+    const existing = inFlightCardFetches.get(id);
+    if (existing) {
+      waiters.push(existing);
+    } else {
+      idsToFetch.push(id);
+    }
+  }
+
+  let ownPromise: Promise<any[]> | null = null;
+  if (idsToFetch.length) {
+    ownPromise = getBatchCards(idsToFetch)
+      .then(response => response?.data ?? [])
+      .finally(() => {
+        for (const id of idsToFetch) inFlightCardFetches.delete(id);
+      });
+    for (const id of idsToFetch) inFlightCardFetches.set(id, ownPromise);
+  }
+
+  const batches = await Promise.all([
+    ...(ownPromise ? [ownPromise] : []),
+    ...waiters,
+  ]);
+
+  const results: any[] = [];
+  for (const batch of batches) results.push(...batch);
+  return results;
 }
 
 // ── Extract the matching variant price from a card response ──────────────────
@@ -97,7 +156,37 @@ export function extractPrice(
   };
 }
 
-// ── Batch fetch up to 20 cards, with Supabase cache layer ────────────────────
+// ── Cache every variant on a card response, not just the one requested ───────
+// A single JustTCG response for one tcgplayerId includes ALL conditions and
+// printings for that card. Caching only the variant the current upload asked
+// for throws away data that would satisfy other lookups (other rows in the
+// same upload, or a different user entirely) for a different condition of
+// the same card. Writing every variant means the very next lookup for ANY
+// condition/printing of this card, by any user, is a cache hit instead of
+// another billed API call.
+async function cacheAllVariants(card: any): Promise<void> {
+  const variants: any[] = card?.variants ?? [];
+  if (!variants.length || !card?.tcgplayerId) return;
+
+  const rows = variants
+    .filter(v => v?.price != null && v?.condition)
+    .map(v => ({
+      cache_key:      buildPriceCacheKey(card.tcgplayerId, v.condition, v.printing),
+      price:          v.price,
+      price_24hr_chg: v.priceChange24hr ?? null,
+      price_7d_chg:   v.priceChange7d ?? null,
+      variant_uuid:   v.uuid ?? null,
+      card_uuid:      card.uuid ?? null,
+      fetched_at:     new Date().toISOString(),
+      expires_at:     expiresAt(v.price),
+    }));
+
+  if (!rows.length) return;
+  const { error } = await supabaseAdmin.from('price_cache').upsert(rows, { onConflict: 'cache_key' });
+  if (error) console.error('[JustTCG] cacheAllVariants upsert error:', error.message);
+}
+
+// ── Batch fetch prices, with a shared cross-user Supabase cache ──────────────
 export async function batchFetchPrices(
   items: {
     id:           string;   // inventory item UUID (for mapping results back)
@@ -107,17 +196,24 @@ export async function batchFetchPrices(
   }[]
 ): Promise<Map<string, PriceResult>> {
   const resultMap = new Map<string, PriceResult>();
-  const toFetch:   typeof items = [];
+  if (!items.length) return resultMap;
 
-  // 1. Check Supabase cache first
+  // 1. Check Supabase cache first — one batched IN() query instead of N
+  // sequential round-trips, so this scales with concurrent uploads instead
+  // of serializing on Supabase latency per item.
+  const cacheKeys = items.map(item => buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing));
+  const { data: cachedRows } = await supabaseAdmin
+    .from('price_cache')
+    .select('cache_key, price, price_24hr_chg, price_7d_chg, variant_uuid, card_uuid')
+    .in('cache_key', cacheKeys)
+    .gt('expires_at', new Date().toISOString());
+
+  const cacheByKey = new Map((cachedRows ?? []).map((row: any) => [row.cache_key, row]));
+  const toFetch: typeof items = [];
+
   for (const item of items) {
     const cacheKey = buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing);
-    const { data: cached } = await supabaseAdmin
-      .from('price_cache')
-      .select('price, price_24hr_chg, price_7d_chg, variant_uuid, card_uuid')
-      .eq('cache_key', cacheKey)
-      .gt('expires_at', new Date().toISOString())
-      .maybeSingle();
+    const cached = cacheByKey.get(cacheKey);
 
     if (cached?.price) {
       resultMap.set(item.id, {
@@ -134,24 +230,18 @@ export async function batchFetchPrices(
 
   if (!toFetch.length) return resultMap;
 
-  // 2. Call JustTCG for cache misses — GET /v1/cards with tcgplayerIds
+  // 2. Call JustTCG for cache misses, deduped against any identical
+  // in-flight request from a concurrent upload (possibly a different user).
   try {
-    const response = await getBatchCards(
-      toFetch.map(i => ({
-        tcgplayerId: i.tcgplayerId,
-        condition:   CONDITION_MAP[i.condition] ?? 'NM',
-        printing:    i.printing ?? 'Normal',
-      }))
-    );
+    const uniqueTcgplayerIds = Array.from(new Set(toFetch.map(i => i.tcgplayerId)));
+    const cards = await getCardsDeduped(uniqueTcgplayerIds);
 
-    const cards: any[] = response?.data ?? [];
-    const remaining    = response?.usage?.apiDailyRequestsRemaining;
-    if (remaining !== undefined) {
-      console.log(`[JustTCG] Daily calls remaining: ${remaining}`);
-      if (remaining < 10) console.warn('[JustTCG] ⚠️  Approaching daily API limit!');
-    }
+    // 3. Cache EVERY variant on every card returned, not just the requested
+    // condition/printing — this is what lets a future lookup for a
+    // different condition of the same card, by any user, hit the cache.
+    await Promise.all(cards.map(cacheAllVariants));
 
-    // 3. Map results back by tcgplayerId, write to cache
+    // 4. Map results back to the requesting items
     for (const item of toFetch) {
       const card = cards.find((c: any) => String(c.tcgplayerId) === String(item.tcgplayerId));
       if (!card) continue;
@@ -160,18 +250,6 @@ export async function batchFetchPrices(
       if (!priceResult) continue;
 
       resultMap.set(item.id, priceResult);
-
-      const cacheKey = buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing);
-      await supabaseAdmin.from('price_cache').upsert({
-        cache_key:      cacheKey,
-        price:          priceResult.price,
-        price_24hr_chg: priceResult.priceChange24hr,
-        price_7d_chg:   priceResult.priceChange7d,
-        variant_uuid:   priceResult.variantUuid,
-        card_uuid:      priceResult.cardUuid,
-        fetched_at:     new Date().toISOString(),
-        expires_at:     expiresAt(priceResult.price),
-      }, { onConflict: 'cache_key' });
     }
   } catch (err: any) {
     console.error('[JustTCG] batchFetchPrices error:', err.message);
@@ -206,32 +284,17 @@ export async function fetchSinglePrice(
     };
   }
 
-  // Live fetch — single item
+  // Live fetch — deduped against any identical in-flight request, and
+  // caches every variant returned so future lookups for other
+  // conditions/printings of this same card hit cache too.
   try {
-    const response = await getBatchCards([{
-      tcgplayerId,
-      condition: CONDITION_MAP[condition] ?? 'NM',
-      printing:  printing ?? 'Normal',
-    }]);
-
-    const card = response?.data?.[0];
+    const cards = await getCardsDeduped([tcgplayerId]);
+    const card = cards[0];
     if (!card) return null;
 
-    const priceResult = extractPrice(card, condition, printing);
-    if (!priceResult) return null;
+    await cacheAllVariants(card);
 
-    await supabaseAdmin.from('price_cache').upsert({
-      cache_key:      cacheKey,
-      price:          priceResult.price,
-      price_24hr_chg: priceResult.priceChange24hr,
-      price_7d_chg:   priceResult.priceChange7d,
-      variant_uuid:   priceResult.variantUuid,
-      card_uuid:      priceResult.cardUuid,
-      fetched_at:     new Date().toISOString(),
-      expires_at:     expiresAt(priceResult.price),
-    }, { onConflict: 'cache_key' });
-
-    return priceResult;
+    return extractPrice(card, condition, printing);
   } catch (err: any) {
     console.error('[JustTCG] fetchSinglePrice error:', err.message);
     return null;
