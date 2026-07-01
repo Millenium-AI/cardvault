@@ -162,7 +162,7 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
   const addToQuantity   = parseInt(k("Add to Quantity", "add_to_quantity")) || parseInt(k("Total Quantity", "total_quantity", "Quantity", "Qty", "quantity")) || 1;
   const sourceProductId     = k("Product ID", "product_id") || null;
   const sourceTcgplayerId   = k("TCGplayer Id", "TCGplayer ID", "tcgplayer_id", "TCGplayerId") || null;
-  const sourceProductLine   = k("Product Line", "product_line", "Game") || null;
+  const sourceProductLine   = k("Product Line", "product_line") || null;
   const resolvedGame        = detectGameFromProductLine(sourceProductLine, game);
   const sourceSetName       = k("Set Name", "set_name", "Set", "Expansion") || null;
   const sourcePrinting      = k("Printing", "printing", "Foil", "Edition") || null;
@@ -860,19 +860,19 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const reviewPayload = JSON.stringify({
         newItems: newItems.map(r => ({
-          id: r.id, productName: r.productName, number: r.number,
+          id: r.id, game: r.game, productName: r.productName, number: r.number,
           condition: r.condition, rawMarketPrice: r.rawMarketPrice,
           roundedPrintPrice: r.roundedPrintPrice, addToQuantity: r.addToQuantity,
         })),
         matchedItems: matchedItems.map(({ row, existingItem, qtyDelta, csvQty, existingQty }) => ({
-          rowId: row.id, productName: row.productName, number: row.number,
+          rowId: row.id, game: row.game, productName: row.productName, number: row.number,
           condition: row.condition, rawMarketPrice: row.rawMarketPrice,
           roundedPrintPrice: row.roundedPrintPrice, csvQty, existingQty, qtyDelta,
           existingId: existingItem.id, existingPrice: existingItem.currentRawMarketPrice,
         })),
         ambiguousItems,
         repricingCandidates: repricingCandidates.map(({ row, existingItem, rule, csvQty, existingQty }) => ({
-          rowId: row.id, productName: row.productName,
+          rowId: row.id, game: row.game, productName: row.productName,
           priorPrice: existingItem.currentRawMarketPrice, newPrice: row.rawMarketPrice,
           roundedPrintPrice: row.roundedPrintPrice,
           percentChange: existingItem.currentRawMarketPrice
@@ -959,20 +959,23 @@ export function registerRoutes(httpServer: Server, app: Express) {
           photoUrl = src._photoUrl || src["Photo URL"] || null;
         } catch {}
 
+        const finalGame = (overrides[row.id] as any)?.game || resolvedGame;
+        const finalCondition = (overrides[row.id] as any)?.condition || row.condition;
+        const finalPrice = (overrides[row.id] as any)?.rawMarketPrice ?? row.rawMarketPrice;
         const rawName = (row.productName ?? "").trim();
         const csvNumber = (row.number ?? "").trim();
-        const { cleanName, displaySuffix } = parseProductName(rawName, resolvedGame, csvNumber);
+        const { cleanName, displaySuffix } = parseProductName(rawName, finalGame, csvNumber);
 
         return {
           inventoryItemId: crypto.randomUUID(),
           parsedRowId: parsed?.id ?? null,
-          game: resolvedGame,
+          game: finalGame,
           productName: row.productName,
           number: row.number ?? null,
-          condition: row.condition ?? null,
+          condition: finalCondition ?? null,
           addToQuantity: row.addToQuantity ?? 1,
-          rawMarketPrice: row.rawMarketPrice ?? null,
-          roundedPrintPrice: row.roundedPrintPrice ?? null,
+          rawMarketPrice: finalPrice ?? null,
+          roundedPrintPrice: finalPrice ? ceilPrice(finalPrice) : null,
           normalizedMatchKey: parsed?.normalizedMatchKey ?? null,
           matchMetadataJson: JSON.stringify({
             sourceProductId: parsed?.sourceProductId ?? null,

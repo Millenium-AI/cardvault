@@ -218,12 +218,21 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   const payload = (() => { try { return JSON.parse(review.reviewPayload || "{}"); } catch { return {}; } })();
 
   const [qtyOverrides, setQtyOverrides] = useState<Record<string, number>>({});
+  const [gameOverrides, setGameOverrides] = useState<Record<string, string>>({});
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>({});
+  const [conditionOverrides, setConditionOverrides] = useState<Record<string, string>>({});
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [editGame, setEditGame] = useState("");
+  const [editCondition, setEditCondition] = useState("");
+  const [editQty, setEditQty] = useState(0);
+  const [editPrice, setEditPrice] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<string>("name");
 
-  function setQtyOverride(rowId: string, val: number) {
-    setQtyOverrides(prev => ({ ...prev, [rowId]: val }));
-  }
+  function setQtyOverride(rowId: string, val: number) { setQtyOverrides(prev => ({ ...prev, [rowId]: val })); }
+  function setGameOverride(rowId: string, val: string) { setGameOverrides(prev => ({ ...prev, [rowId]: val })); }
+  function setConditionOverride(rowId: string, val: string) { setConditionOverrides(prev => ({ ...prev, [rowId]: val })); }
+  function setPriceOverride(rowId: string, val: number) { setPriceOverrides(prev => ({ ...prev, [rowId]: val })); }
 
   // Pre-process all row arrays: default sort A→Z on first render, then filter/sort reactively
   const newItemsProcessed = useMemo(() => {
@@ -260,11 +269,20 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
 
   const approveMut = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/uploads/${uploadId}/approve`, {
-        overrides: Object.fromEntries(
-          Object.entries(qtyOverrides).map(([id, qty]) => [id, { csvQty: qty }])
-        ),
+      const overrides: Record<string, any> = {};
+      Object.keys(qtyOverrides).forEach(id => {
+        overrides[id] = { ...overrides[id], csvQty: qtyOverrides[id] };
       });
+      Object.keys(gameOverrides).forEach(id => {
+        overrides[id] = { ...overrides[id], game: gameOverrides[id] };
+      });
+      Object.keys(conditionOverrides).forEach(id => {
+        overrides[id] = { ...overrides[id], condition: conditionOverrides[id] };
+      });
+      Object.keys(priceOverrides).forEach(id => {
+        overrides[id] = { ...overrides[id], rawMarketPrice: priceOverrides[id] };
+      });
+      const res = await apiRequest("POST", `/api/uploads/${uploadId}/approve`, { overrides });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Approve failed");
       return data;
@@ -331,7 +349,7 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   return (
     <div className="space-y-4">
       {/* Summary stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="flex flex-col gap-1 rounded-xl border border-emerald-500/20 bg-emerald-500/8 px-4 py-3">
           <div className="text-2xl font-bold tabular-nums text-emerald-400 leading-none">{review.newItemCount ?? 0}</div>
           <div className="text-xs font-medium text-muted-foreground">New items</div>
@@ -343,10 +361,6 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
         <div className="flex flex-col gap-1 rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-3">
           <div className="text-2xl font-bold tabular-nums text-amber-400 leading-none">{review.repricingCandidateCount ?? 0}</div>
           <div className="text-xs font-medium text-muted-foreground">Reprice alerts</div>
-        </div>
-        <div className="flex flex-col gap-1 rounded-xl border border-red-500/20 bg-red-500/8 px-4 py-3">
-          <div className="text-2xl font-bold tabular-nums text-red-400 leading-none">{review.duplicateWarningCount ?? 0}</div>
-          <div className="text-xs font-medium text-muted-foreground">Warnings</div>
         </div>
       </div>
 
@@ -360,17 +374,41 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
       {/* Expandable sections */}
       <div className="space-y-2">
         <ExpandableSection title="New Items" count={newItemsProcessed.length} color="bg-emerald-500/10 text-emerald-400">
-          <MiniTable
-            rows={newItemsProcessed}
-            cols={[
-              { key: "productName", label: "Product Name" },
-              { key: "number", label: "#" },
-              { key: "condition", label: "Condition" },
-              { key: "rawMarketPrice", label: "Market $", render: (r: any) => r.rawMarketPrice ? `$${Number(r.rawMarketPrice).toFixed(2)}` : "—" },
-              { key: "roundedPrintPrice", label: "Print $", render: (r: any) => r.roundedPrintPrice ? `$${r.roundedPrintPrice}` : "—" },
-              { key: "addToQuantity", label: "Qty" },
-            ]}
-          />
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[500px]">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  {(hideNumberCol
+                    ? ["Game","Product Name","Cond","Market $","Print $","Qty",""]
+                    : ["Game","Product Name","#","Cond","Market $","Print $","Qty",""]
+                  ).map(h => (
+                    <th key={h} className="text-left px-3 py-2 font-semibold text-muted-foreground tracking-wide uppercase text-[10px] whitespace-nowrap">{h || ""}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {newItemsProcessed.length === 0 ? (
+                  <tr><td colSpan={hideNumberCol ? 7 : 8} className="px-4 py-4 text-center text-muted-foreground text-xs">No results</td></tr>
+                ) : newItemsProcessed.map((row: any, i: number) => {
+                  const hasEdit = gameOverrides[row.id] || conditionOverrides[row.id] || priceOverrides[row.id];
+                  return (
+                    <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", hasEdit && "bg-amber-500/5")}>
+                      <td className="px-3 py-2 text-foreground">{gameOverrides[row.id] ?? row.game ?? "—"}</td>
+                      <td className="px-3 py-2 text-foreground max-w-[160px] truncate">{row.productName}</td>
+                      {!hideNumberCol && <td className="px-3 py-2 text-foreground">{row.number || "—"}</td>}
+                      <td className="px-3 py-2 text-foreground">{conditionOverrides[row.id] ?? row.condition ?? "—"}</td>
+                      <td className="px-3 py-2 tabular-nums text-foreground">{row.rawMarketPrice ? `$${Number(row.rawMarketPrice).toFixed(2)}` : "—"}</td>
+                      <td className="px-3 py-2 tabular-nums text-foreground">{row.roundedPrintPrice ? `$${row.roundedPrintPrice}` : "—"}</td>
+                      <td className="px-3 py-2 text-foreground">{row.addToQuantity || 0}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => { setEditingRowId(row.id); setEditGame(gameOverrides[row.id] ?? row.game ?? ""); setEditCondition(conditionOverrides[row.id] ?? row.condition ?? ""); setEditQty(row.addToQuantity || 0); setEditPrice((priceOverrides[row.id] ?? row.rawMarketPrice) ? String(priceOverrides[row.id] ?? row.rawMarketPrice) : ""); }} className="text-xs px-2 py-1 rounded border border-border hover:border-primary hover:bg-primary/10 transition-colors">Edit</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </ExpandableSection>
 
         <ExpandableSection
@@ -379,48 +417,41 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
           color="bg-sky-500/10 text-sky-400"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[480px]">
+            <table className="w-full text-xs min-w-[520px]">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   {(hideNumberCol
-                    ? ["Product Name","Cond","Cur Qty","CSV Qty","Change","Old $","New $"]
-                    : ["Product Name","#","Cond","Cur Qty","CSV Qty","Change","Old $","New $"]
+                    ? ["Game","Product Name","Cond","Cur Qty","CSV Qty","Change","Old $","New $",""]
+                    : ["Game","Product Name","#","Cond","Cur Qty","CSV Qty","Change","Old $","New $",""]
                   ).map(h => (
-                    <th key={h} className="text-left px-4 py-2.5 font-semibold text-muted-foreground tracking-wide uppercase text-[10px] whitespace-nowrap">{h}</th>
+                    <th key={h} className="text-left px-3 py-2 font-semibold text-muted-foreground tracking-wide uppercase text-[10px] whitespace-nowrap">{h || ""}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {matchedChanged.length === 0 ? (
-                  <tr><td colSpan={hideNumberCol ? 7 : 8} className="px-4 py-4 text-center text-muted-foreground text-xs">No results</td></tr>
+                  <tr><td colSpan={hideNumberCol ? 9 : 10} className="px-4 py-4 text-center text-muted-foreground text-xs">No results</td></tr>
                 ) : matchedChanged.map((row: any, i: number) => {
                   const overrideQty = qtyOverrides[row.rowId];
                   const effectiveQty = overrideQty ?? row.csvQty ?? row.existingQty ?? 0;
                   const delta = effectiveQty - (row.existingQty || 0);
-                  const isEdited = overrideQty !== undefined;
+                  const hasEdit = overrideQty !== undefined || gameOverrides[row.rowId] || conditionOverrides[row.rowId] || priceOverrides[row.rowId];
                   return (
-                    <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", isEdited && "bg-amber-500/5")}>
-                      <td className="px-4 py-2.5 text-foreground max-w-[160px] truncate">{row.productName}</td>
-                      {!hideNumberCol && <td className="px-4 py-2.5 text-foreground whitespace-nowrap">{row.number || "—"}</td>}
-                      <td className="px-4 py-2.5 text-foreground whitespace-nowrap">{row.condition || "—"}</td>
-                      <td className="px-4 py-2.5 tabular-nums text-foreground">{row.existingQty ?? "—"}</td>
-                      <td className="px-4 py-2.5">
-                        <input
-                          type="number"
-                          min={0}
-                          value={effectiveQty}
-                          onChange={e => setQtyOverride(row.rowId, Math.max(0, parseInt(e.target.value) || 0))}
-                          className="w-16 h-7 px-2 text-xs rounded-md border border-border bg-background text-foreground text-center focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none transition-colors tabular-nums"
-                        />
+                    <tr key={i} className={cn("border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors", hasEdit && "bg-amber-500/5")}>
+                      <td className="px-3 py-2 text-foreground">{gameOverrides[row.rowId] ?? row.game ?? "—"}</td>
+                      <td className="px-3 py-2 text-foreground max-w-[160px] truncate">{row.productName}</td>
+                      {!hideNumberCol && <td className="px-3 py-2 text-foreground">{row.number || "—"}</td>}
+                      <td className="px-3 py-2 text-foreground">{conditionOverrides[row.rowId] ?? row.condition ?? "—"}</td>
+                      <td className="px-3 py-2 tabular-nums text-foreground">{row.existingQty ?? "—"}</td>
+                      <td className="px-3 py-2 tabular-nums text-foreground">{effectiveQty}</td>
+                      <td className="px-3 py-2 whitespace-nowrap font-semibold tabular-nums">
+                        {delta === 0 ? <span className="text-muted-foreground">—</span> : <span className={delta > 0 ? "text-emerald-400" : "text-red-400"}>{delta > 0 ? `+${delta}` : delta}</span>}
                       </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap font-semibold tabular-nums">
-                        {delta === 0
-                          ? <span className="text-muted-foreground font-normal">—</span>
-                          : <span className={delta > 0 ? "text-emerald-400" : "text-red-400"}>{delta > 0 ? `+${delta}` : delta}</span>
-                        }
+                      <td className="px-3 py-2 tabular-nums text-muted-foreground">{row.existingPrice ? `$${Number(row.existingPrice).toFixed(2)}` : "—"}</td>
+                      <td className="px-3 py-2 tabular-nums text-foreground">{priceOverrides[row.rowId] ? `$${Number(priceOverrides[row.rowId]).toFixed(2)}` : (row.rawMarketPrice ? `$${Number(row.rawMarketPrice).toFixed(2)}` : "—")}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => { setEditingRowId(row.rowId); setEditGame(gameOverrides[row.rowId] ?? row.game ?? ""); setEditCondition(conditionOverrides[row.rowId] ?? row.condition ?? ""); setEditQty(overrideQty ?? row.csvQty ?? row.existingQty ?? 0); setEditPrice((priceOverrides[row.rowId] ?? row.rawMarketPrice) ? String(priceOverrides[row.rowId] ?? row.rawMarketPrice) : ""); }} className="text-xs px-2 py-1 rounded border border-border hover:border-primary hover:bg-primary/10 transition-colors">Edit</button>
                       </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap text-muted-foreground tabular-nums">{row.existingPrice ? `$${Number(row.existingPrice).toFixed(2)}` : "—"}</td>
-                      <td className="px-4 py-2.5 whitespace-nowrap tabular-nums">{row.rawMarketPrice ? `$${Number(row.rawMarketPrice).toFixed(2)}` : "—"}</td>
                     </tr>
                   );
                 })}
@@ -461,6 +492,37 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
           />
         </ExpandableSection>
       </div>
+
+      {/* Edit modal */}
+      {editingRowId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-card border border-border rounded-lg shadow-lg max-w-sm w-full p-5 space-y-4">
+            <div className="text-sm font-semibold">Edit Item</div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Game</label>
+                <input type="text" value={editGame} onChange={e => setEditGame(e.target.value)} className="w-full h-8 px-2 mt-1 text-xs rounded border border-border bg-background text-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Condition</label>
+                <input type="text" value={editCondition} onChange={e => setEditCondition(e.target.value)} className="w-full h-8 px-2 mt-1 text-xs rounded border border-border bg-background text-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Quantity</label>
+                <input type="number" min={0} value={editQty} onChange={e => setEditQty(Math.max(0, parseInt(e.target.value) || 0))} className="w-full h-8 px-2 mt-1 text-xs rounded border border-border bg-background text-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Market Price</label>
+                <input type="text" value={editPrice} onChange={e => setEditPrice(e.target.value)} placeholder="0.00" className="w-full h-8 px-2 mt-1 text-xs rounded border border-border bg-background text-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-2 border-t border-border">
+              <Button size="sm" onClick={() => { if (editGame) setGameOverride(editingRowId, editGame); if (editCondition) setConditionOverride(editingRowId, editCondition); setQtyOverride(editingRowId, editQty); if (editPrice) setPriceOverride(editingRowId, parseFloat(editPrice) || 0); setEditingRowId(null); }} className="gap-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs h-8 px-3">Save</Button>
+              <Button size="sm" variant="outline" onClick={() => setEditingRowId(null)} className="text-xs h-8 px-3">Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Action buttons */}
       {review.status === "pending" && (
