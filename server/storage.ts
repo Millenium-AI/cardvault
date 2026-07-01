@@ -196,7 +196,7 @@ class SupabaseStorage {
   }
 
   async getParsedRowsByUpload(userId: string, uploadId: string): Promise<ParsedRow[]> {
-    const { data } = await supabaseAdmin.from('parsed_rows').select('*').eq('upload_id', uploadId).eq('user_id', userId);
+    const { data } = await supabaseAdmin.from('parsed_rows').select('id, user_id, upload_id, row_index, game, product_name, number, condition, raw_market_price, rounded_print_price, add_to_quantity, normalized_match_key, source_product_id, source_tcgplayer_id, source_product_line, source_set_name, source_printing, source_rarity, source_payload, parse_flags, match_status, matched_inventory_id').eq('upload_id', uploadId).eq('user_id', userId);
     return (data || []).map(toCamel<ParsedRow>);
   }
 

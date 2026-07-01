@@ -952,7 +952,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
       const rpcNewItems = (payload.newItems || []).map((row: any) => {
         const parsed = parsedById.get(row.id);
-        const resolvedGame = (parsed as any)?.game || uploadLevelGame;
+        const dbGame = (parsed as any)?.game;
+        const reviewGame = row.game;
+        const resolvedGame = dbGame || reviewGame || uploadLevelGame;
+        console.log(`[Game resolution] id=${row.id}, dbGame=${dbGame}, reviewGame=${reviewGame}, final=${resolvedGame}`);
         let photoUrl: string | null = null;
         try {
           const src = JSON.parse(parsed?.sourcePayload || "{}");
