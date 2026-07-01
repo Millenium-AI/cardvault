@@ -60,7 +60,7 @@ async function getBatchCards(
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey()}`,
+      'x-api-key': apiKey(),
     },
   });
 
