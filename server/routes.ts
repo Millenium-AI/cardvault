@@ -624,8 +624,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
         ? allItems.filter(i => ids.includes(i.id) && i.sourceTcgplayerId)
         : allItems.filter(i => {
             if (!i.sourceTcgplayerId) return false;
-            if (!i.priceFetchedAt) return true;
-            const staleMs = Date.now() - new Date(i.priceFetchedAt).getTime();
+            if (!i.priceLastFetchedAt) return true;
+            const staleMs = Date.now() - new Date(i.priceLastFetchedAt).getTime();
             return staleMs > 6 * 60 * 60 * 1000;
           });
 

@@ -1198,11 +1198,11 @@ export default function Inventory() {
 
         <div className="flex items-center gap-1.5 mb-4 flex-wrap">
           {([
-            { key: "all",             label: "All",             count: items.length },
-            { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     className: "text-amber-400" },
-            { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, className: "text-blue-400" },
-            { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   className: "text-green-400" },
-          ] as const).map(({ key, label, count, className: cls }) => (
+            { key: "all",             label: "All",             count: items.length,                 className: undefined as string | undefined },
+            { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     className: "text-amber-400" as string | undefined },
+            { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, className: "text-blue-400" as string | undefined },
+            { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   className: "text-green-400" as string | undefined },
+          ]).map(({ key, label, count, className: cls }) => (
             <button key={key} onClick={() => setLabelFilter(key as LabelFilter)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                 labelFilter === key ? "border-primary bg-primary/15 text-primary" : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
