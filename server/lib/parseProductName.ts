@@ -87,8 +87,10 @@ export function parseProductName(
     return { cleanName: working, displaySuffix };
   }
 
-  // ── Pokémon ───────────────────────────────────────────────────────────────
-  if (game === "pokemon" || game === "pokemon-japan") {
+  // ── Pokémon (both EN and JP) ───────────────────────────────────────────────
+  // NOTE: detectGameFromProductLine() in routes.ts emits "pokemon-jp" for
+  // "Pokemon Japan" product lines. These two IDs must stay in sync.
+  if (game === "pokemon" || game === "pokemon-jp") {
     let working = name;
     working = working.replace(/\s*-\s*\d+\/\d+\s*$/, "").trim();
     const suffixMatch = working.match(/\s*\(([^)]+)\)\s*$/);
