@@ -160,8 +160,19 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
   const condition       = normalizeCondition(k("Condition", "condition", "Cond"));
   const rawMarketPrice  = parseFloat(k("TCG Market Price", "Market Price", "TCGplayer Market Price", "Price", "market_price").replace(/[^0-9.]/g, "")) || null;
   const addToQuantity   = parseInt(k("Add to Quantity", "add_to_quantity")) || parseInt(k("Total Quantity", "total_quantity", "Quantity", "Qty", "quantity")) || 1;
+  // IMPORTANT: TCGplayer's CSV export has TWO different id columns and they
+  // are NOT interchangeable:
+  //   "Product ID"    -> TCGplayer's card-level product id (matches the
+  //                       number in tcgplayer.com/product/<id> URLs). This
+  //                       is what JustTCG's `tcgplayerId` query param expects.
+  //   "TCGplayer Id"   -> a different, SKU/variant-level id. Sending THIS to
+  //                       JustTCG's tcgplayerId param returns 404 NOT_FOUND
+  //                       for real, valid cards — confirmed by cross-checking
+  //                       both ids directly against tcgplayer.com.
+  // sourceTcgplayerId (used everywhere we call JustTCG) must be sourced from
+  // "Product ID", not "TCGplayer Id".
   const sourceProductId     = k("Product ID", "product_id") || null;
-  const sourceTcgplayerId   = k("TCGplayer Id", "TCGplayer ID", "tcgplayer_id", "TCGplayerId") || null;
+  const sourceTcgplayerId   = sourceProductId;
   const sourceProductLine   = k("Product Line", "product_line") || null;
   const resolvedGame        = detectGameFromProductLine(sourceProductLine, game);
   const sourceSetName       = k("Set Name", "set_name", "Set", "Expansion") || null;
@@ -191,6 +202,10 @@ function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: number, 
     sourceSetName,
     sourcePrinting,
     sourceRarity,
+    // Note: the original "TCGplayer Id" (SKU-level id) column value is
+    // preserved verbatim in `raw` below — not lost, just not used as
+    // sourceTcgplayerId. Useful for future SKU-level lookups (JustTCG
+    // supports querying variants by TCGplayer SKU id) and for debugging.
     sourcePayload: JSON.stringify({ ...raw, _photoUrl: photoUrl }),
     parseFlags: flags.length ? JSON.stringify(flags) : null,
     matchStatus: "pending",
