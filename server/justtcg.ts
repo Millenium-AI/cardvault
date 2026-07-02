@@ -22,15 +22,6 @@ function apiKey(): string {
   return key;
 }
 
-// ── Condition mapping: CardVault → JustTCG ────────────────────────────────────
-const CONDITION_MAP: Record<string, string> = {
-  'Near Mint':         'NM',
-  'Lightly Played':    'LP',
-  'Moderately Played': 'MP',
-  'Heavily Played':    'HP',
-  'Damaged':           'DMG',
-};
-
 export interface PriceResult {
   price:           number;
   priceChange24hr: number | null;
@@ -137,7 +128,7 @@ export function extractPrice(
   condition: string,
   printing?: string | null
 ): PriceResult | null {
-  const jtCondition = CONDITION_MAP[condition] ?? 'NM';
+  const jtCondition = condition || 'Near Mint';
   const jtPrinting  = printing ?? 'Normal';
 
   const variant =
