@@ -1,14 +1,14 @@
-import { useState, useRef, useEffect, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest, getAuthHeader } from "@/lib/queryClient";
-import { Upload, CheckCircle, XCircle, ChevronDown, ChevronRight, FileText, Clock, Trash2, Search, ArrowUpDown } from "lucide-react";
+import { useState, useMemo } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { CheckCircle, XCircle, ChevronDown, ChevronRight, Search, ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { format, parseISO } from "date-fns";
 import { gameLabel } from "@shared/gameLabels";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { GAMES } from "./UploadForm";
 
 const statusColors: Record<string, string> = {
   pending: "text-primary bg-primary/10",
@@ -18,89 +18,76 @@ const statusColors: Record<string, string> = {
   rejected: "text-muted-foreground bg-muted",
 };
 
-// ── Game list ─────────────────────────────────────────────────────────────────
-
-const GAME_VALUES = ["pokemon", "pokemon-jp", "one-piece", "sorcery", "dragon-ball", "mtg", "star-wars", "lorcana", "yugioh", "digimon", "fab", "other"] as const;
-const GAMES: { value: string; label: string }[] = GAME_VALUES.map(value => ({ value, label: gameLabel(value) }));
-
-// ── Auto-detect game from CSV/XLSX headers + first data row ──────────────────
-
-/**
- * Reads just enough of the file to extract the header row and first data row,
- * then maps the "Product Line" value to one of our game slugs.
- * Returns null if detection fails or the file is XLSX (handled separately).
- */
-async function detectGameFromFile(file: File): Promise<string | null> {
-  try {
-    const isXlsx =
-      file.name.toLowerCase().endsWith(".xlsx") ||
-      file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-    let productLine = "";
-
-    if (isXlsx) {
-      // For XLSX we dynamically import xlsx (already a dep) and read sheet row 1
-      const XLSX = await import("xlsx");
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array", sheetRows: 2 });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "" });
-      if (rows.length > 0) {
-        productLine =
-          String(rows[0]["Product Line"] ?? rows[0]["product_line"] ?? rows[0]["Game"] ?? "");
-      }
-    } else {
-      // CSV: read first 4KB — enough for header + first data row
-      const slice = file.slice(0, 4096);
-      const text = await slice.text();
-      const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) return null;
-
-      // Parse header row
-      const headers = lines[0].split(",").map(h => h.replace(/^"|"$/g, "").trim());
-      const plIdx = headers.findIndex(
-        h => h.toLowerCase() === "product line" || h.toLowerCase() === "product_line" || h.toLowerCase() === "game"
-      );
-      if (plIdx === -1) return null;
-
-      // Parse first data row
-      const values = lines[1].split(",").map(v => v.replace(/^"|"$/g, "").trim());
-      productLine = values[plIdx] ?? "";
-    }
-
-    return mapProductLineToSlug(productLine);
-  } catch {
-    return null;
-  }
+function ExpandableSection({ title, count, color, children }: any) {
+  const [open, setOpen] = useState(false);
+  if (!count) return null;
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent transition-colors"
+      >
+        <div className="flex items-center gap-2.5">
+          {open ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
+          <span className="text-sm font-semibold text-foreground">{title}</span>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold tabular-nums ${color}`}>{count}</span>
+        </div>
+      </button>
+      {open && <div className="border-t border-border overflow-x-auto">{children}</div>}
+    </div>
+  );
 }
 
-function mapProductLineToSlug(productLine: string): string | null {
-  const pl = productLine.toLowerCase();
-  if (pl.includes("one piece"))                             return "one-piece";
-  if (pl.includes("pokemon") || pl.includes("pokémon")) {
-    // JP indicator: Japanese language marker or explicit "jp"
-    if (pl.includes("japan") || pl.includes(" jp") || pl.includes("(jp)")) return "pokemon-jp";
-    return "pokemon";
-  }
-  if (pl.includes("sorcery"))                               return "sorcery";
-  if (pl.includes("dragon ball"))                           return "dragon-ball";
-  if (pl.includes("magic") || pl.includes("the gathering") || pl === "mtg") return "mtg";
-  if (pl.includes("star wars"))                             return "star-wars";
-  if (pl.includes("lorcana"))                               return "lorcana";
-  if (pl.includes("yu-gi-oh") || pl.includes("yugioh"))     return "yugioh";
-  if (pl.includes("digimon"))                               return "digimon";
-  if (pl.includes("flesh and blood") || pl.includes("flesh & blood")) return "fab";
-  return null;
+function ReviewFilterBar({
+  search, onSearch,
+  sort, onSort,
+  totalVisible, totalAll,
+}: {
+  search: string; onSearch: (v: string) => void;
+  sort: string; onSort: (v: string) => void;
+  totalVisible: number; totalAll: number;
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap mb-3 p-2.5 rounded-lg bg-muted/30 border border-border/60">
+      <div className="relative flex-1 min-w-[140px]">
+        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Search by name, card #, or condition…"
+          value={search}
+          onChange={e => onSearch(e.target.value)}
+          className="w-full pl-7 pr-3 h-7 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none transition-colors"
+        />
+      </div>
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        <ArrowUpDown size={11} className="text-muted-foreground" />
+        <Select value={sort} onValueChange={onSort}>
+          <SelectTrigger className="h-7 text-xs w-[130px] border-border">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="name">Name A→Z</SelectItem>
+            <SelectItem value="price_desc">Price High→Low</SelectItem>
+            <SelectItem value="qty_desc">Qty High→Low</SelectItem>
+            <SelectItem value="default">Default order</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {search.trim() && (
+        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+          {totalVisible}/{totalAll}
+        </span>
+      )}
+    </div>
+  );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Returns true if every row in the array has a falsy number field */
 function allBlankNumbers(rows: any[]): boolean {
   return rows.length > 0 && rows.every(r => !r.number);
 }
 
-/** Sort rows by productName A→Z, then by number numerically when present */
 function sortByName(rows: any[]): any[] {
   return [...rows].sort((a, b) => {
     const na = (a.productName || "").toLowerCase();
@@ -125,7 +112,7 @@ function applySort(rows: any[], sort: string): any[] {
   if (sort === "name") return sortByName(rows);
   if (sort === "price_desc") return sortByPrice(rows, "rawMarketPrice");
   if (sort === "qty_desc") return sortByQty(rows);
-  return rows; // "default" = server order
+  return rows;
 }
 
 function applySearch(rows: any[], q: string): any[] {
@@ -138,79 +125,44 @@ function applySearch(rows: any[], q: string): any[] {
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+type Col = { key: string; label: string; render?: (v: any) => any };
 
-function ExpandableSection({ title, count, color, children }: any) {
-  const [open, setOpen] = useState(false);
-  if (!count) return null;
+function MiniTable({ rows, cols }: { rows: any[]; cols: Col[] }) {
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-accent transition-colors"
-      >
-        <div className="flex items-center gap-2.5">
-          {open ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
-          <span className="text-sm font-semibold text-foreground">{title}</span>
-          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold tabular-nums ${color}`}>{count}</span>
-        </div>
-      </button>
-      {open && <div className="border-t border-border overflow-x-auto">{children}</div>}
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs min-w-[420px]">
+        <thead>
+          <tr className="border-b border-border bg-muted/30">
+            {cols.map(c => (
+              <th key={c.key} className="text-left px-4 py-2.5 font-semibold text-muted-foreground whitespace-nowrap tracking-wide uppercase text-[10px]">{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr><td colSpan={cols.length} className="px-4 py-4 text-center text-muted-foreground text-xs">No results</td></tr>
+          ) : rows.map((row, i) => (
+            <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors">
+              {cols.map(c => (
+                <td key={c.key} className="px-4 py-2.5 text-foreground whitespace-nowrap">
+                  {c.render ? c.render(row) : row[c.key] ?? "—"}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-/** Inline filter + sort bar shown inside the review panel */
-function ReviewFilterBar({
-  search, onSearch,
-  sort, onSort,
-  totalVisible, totalAll,
-}: {
-  search: string; onSearch: (v: string) => void;
-  sort: string; onSort: (v: string) => void;
-  totalVisible: number; totalAll: number;
-}) {
-  return (
-    <div className="flex items-center gap-2 flex-wrap mb-3 p-2.5 rounded-lg bg-muted/30 border border-border/60">
-      {/* Search */}
-      <div className="relative flex-1 min-w-[140px]">
-        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-        <input
-          type="text"
-          placeholder="Search by name, card #, or condition…"
-          value={search}
-          onChange={e => onSearch(e.target.value)}
-          className="w-full pl-7 pr-3 h-7 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none transition-colors"
-        />
-      </div>
-
-      {/* Sort */}
-      <div className="flex items-center gap-1.5 shrink-0">
-        <ArrowUpDown size={11} className="text-muted-foreground" />
-        <Select value={sort} onValueChange={onSort}>
-          <SelectTrigger className="h-7 text-xs w-[130px] border-border">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="name">Name A→Z</SelectItem>
-            <SelectItem value="price_desc">Price High→Low</SelectItem>
-            <SelectItem value="qty_desc">Qty High→Low</SelectItem>
-            <SelectItem value="default">Default order</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Row count badge */}
-      {search.trim() && (
-        <span className="text-xs text-muted-foreground tabular-nums shrink-0">
-          {totalVisible}/{totalAll}
-        </span>
-      )}
-    </div>
-  );
+interface ReviewDetailProps {
+  review: any;
+  uploadId: string;
+  onDone: () => void;
 }
 
-function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: string; onDone: () => void }) {
+export function UploadReviewPanel({ review, uploadId, onDone }: ReviewDetailProps) {
   const { toast } = useToast();
   const payload = (() => { try { return JSON.parse(review.reviewPayload || "{}"); } catch { return {}; } })();
 
@@ -231,7 +183,6 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
   function setConditionOverride(rowId: string, val: string) { setConditionOverrides(prev => ({ ...prev, [rowId]: val })); }
   function setPriceOverride(rowId: string, val: number) { setPriceOverrides(prev => ({ ...prev, [rowId]: val })); }
 
-  // Pre-process all row arrays: default sort A→Z on first render, then filter/sort reactively
   const newItemsProcessed = useMemo(() => {
     const base = sortByName(payload.newItems || []);
     return applySearch(applySort(base, sort), search);
@@ -253,11 +204,9 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
     return applySearch(applySort(base, sort), search);
   }, [payload.repricingCandidates, sort, search]);
 
-  // Total across all sections for the badge
   const totalAll = (payload.newItems?.length ?? 0) + (payload.matchedItems?.length ?? 0) + (payload.repricingCandidates?.length ?? 0);
   const totalVisible = newItemsProcessed.length + matchedChanged.length + matchedUnchanged.length + repricingProcessed.length;
 
-  // Detect if all rows across new items have blank numbers (e.g. Sorcery)
   const hideNumberCol = allBlankNumbers([
     ...(payload.newItems || []),
     ...(payload.matchedItems || []),
@@ -309,39 +258,6 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
-
-  type Col = { key: string; label: string; render?: (v: any) => any };
-
-  const MiniTable = ({ rows, cols }: { rows: any[]; cols: Col[] }) => {
-    // Dynamically strip the # column if hideNumberCol is true
-    const visibleCols = hideNumberCol ? cols.filter(c => c.key !== "number") : cols;
-    return (
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs min-w-[420px]">
-          <thead>
-            <tr className="border-b border-border bg-muted/30">
-              {visibleCols.map(c => (
-                <th key={c.key} className="text-left px-4 py-2.5 font-semibold text-muted-foreground whitespace-nowrap tracking-wide uppercase text-[10px]">{c.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan={visibleCols.length} className="px-4 py-4 text-center text-muted-foreground text-xs">No results</td></tr>
-            ) : rows.map((row, i) => (
-              <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-accent/30 transition-colors">
-                {visibleCols.map(c => (
-                  <td key={c.key} className="px-4 py-2.5 text-foreground whitespace-nowrap">
-                    {c.render ? c.render(row) : row[c.key] ?? "—"}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-4">
@@ -558,264 +474,6 @@ function ReviewDetail({ review, uploadId, onDone }: { review: any; uploadId: str
           {review.status.charAt(0).toUpperCase() + review.status.slice(1)}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Upload progress bar ───────────────────────────────────────────────────────
-function UploadProgress({ label, pct }: { label: string; pct: number }) {
-  return (
-    <div className="space-y-1.5 pt-1">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <span className="text-xs tabular-nums text-muted-foreground">{pct}%</span>
-      </div>
-      <div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
-        <div
-          className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
-export default function Uploads() {
-  const [game, setGame] = useState("pokemon");
-  const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [showReview, setShowReview] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ label: string; pct: number } | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const sseRef = useRef<EventSource | null>(null);
-  const { toast } = useToast();
-
-  useEffect(() => () => { sseRef.current?.close(); }, []);
-
-  const { data: uploads = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/uploads"] });
-
-  const { data: selectedReview, isLoading: reviewLoading } = useQuery<any>({
-    queryKey: ["/api/uploads", selectedUploadId, "review"],
-    queryFn: async () => {
-      if (!selectedUploadId) return null;
-      const res = await apiRequest("GET", `/api/uploads/${selectedUploadId}/review`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load review");
-      return data;
-    },
-    enabled: !!selectedUploadId,
-    retry: false,
-  });
-
-  const uploadMut = useMutation({
-    mutationFn: async (file: File) => {
-      const authHeader = await getAuthHeader();
-      const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
-
-      const tokenRes = await fetch(`${API_BASE}/api/uploads/progress-token`, {
-        method: "POST",
-        headers: authHeader,
-      });
-      const { token } = await tokenRes.json();
-
-      sseRef.current?.close();
-      const sse = new EventSource(`${API_BASE}/api/uploads/progress/${token}`);
-      sseRef.current = sse;
-      setUploadProgress({ label: "Starting…", pct: 0 });
-
-      sse.onmessage = (e) => {
-        const msg = JSON.parse(e.data);
-        if (msg.error) { setUploadProgress(null); sse.close(); }
-        else if (msg.done) { setUploadProgress({ label: "Done!", pct: 100 }); sse.close(); }
-        else if (typeof msg.pct === "number") { setUploadProgress({ label: msg.label, pct: msg.pct }); }
-      };
-
-      const form = new FormData();
-      form.append("file", file);
-      form.append("game", game);
-      form.append("sourceType", "tcgplayer");
-      form.append("progressToken", token);
-
-      const res = await fetch(`${API_BASE}/api/uploads`, { method: "POST", body: form, headers: authHeader });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.error || "Upload failed"); }
-      return res.json();
-    },
-    onSuccess: (data) => {
-      setTimeout(() => setUploadProgress(null), 800);
-      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
-      setSelectedUploadId(data.upload.id);
-      setShowReview(true);
-      toast({ title: "File parsed", description: `${data.summary.totalParsed} rows ready for review.` });
-    },
-    onError: (e: any) => {
-      setUploadProgress(null);
-      toast({ title: "Upload failed", description: e.message, variant: "destructive" });
-    },
-  });
-
-  const deleteMut = useMutation({
-    mutationFn: async (uploadId: string) => {
-      const res = await apiRequest("DELETE", `/api/uploads/${uploadId}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Delete failed");
-      return data;
-    },
-    onSuccess: (_data, uploadId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
-      if (selectedUploadId === uploadId) { setSelectedUploadId(null); setShowReview(false); }
-      toast({ title: "Upload deleted" });
-    },
-    onError: (e: any) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
-  });
-
-  const handleFile = async (file: File) => {
-    const name = file.name.toLowerCase();
-    if (!name.endsWith(".csv") && !name.endsWith(".xlsx")) {
-      toast({ title: "CSV or Excel (.xlsx) files only", variant: "destructive" });
-      return;
-    }
-
-    // Auto-detect game from file before uploading
-    const slug = await detectGameFromFile(file);
-    if (slug) setGame(slug);
-
-    uploadMut.mutate(file);
-  };
-
-  const formatDate = (d: string) => {
-    try { return format(parseISO(d), "M/d/yy HH:mm"); } catch { return d; }
-  };
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-semibold text-foreground">Uploads</h1>
-      </div>
-
-      <div className="flex flex-col lg:grid lg:grid-cols-3 gap-4">
-
-        {/* Left column */}
-        <div className="space-y-4">
-          {/* Upload form */}
-          <div className="stat-card space-y-3">
-            <div className="text-sm font-semibold">Upload CSV</div>
-
-            <div
-              data-testid="upload-dropzone"
-              onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={e => { e.preventDefault(); setIsDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
-              onClick={() => !uploadMut.isPending && fileRef.current?.click()}
-              className={cn(
-                "border-2 border-dashed rounded-2xl min-h-[160px] flex flex-col items-center justify-center gap-2 text-center transition-colors active:opacity-70",
-                uploadMut.isPending ? "cursor-default opacity-70" : "cursor-pointer hover:border-primary/50 hover:bg-accent/30",
-                isDragging ? "border-primary bg-primary/5" : "border-border"
-              )}
-            >
-              <Upload size={28} className="text-muted-foreground" />
-              <div className="text-sm font-medium text-foreground">
-                {uploadMut.isPending ? "Processing…" : "Tap to Upload"}
-              </div>
-              <div className="text-xs text-muted-foreground">CSV or Excel (.xlsx) · TCGplayer supported</div>
-              <div className="text-[11px] text-muted-foreground/60 hidden sm:block">or drag and drop a file here</div>
-              <input ref={fileRef} type="file" accept=".csv,.xlsx" className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
-            </div>
-
-            {uploadProgress && (
-              <UploadProgress label={uploadProgress.label} pct={uploadProgress.pct} />
-            )}
-          </div>
-
-          {/* Upload history */}
-          <div className="stat-card">
-            <div className="text-sm font-semibold mb-3">Upload History</div>
-            {isLoading ? (
-              <div className="space-y-2">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
-            ) : uploads.length === 0 ? (
-              <div className="text-sm text-muted-foreground py-4 text-center">No uploads yet</div>
-            ) : (
-              <div className="space-y-1">
-                {uploads.map((u: any) => (
-                  <div
-                    key={u.id}
-                    className={cn(
-                      "w-full text-left px-3 py-2.5 rounded-md border transition-colors flex items-start gap-2",
-                      selectedUploadId === u.id ? "border-primary/40 bg-primary/5" : "border-border hover:bg-accent"
-                    )}
-                  >
-                    <button
-                      data-testid={`upload-row-${u.id}`}
-                      onClick={() => {
-                        setSelectedUploadId(u.id === selectedUploadId ? null : u.id);
-                        setShowReview(true);
-                      }}
-                      className="flex-1 text-left min-w-0"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <FileText size={12} className="text-muted-foreground shrink-0" />
-                          <span className="text-xs font-medium text-foreground truncate">{u.originalFilename}</span>
-                        </div>
-                        <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium shrink-0", statusColors[u.parseStatus] || "")}>
-                          {u.parseStatus}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
-                        <span>{gameLabel(u.game)}</span><span>·</span>
-                        <span>{u.totalRows} rows</span><span>·</span>
-                        <span className="flex items-center gap-0.5"><Clock size={9} />{formatDate(u.uploadedAt)}</span>
-                      </div>
-                    </button>
-
-                    <button
-                      aria-label="Delete upload"
-                      onClick={e => {
-                        e.stopPropagation();
-                        if (confirm(`Delete "${u.originalFilename}"? This cannot be undone.`)) {
-                          deleteMut.mutate(u.id);
-                        }
-                      }}
-                      disabled={deleteMut.isPending && deleteMut.variables === u.id}
-                      className="shrink-0 mt-0.5 p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right: review panel */}
-        <div className="lg:col-span-2">
-          {!selectedUploadId || !showReview ? (
-            <div className="stat-card h-40 lg:h-64 flex items-center justify-center text-muted-foreground text-sm">
-              Select an upload to review
-            </div>
-          ) : reviewLoading ? (
-            <div className="stat-card space-y-3">
-              <Skeleton className="h-5 w-40" />
-              <div className="grid grid-cols-2 gap-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
-            </div>
-          ) : selectedReview ? (
-            <div className="stat-card">
-              <div className="text-sm font-semibold mb-4">Merge Review</div>
-              <ReviewDetail
-                review={selectedReview}
-                uploadId={selectedUploadId}
-                onDone={() => { setShowReview(false); setSelectedUploadId(null); }}
-              />
-            </div>
-          ) : (
-            <div className="stat-card h-40 flex items-center justify-center text-muted-foreground text-sm">
-              No review data for this upload
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

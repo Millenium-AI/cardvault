@@ -183,7 +183,7 @@ function ShowCard({ show, onEdit }: { show: any; onEdit: () => void }) {
   const { toast } = useToast();
   const { cashResult, invEdge, invDelta, combined } = calcShow(show);
 
-  const deleteMut = useMutation({
+  const deleteShowMut = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/shows/${show.id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
@@ -228,7 +228,7 @@ function ShowCard({ show, onEdit }: { show: any; onEdit: () => void }) {
             <Edit2 size={13} />
           </button>
           <button
-            onClick={() => deleteMut.mutate()}
+            onClick={() => deleteShowMut.mutate()}
             className="p-2 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
           >
             <Trash2 size={13} />
@@ -269,7 +269,7 @@ function ShowRow({ show, onEdit }: { show: any; onEdit: () => void }) {
   const { toast } = useToast();
   const { cashResult, invEdge, invDelta, combined } = calcShow(show);
 
-  const deleteMut = useMutation({
+  const deleteShowMut = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/shows/${show.id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/shows"] });
@@ -305,7 +305,7 @@ function ShowRow({ show, onEdit }: { show: any; onEdit: () => void }) {
             <button onClick={onEdit} className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent">
               <Edit2 size={13} />
             </button>
-            <button onClick={() => deleteMut.mutate()} className="text-muted-foreground hover:text-red-400 p-1 rounded hover:bg-red-500/10">
+            <button onClick={() => deleteShowMut.mutate()} className="text-muted-foreground hover:text-red-400 p-1 rounded hover:bg-red-500/10">
               <Trash2 size={13} />
             </button>
           </div>
