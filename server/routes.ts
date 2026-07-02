@@ -461,73 +461,80 @@ async function refreshInventoryPrices(
       const now = new Date();
 
       for (const item of chunk) {
-        const priceResult = priceMap.get(item.id);
-        if (!priceResult) continue;
+        try {
+          const priceResult = priceMap.get(item.id);
+          if (!priceResult) continue;
 
-        // Unified inventory_items price update for both new and existing
-        const { error: updateErr } = await supabaseAdmin
-          .from("inventory_items")
-          .update({
-            current_raw_market_price:    priceResult.price,
-            current_rounded_print_price: Math.ceil(priceResult.price),
-            price_last_fetched_at:       now.toISOString(),
-            price_change_24hr:           priceResult.priceChange24hr,
-            price_change_7d:             priceResult.priceChange7d,
-            justtcg_card_uuid:           priceResult.cardUuid,
-            justtcg_variant_uuid:        priceResult.variantUuid,
-          })
-          .eq("id", item.id)
-          .eq("user_id", userId);
+          // Unified inventory_items price update for both new and existing
+          const { error: updateErr } = await supabaseAdmin
+            .from("inventory_items")
+            .update({
+              current_raw_market_price:    priceResult.price,
+              current_rounded_print_price: Math.ceil(priceResult.price),
+              price_last_fetched_at:       now.toISOString(),
+              price_change_24hr:           priceResult.priceChange24hr,
+              price_change_7d:             priceResult.priceChange7d,
+              justtcg_card_uuid:           priceResult.cardUuid,
+              justtcg_variant_uuid:        priceResult.variantUuid,
+            })
+            .eq("id", item.id)
+            .eq("user_id", userId);
 
-        if (updateErr) {
-          console.error(
-            `[JustTCG] Failed to update price for item ${item.id}:`,
-            updateErr.message
-          );
-          continue;
-        }
-
-        // Branched post-processing based on isNew
-        if (item.isNew) {
-          pricedNew++;
-          // Reconcile the provisional CSV-based snapshot with live price
-          await storage.reconcileFreshSnapshotWithLivePrice(
-            userId,
-            latestSnapshots.get(item.id),
-            { rawMarketPrice: priceResult.price, roundedPrintPrice: Math.ceil(priceResult.price) },
-            now,
-          );
-        } else {
-          pricedExisting++;
-          // Check repricing threshold and update label_status if triggered
-          const newPrice = priceResult.price;
-          const oldPrice = item.currentRawMarketPrice ?? null;
-          const { triggered } = oldPrice !== null
-            ? checkRepricingThreshold(newPrice, oldPrice, thr)
-            : { triggered: false };
-
-          if (triggered && item.labelStatus !== "needs_label") {
-            const { error: labelErr } = await supabaseAdmin
-              .from("inventory_items")
-              .update({ label_status: "needs_repricing" })
-              .eq("id", item.id)
-              .eq("user_id", userId);
-            if (labelErr) {
-              console.error(`[JustTCG] Failed to update label_status for item ${item.id}:`, labelErr.message);
-            }
+          if (updateErr) {
+            console.error(
+              `[JustTCG] Failed to update price for item ${item.id}:`,
+              updateErr.message
+            );
+            continue;
           }
 
-          // Create weekly snapshot if stale
-          await storage.createWeeklySnapshotIfStale(
-            userId,
-            item.id,
-            latestSnapshots.get(item.id),
-            {
-              rawMarketPrice: newPrice,
-              roundedPrintPrice: Math.ceil(newPrice),
-              quantityAfterMerge: item.currentQuantity ?? 0,
-            },
-            now,
+          // Branched post-processing based on isNew
+          if (item.isNew) {
+            pricedNew++;
+            // Reconcile the provisional CSV-based snapshot with live price
+            await storage.reconcileFreshSnapshotWithLivePrice(
+              userId,
+              latestSnapshots.get(item.id),
+              { rawMarketPrice: priceResult.price, roundedPrintPrice: Math.ceil(priceResult.price) },
+              now,
+            );
+          } else {
+            pricedExisting++;
+            // Check repricing threshold and update label_status if triggered
+            const newPrice = priceResult.price;
+            const oldPrice = item.currentRawMarketPrice ?? null;
+            const { triggered } = oldPrice !== null
+              ? checkRepricingThreshold(newPrice, oldPrice, thr)
+              : { triggered: false };
+
+            if (triggered && item.labelStatus !== "needs_label") {
+              const { error: labelErr } = await supabaseAdmin
+                .from("inventory_items")
+                .update({ label_status: "needs_repricing" })
+                .eq("id", item.id)
+                .eq("user_id", userId);
+              if (labelErr) {
+                console.error(`[JustTCG] Failed to update label_status for item ${item.id}:`, labelErr.message);
+              }
+            }
+
+            // Create weekly snapshot if stale
+            await storage.createWeeklySnapshotIfStale(
+              userId,
+              item.id,
+              latestSnapshots.get(item.id),
+              {
+                rawMarketPrice: newPrice,
+                roundedPrintPrice: Math.ceil(newPrice),
+                quantityAfterMerge: item.currentQuantity ?? 0,
+              },
+              now,
+            );
+          }
+        } catch (itemErr: any) {
+          console.error(
+            `[JustTCG] Failed to process item ${item.id} (${item.productName}):`,
+            itemErr.message
           );
         }
       }
