@@ -67,7 +67,7 @@ export interface PriceSnapshot {
   id: string;
   userId: string;
   inventoryItemId: string;
-  uploadId: string;
+  uploadId: string | null;
   snapshotDate: string;
   rawMarketPrice: number;
   roundedPrintPrice: number;
@@ -342,6 +342,118 @@ class SupabaseStorage {
       .eq('inventory_item_id', inventoryItemId).eq('user_id', userId)
       .order('snapshot_date', { ascending: false }).limit(1).maybeSingle();
     return data ? toCamel<PriceSnapshot>(data) : undefined;
+  }
+
+  /**
+   * Batch version of getLatestSnapshot: fetches the latest snapshot per
+   * inventory item id in ONE query instead of N sequential round-trips.
+   * Used by the live-price refresh paths so checking whether a batch of
+   * items' history is stale doesn't serialize on per-item Supabase calls.
+   */
+  async getLatestSnapshotsByItems(userId: string, inventoryItemIds: string[]): Promise<Map<string, PriceSnapshot>> {
+    const result = new Map<string, PriceSnapshot>();
+    if (!inventoryItemIds.length) return result;
+
+    const { data } = await supabaseAdmin.from('price_snapshots').select('*')
+      .eq('user_id', userId)
+      .in('inventory_item_id', inventoryItemIds)
+      .order('snapshot_date', { ascending: false });
+
+    for (const row of data || []) {
+      const snap = toCamel<PriceSnapshot>(row);
+      // Rows arrive newest-first per the order() above; keep only the first
+      // (i.e. latest) snapshot seen for each inventory item id.
+      if (!result.has(snap.inventoryItemId)) result.set(snap.inventoryItemId, snap);
+    }
+    return result;
+  }
+
+  /**
+   * Overwrite an existing snapshot row's price/quantity in place (keeps its
+   * original id, upload_id and snapshot_date). Used when a snapshot was
+   * just created moments ago with a provisional CSV price and we now have
+   * the live JustTCG price for that same moment — we correct the existing
+   * row rather than adding a second entry for the same instant.
+   */
+  async updateSnapshotPrice(
+    userId: string,
+    snapshotId: string,
+    result: { rawMarketPrice: number; roundedPrintPrice: number },
+  ): Promise<void> {
+    const { error } = await supabaseAdmin.from('price_snapshots')
+      .update({ raw_market_price: result.rawMarketPrice, rounded_print_price: result.roundedPrintPrice })
+      .eq('id', snapshotId)
+      .eq('user_id', userId);
+    if (error) throw new Error(error.message);
+  }
+
+  /**
+   * Reconcile the very first snapshot for a newly-uploaded item with the
+   * live JustTCG price fetched moments after upload approval. The
+   * approve_upload RPC inserts a snapshot using the CSV-uploaded price
+   * before enrichment has a chance to run; once the live price comes back
+   * seconds later, that provisional snapshot should reflect the live price
+   * instead of the stale CSV number — otherwise the very first history
+   * point a user sees would never match what JustTCG actually returned.
+   *
+   * If the latest snapshot is "fresh" (created moments ago, i.e. this is
+   * that same provisional RPC snapshot) its price is corrected in place.
+   * If the latest snapshot is older than the freshness window, it is left
+   * untouched and no new snapshot is created here — the weekly refresh gate
+   * (createWeeklySnapshotIfStale) owns creating new entries after that.
+   *
+   * Returns true if a snapshot was reconciled, false if nothing needed to
+   * change (no snapshot yet at all, or it wasn't fresh enough to be the
+   * provisional CSV-price entry).
+   */
+  async reconcileFreshSnapshotWithLivePrice(
+    userId: string,
+    latestSnapshot: PriceSnapshot | undefined,
+    result: { rawMarketPrice: number; roundedPrintPrice: number },
+    now: Date = new Date(),
+    freshnessWindowMs: number = 5 * 60 * 1000, // 5 minutes: comfortably covers the setImmediate gap after approve
+  ): Promise<boolean> {
+    if (!latestSnapshot) return false;
+    const ageMs = now.getTime() - new Date(latestSnapshot.snapshotDate).getTime();
+    if (ageMs > freshnessWindowMs) return false;
+
+    await this.updateSnapshotPrice(userId, latestSnapshot.id, result);
+    return true;
+  }
+
+  /**
+   * Create a price snapshot from an already-fetched live price result, but
+   * ONLY if the item has no snapshot yet or its latest snapshot is 7+ days
+   * old. This is the shared weekly-history gate used by both the new-item
+   * live enrichment path and the existing-inventory refresh path
+   * (scheduled or manual). It never triggers a new price fetch itself --
+   * it only decides whether to persist a result the caller already has.
+   *
+   * Returns the created snapshot, or null if skipped because the latest
+   * snapshot is still within the 7-day window.
+   */
+  async createWeeklySnapshotIfStale(
+    userId: string,
+    inventoryItemId: string,
+    latestSnapshot: PriceSnapshot | undefined,
+    result: { rawMarketPrice: number; roundedPrintPrice: number; quantityAfterMerge: number },
+    now: Date = new Date(),
+  ): Promise<PriceSnapshot | null> {
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+    if (latestSnapshot) {
+      const ageMs = now.getTime() - new Date(latestSnapshot.snapshotDate).getTime();
+      if (ageMs < SEVEN_DAYS_MS) return null;
+    }
+
+    return this.createPriceSnapshot(userId, {
+      inventoryItemId,
+      uploadId: null, // live-fetched snapshot, not tied to a CSV upload
+      snapshotDate: now.toISOString(),
+      rawMarketPrice: result.rawMarketPrice,
+      roundedPrintPrice: result.roundedPrintPrice,
+      quantityAfterMerge: result.quantityAfterMerge,
+    });
   }
 
   // ── merge reviews ──────────────────────────────────────────────────────────
