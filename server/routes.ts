@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import multer from "multer";
 import * as XLSX from "xlsx";
-import { storage } from "./storage";
+import { storage, toCamel, type InventoryItem } from "./storage";
 import { supabaseAdmin, verifyToken } from "./supabase";
 import { batchFetchPrices, fetchSinglePrice } from "./justtcg";
 
@@ -382,10 +382,41 @@ async function enrichNewItemsWithLivePrices(
   if (!inventoryItemIds.length) return;
 
   try {
-    const allItems = await storage.listInventoryItems(userId);
-    const newItems = allItems.filter(i => inventoryItemIds.includes(i.id) && i.sourceTcgplayerId);
+    // Fetch only the newly-created items directly — avoids full inventory scan and race condition
+    const { data: newItemRows, error: fetchErr } = await supabaseAdmin
+      .from("inventory_items")
+      .select("*")
+      .eq("user_id", userId)
+      .in("id", inventoryItemIds);
 
-    if (!newItems.length) return;
+    if (fetchErr) {
+      console.error("[JustTCG] Failed to load new inventory items:", fetchErr.message);
+      return;
+    }
+
+    let newItems = (newItemRows || []).map(toCamel<InventoryItem>);
+
+    // Warn if some IDs didn't come back (RPC commit lag or schema mismatch)
+    const returnedIds = new Set(newItems.map(i => i.id));
+    for (const id of inventoryItemIds) {
+      if (!returnedIds.has(id)) {
+        console.warn(`[JustTCG] Newly approved item ${id} not found in inventory_items yet (RPC commit lag?)`);
+      }
+    }
+
+    // Filter to items that have a TCGplayer id, log anything dropped
+    newItems = newItems.filter(i => {
+      if (!i.sourceTcgplayerId) {
+        console.warn(`[JustTCG] Item ${i.id} (${i.productName}) has no sourceTcgplayerId — skipping price fetch`);
+        return false;
+      }
+      return true;
+    });
+
+    if (!newItems.length) {
+      console.log("[JustTCG] No new items with sourceTcgplayerId to enrich");
+      return;
+    }
 
     const BATCH = 20;
     for (let i = 0; i < newItems.length; i += BATCH) {
@@ -412,7 +443,7 @@ async function enrichNewItemsWithLivePrices(
         const priceResult = priceMap.get(item.id);
         if (!priceResult) continue;
 
-        await supabaseAdmin
+        const { error: updateErr } = await supabaseAdmin
           .from("inventory_items")
           .update({
             current_raw_market_price:    priceResult.price,
@@ -425,6 +456,13 @@ async function enrichNewItemsWithLivePrices(
           })
           .eq("id", item.id)
           .eq("user_id", userId);
+
+        if (updateErr) {
+          console.error(
+            `[JustTCG] Failed to update live price for item ${item.id}:`,
+            updateErr.message
+          );
+        }
 
         // The approve_upload RPC already inserted a snapshot for this item
         // using the CSV-uploaded price, seconds before this enrichment runs.
@@ -514,11 +552,18 @@ async function refreshExistingInventoryPrices(
           updates.label_status = "needs_repricing";
         }
 
-        await supabaseAdmin
+        const { error: updateErr } = await supabaseAdmin
           .from("inventory_items")
           .update(updates)
           .eq("id", item.id)
           .eq("user_id", userId);
+
+        if (updateErr) {
+          console.error(
+            `[JustTCG] Failed to update price for item ${item.id}:`,
+            updateErr.message
+          );
+        }
 
         // This is the path that keeps history alive week over week even if
         // the user never re-uploads a CSV containing this card: reuses the
@@ -711,7 +756,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
           const priceResult = priceMap.get(item.id);
           if (!priceResult) continue;
 
-          await supabaseAdmin
+          const { error: updateErr } = await supabaseAdmin
             .from("inventory_items")
             .update({
               current_raw_market_price:    priceResult.price,
@@ -724,6 +769,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
             })
             .eq("id", item.id)
             .eq("user_id", userId);
+
+          if (updateErr) {
+            console.error(
+              `[prices/refresh] Failed to update price for item ${item.id}:`,
+              updateErr.message
+            );
+          }
 
           // Manual refresh also feeds the same weekly-history gate, reusing
           // the price already fetched above — no extra JustTCG call.
@@ -1135,8 +1187,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
           .neq("label_status", "needs_label");
       }
 
-      setImmediate(() => enrichNewItemsWithLivePrices(userId, newItemIds));
-      setImmediate(() => refreshExistingInventoryPrices(userId, newItemIds, uploadLevelGame));
+      setTimeout(() => enrichNewItemsWithLivePrices(userId, newItemIds), 2000);
+      setTimeout(() => refreshExistingInventoryPrices(userId, newItemIds, uploadLevelGame), 4000);
 
       res.json({ success: true });
     } catch (e: any) {

@@ -132,7 +132,7 @@ function toSnake(obj: Record<string, any>): Record<string, any> {
   return out;
 }
 
-function toCamel<T>(obj: Record<string, any>): T {
+export function toCamel<T>(obj: Record<string, any>): T {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
     out[k.replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = v;
