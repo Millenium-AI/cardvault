@@ -403,6 +403,11 @@ async function enrichNewItemsWithLivePrices(
         }))
       );
 
+      // Look up each item's latest snapshot in one batched query so the
+      // weekly-history check below doesn't do a per-item round-trip.
+      const latestSnapshots = await storage.getLatestSnapshotsByItems(userId, chunk.map(i => i.id));
+      const now = new Date();
+
       for (const item of chunk) {
         const priceResult = priceMap.get(item.id);
         if (!priceResult) continue;
@@ -412,7 +417,7 @@ async function enrichNewItemsWithLivePrices(
           .update({
             current_raw_market_price:    priceResult.price,
             current_rounded_print_price: Math.ceil(priceResult.price),
-            price_last_fetched_at:       new Date().toISOString(),
+            price_last_fetched_at:       now.toISOString(),
             price_change_24hr:           priceResult.priceChange24hr,
             price_change_7d:             priceResult.priceChange7d,
             justtcg_card_uuid:           priceResult.cardUuid,
@@ -420,6 +425,20 @@ async function enrichNewItemsWithLivePrices(
           })
           .eq("id", item.id)
           .eq("user_id", userId);
+
+        // The approve_upload RPC already inserted a snapshot for this item
+        // using the CSV-uploaded price, seconds before this enrichment runs.
+        // Reconcile that provisional snapshot with the live JustTCG price
+        // we just fetched, so the very first history point reflects the
+        // live price rather than the stale CSV number. This only touches
+        // a snapshot that's fresh enough to be that same provisional entry
+        // (see freshnessWindowMs) — it never creates a new row here.
+        await storage.reconcileFreshSnapshotWithLivePrice(
+          userId,
+          latestSnapshots.get(item.id),
+          { rawMarketPrice: priceResult.price, roundedPrintPrice: Math.ceil(priceResult.price) },
+          now,
+        );
       }
 
       if (i + BATCH < newItems.length) {
@@ -467,6 +486,10 @@ async function refreshExistingInventoryPrices(
         }))
       );
 
+      // Batched latest-snapshot lookup for the weekly-history check below.
+      const latestSnapshots = await storage.getLatestSnapshotsByItems(userId, chunk.map(i => i.id));
+      const now = new Date();
+
       for (const item of chunk) {
         const priceResult = priceMap.get(item.id);
         if (!priceResult) continue;
@@ -480,7 +503,7 @@ async function refreshExistingInventoryPrices(
         const updates: Record<string, any> = {
           current_raw_market_price:    newPrice,
           current_rounded_print_price: Math.ceil(newPrice),
-          price_last_fetched_at:       new Date().toISOString(),
+          price_last_fetched_at:       now.toISOString(),
           price_change_24hr:           priceResult.priceChange24hr,
           price_change_7d:             priceResult.priceChange7d,
           justtcg_card_uuid:           priceResult.cardUuid,
@@ -496,6 +519,22 @@ async function refreshExistingInventoryPrices(
           .update(updates)
           .eq("id", item.id)
           .eq("user_id", userId);
+
+        // This is the path that keeps history alive week over week even if
+        // the user never re-uploads a CSV containing this card: reuses the
+        // priceResult already fetched above, only writes a new snapshot row
+        // once the item's latest snapshot is 7+ days old (or it has none).
+        await storage.createWeeklySnapshotIfStale(
+          userId,
+          item.id,
+          latestSnapshots.get(item.id),
+          {
+            rawMarketPrice: newPrice,
+            roundedPrintPrice: Math.ceil(newPrice),
+            quantityAfterMerge: item.currentQuantity ?? 0,
+          },
+          now,
+        );
       }
 
       if (i + BATCH < toRefresh.length) {
@@ -664,6 +703,10 @@ export function registerRoutes(httpServer: Server, app: Express) {
           }))
         );
 
+        // Batched latest-snapshot lookup for the weekly-history check below.
+        const latestSnapshots = await storage.getLatestSnapshotsByItems(userId, chunk.map(i => i.id));
+        const now = new Date();
+
         for (const item of chunk) {
           const priceResult = priceMap.get(item.id);
           if (!priceResult) continue;
@@ -673,7 +716,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
             .update({
               current_raw_market_price:    priceResult.price,
               current_rounded_print_price: Math.ceil(priceResult.price),
-              price_last_fetched_at:       new Date().toISOString(),
+              price_last_fetched_at:       now.toISOString(),
               price_change_24hr:           priceResult.priceChange24hr,
               price_change_7d:             priceResult.priceChange7d,
               justtcg_card_uuid:           priceResult.cardUuid,
@@ -681,6 +724,20 @@ export function registerRoutes(httpServer: Server, app: Express) {
             })
             .eq("id", item.id)
             .eq("user_id", userId);
+
+          // Manual refresh also feeds the same weekly-history gate, reusing
+          // the price already fetched above — no extra JustTCG call.
+          await storage.createWeeklySnapshotIfStale(
+            userId,
+            item.id,
+            latestSnapshots.get(item.id),
+            {
+              rawMarketPrice: priceResult.price,
+              roundedPrintPrice: Math.ceil(priceResult.price),
+              quantityAfterMerge: item.currentQuantity ?? 0,
+            },
+            now,
+          );
 
           updated++;
         }

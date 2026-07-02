@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { useToast } from "@/hooks/use-toast";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, isToday, isYesterday } from "date-fns";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -109,6 +109,20 @@ const LABEL_STATUS_CONFIG: Record<string, { label: string; className: string; ic
 };
 
 // ── Price History ─────────────────────────────────────────────────────────────
+/** "Today" / "Yesterday" for recent entries, otherwise a clear "Mon, Jun 24"
+ * style date so each history pill is readable at a glance without having
+ * to mentally parse a bare month/day pair. */
+function formatSnapshotDate(iso: string): string {
+  try {
+    const date = parseISO(iso);
+    if (isToday(date)) return "Today";
+    if (isYesterday(date)) return "Yesterday";
+    return format(date, "EEE, MMM d");
+  } catch {
+    return "—";
+  }
+}
+
 function PriceHistory({ itemId }: { itemId: string }) {
   const { data: snaps = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/inventory", itemId, "snapshots"],
@@ -145,12 +159,15 @@ function PriceHistory({ itemId }: { itemId: string }) {
                   <span className="text-[9px] font-medium tabular-nums">{change > 0 ? "+" : ""}{change.toFixed(1)}%</span>
                 </div>
               )}
-              <div className={`flex flex-col items-center justify-center rounded-lg border px-2.5 py-1.5 min-w-[66px] ${isLatest ? "border-primary/40 bg-primary/10" : "border-border bg-muted/30"}`}>
+              <div className={`flex flex-col items-center justify-center rounded-lg border px-2.5 py-1.5 min-w-[72px] ${isLatest ? "border-primary/50 bg-primary/10 ring-1 ring-primary/20" : "border-border bg-muted/30"}`}>
+                {isLatest && (
+                  <span className="text-[8px] font-bold uppercase tracking-wider text-primary mb-0.5">Latest</span>
+                )}
                 <span className={`font-mono font-semibold tabular-nums leading-none ${isLatest ? "text-primary text-base" : "text-foreground text-sm"}`}>
                   ${s.rawMarketPrice.toFixed(2)}
                 </span>
-                <span className="text-[10px] text-muted-foreground mt-1">
-                  {(() => { try { return format(parseISO(s.snapshotDate), "MMM d"); } catch { return "—"; } })()}
+                <span className={`mt-1 leading-none ${isLatest ? "text-[11px] font-semibold text-foreground/80" : "text-[10px] font-medium text-muted-foreground"}`}>
+                  {formatSnapshotDate(s.snapshotDate)}
                 </span>
               </div>
             </div>
