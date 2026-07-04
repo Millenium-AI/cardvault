@@ -43,7 +43,7 @@ export async function refreshInventoryPrices(
 
       if (fetchErr) {
         console.error("[JustTCG] Failed to load new inventory items:", fetchErr.message);
-        return;
+        return 0;
       }
 
       const { toCamel } = await import("../storage");
@@ -82,7 +82,7 @@ export async function refreshInventoryPrices(
       if (newItems.length === 0 && staleItems.length === 0) {
         console.log("[JustTCG] No new or stale items to price");
       }
-      return;
+      return 0;
     }
 
     const thr = await storage.getRepricingThresholds(userId);
@@ -111,7 +111,17 @@ export async function refreshInventoryPrices(
       for (const item of chunk) {
         try {
           const priceResult = priceMap.get(item.id);
-          if (!priceResult) continue;
+          if (!priceResult) {
+            const condition = item.condition ?? "Near Mint";
+            const printing = (() => {
+              try { return JSON.parse(item.matchMetadataJson || "{}").sourcePrinting ?? "Normal"; }
+              catch { return "Normal"; }
+            })();
+            console.warn(
+              `[JustTCG] No price found for ${condition}/${printing} on card ${item.sourceTcgplayerId} (item_id: ${item.id})`
+            );
+            continue;
+          }
 
           const { error: updateErr } = await supabaseAdmin
             .from("inventory_items")
@@ -189,8 +199,10 @@ export async function refreshInventoryPrices(
     }
 
     console.log(`[JustTCG] Priced ${pricedNew} new items, refreshed ${pricedExisting} existing items for user ${userId}`);
+    return pricedNew + pricedExisting;
   } catch (err: any) {
     console.error("[JustTCG] refreshInventoryPrices error:", err.message);
+    return 0;
   }
 }
 

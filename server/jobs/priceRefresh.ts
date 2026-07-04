@@ -34,14 +34,14 @@ export async function runDailyPriceRefresh() {
     }
 
     let processedUsers = 0;
-    let processedItems = 0;
+    let actuallyPricedItems = 0;
 
     for (const [userId, itemIds] of userMap.entries()) {
       try {
         console.log(`[Price Refresh Job] Refreshing ${itemIds.length} items for user ${userId}`);
-        await refreshInventoryPrices(userId, itemIds, 'all');
+        const pricedCount = await refreshInventoryPrices(userId, itemIds, 'all');
         processedUsers++;
-        processedItems += itemIds.length;
+        actuallyPricedItems += pricedCount;
       } catch (e: any) {
         console.error(
           `[Price Refresh Job] Failed to refresh items for user ${userId}:`,
@@ -51,7 +51,7 @@ export async function runDailyPriceRefresh() {
     }
 
     console.log(
-      `[Price Refresh Job] Complete: ${processedUsers} users, ${processedItems} items refreshed`
+      `[Price Refresh Job] Complete: ${processedUsers} users, ${actuallyPricedItems} items priced (${staleItems.length} attempted)`
     );
   } catch (err: any) {
     console.error('[Price Refresh Job] Fatal error:', err.message);
