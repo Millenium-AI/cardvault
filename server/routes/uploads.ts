@@ -333,7 +333,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         uploadedAt: now,
         rawFileContent: null,
         totalRows: rawRows.length,
-        parseStatus: "parsed",
+        parseStatus: "success",
         summaryJson: null,
       });
 
@@ -423,7 +423,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         totalParsed: validRows.length,
         totalRaw: rawRows.length,
       };
-      await storage.updateUpload(userId, uploadId, { summaryJson: JSON.stringify(summary), parseStatus: "parsed" });
+      await storage.updateUpload(userId, uploadId, { summaryJson: JSON.stringify(summary), parseStatus: "success" });
 
       const result = { upload: newUpload, review, summary };
 
@@ -603,7 +603,6 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
     const review = await storage.getMergeReviewByUpload(userId, req.params.id);
     if (!review) return res.status(404).json({ error: "Not found" });
     await storage.updateMergeReview(userId, review.id, { status: "rejected", reviewedAt: new Date().toISOString() });
-    await storage.updateUpload(userId, req.params.id, { parseStatus: "rejected" as any });
     res.json({ success: true });
   });
 
