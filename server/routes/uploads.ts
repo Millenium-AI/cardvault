@@ -66,16 +66,24 @@ export async function refreshInventoryPrices(
     }
 
     let staleItems: Array<InventoryItem & { isNew: false }> = [];
-    const allItems = await storage.listInventoryItems(userId, { game: game !== "all" ? game : undefined });
-    staleItems = allItems
-      .filter(i => {
-        if (newItemIds.includes(i.id)) return false;
-        if (!i.sourceTcgplayerId) return false;
-        const fetchedAt = i.priceLastFetchedAt;
-        if (!fetchedAt) return true;
-        return Date.now() - new Date(fetchedAt).getTime() > 7 * 24 * 60 * 60 * 1000;
-      })
-      .map(i => ({ ...i, isNew: false }));
+    const { data: allItemRows, error: allItemsErr } = await supabaseAdmin
+      .from("inventory_items")
+      .select("*")
+      .eq("user_id", userId)
+      .or(`price_last_fetched_at.is.null,price_last_fetched_at.lt.${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()}`);
+
+    if (!allItemsErr && allItemRows) {
+      const { toCamel } = await import("../storage");
+      const allItems = (allItemRows || []).map(r => toCamel<InventoryItem>(r));
+      staleItems = allItems
+        .filter(i => {
+          if (newItemIds.includes(i.id)) return false;
+          if (!i.sourceTcgplayerId) return false;
+          if (game !== "all" && i.game !== game) return false;
+          return true;
+        })
+        .map(i => ({ ...i, isNew: false }));
+    }
 
     const allItemsToPrice = [...newItems, ...staleItems];
     if (!allItemsToPrice.length) {
@@ -93,17 +101,27 @@ export async function refreshInventoryPrices(
     for (let i = 0; i < allItemsToPrice.length; i += BATCH) {
       const chunk = allItemsToPrice.slice(i, i + BATCH);
 
-      const priceMap = await batchFetchPrices(
-        chunk.map(item => ({
+      const priceRequests = chunk.map(item => {
+        const metadata = (() => {
+          const val = item.matchMetadataJson;
+          if (!val) return {};
+          if (typeof val === 'object') return val;
+          try { return JSON.parse(val); }
+          catch { return {}; }
+        })();
+
+        const condition = item.condition ?? "Near Mint";
+        const printing = metadata.sourcePrinting ?? null;
+
+        return {
           id: item.id,
           tcgplayerId: item.sourceTcgplayerId!,
-          condition: item.condition ?? "Near Mint",
-          printing: (() => {
-            try { return JSON.parse(item.matchMetadataJson || "{}").sourcePrinting ?? null; }
-            catch { return null; }
-          })(),
-        }))
-      );
+          condition,
+          printing,
+        };
+      });
+
+      const priceMap = await batchFetchPrices(priceRequests);
 
       const latestSnapshots = await storage.getLatestSnapshotsByItems(userId, chunk.map(i => i.id));
       const now = new Date();
