@@ -50,11 +50,14 @@ function expiresAt(price: number): string {
 // tcgplayerId requested — condition/printing are not sent as filters, so we
 // always get the full picture and can cache it all in one shot.
 async function getBatchCards(
-  tcgplayerIds: string[]
+  requests: Array<{ tcgplayerId: string; tcgplayerSkuId?: string | null }>
 ): Promise<{ data: any[]; usage?: any }> {
   const params = new URLSearchParams();
-  for (const id of tcgplayerIds) {
-    params.append('tcgplayerId', id);
+  for (const req of requests) {
+    params.append('tcgplayerId', req.tcgplayerId);
+    if (req.tcgplayerSkuId) {
+      params.append('tcgplayerSkuId', req.tcgplayerSkuId);
+    }
   }
 
   const res = await fetch(`${BASE_URL}/cards?${params.toString()}`, {
@@ -88,9 +91,12 @@ async function getBatchCards(
 // same popular cards would multiply API calls needlessly.
 const inFlightCardFetches = new Map<string, Promise<any[]>>();
 
-async function getCardsDeduped(tcgplayerIds: string[]): Promise<any[]> {
-  const uniqueIds = Array.from(new Set(tcgplayerIds));
-  const idsToFetch: string[] = [];
+async function getCardsDeduped(
+  requests: Array<{ tcgplayerId: string; tcgplayerSkuId?: string | null }>
+): Promise<any[]> {
+  const requestMap = new Map(requests.map(r => [r.tcgplayerId, r]));
+  const uniqueIds = Array.from(requestMap.keys());
+  const idsToFetch: typeof requests = [];
   const waiters: Promise<any[]>[] = [];
 
   for (const id of uniqueIds) {
@@ -98,7 +104,7 @@ async function getCardsDeduped(tcgplayerIds: string[]): Promise<any[]> {
     if (existing) {
       waiters.push(existing);
     } else {
-      idsToFetch.push(id);
+      idsToFetch.push(requestMap.get(id)!);
     }
   }
 
@@ -107,9 +113,9 @@ async function getCardsDeduped(tcgplayerIds: string[]): Promise<any[]> {
     ownPromise = getBatchCards(idsToFetch)
       .then(response => response?.data ?? [])
       .finally(() => {
-        for (const id of idsToFetch) inFlightCardFetches.delete(id);
+        for (const req of idsToFetch) inFlightCardFetches.delete(req.tcgplayerId);
       });
-    for (const id of idsToFetch) inFlightCardFetches.set(id, ownPromise);
+    for (const req of idsToFetch) inFlightCardFetches.set(req.tcgplayerId, ownPromise);
   }
 
   const batches = await Promise.all([
@@ -186,14 +192,25 @@ async function cacheAllVariants(card: any): Promise<void> {
 // ── Batch fetch prices, with a shared cross-user Supabase cache ──────────────
 export async function batchFetchPrices(
   items: {
-    id:           string;   // inventory item UUID (for mapping results back)
-    tcgplayerId:  string;
-    condition:    string;
-    printing?:    string | null;
+    id:                string;   // inventory item UUID (for mapping results back)
+    tcgplayerId:       string;   // Product ID (constant across conditions/printings)
+    tcgplayerSkuId?:   string | null;  // Variant/SKU ID (optional, for precise variant lookup)
+    condition:         string;
+    printing?:         string | null;
   }[]
 ): Promise<Map<string, PriceResult>> {
   const resultMap = new Map<string, PriceResult>();
   if (!items.length) return resultMap;
+
+  // Defensive check: warn if tcgplayerId looks suspiciously long (7+ digits = likely SKU instead of product ID)
+  for (const item of items) {
+    if (item.tcgplayerId && item.tcgplayerId.length > 6) {
+      console.warn(
+        `[JustTCG] WARNING: tcgplayerId "${item.tcgplayerId}" is unusually long (${item.tcgplayerId.length} chars). ` +
+        `This might be a SKU ID instead of a Product ID. Item: ${item.id}`
+      );
+    }
+  }
 
   // 1. Check Supabase cache first — one batched IN() query instead of N
   // sequential round-trips, so this scales with concurrent uploads instead
@@ -230,8 +247,17 @@ export async function batchFetchPrices(
   // 2. Call JustTCG for cache misses, deduped against any identical
   // in-flight request from a concurrent upload (possibly a different user).
   try {
-    const uniqueTcgplayerIds = Array.from(new Set(toFetch.map(i => i.tcgplayerId)));
-    const cards = await getCardsDeduped(uniqueTcgplayerIds);
+    const requestMap = new Map<string, { tcgplayerId: string; tcgplayerSkuId?: string | null }>();
+    for (const item of toFetch) {
+      const existing = requestMap.get(item.tcgplayerId);
+      if (!existing) {
+        requestMap.set(item.tcgplayerId, {
+          tcgplayerId: item.tcgplayerId,
+          tcgplayerSkuId: item.tcgplayerSkuId ?? null,
+        });
+      }
+    }
+    const cards = await getCardsDeduped(Array.from(requestMap.values()));
 
     // 3. Cache EVERY variant on every card returned, not just the requested
     // condition/printing — this is what lets a future lookup for a
@@ -262,7 +288,8 @@ export async function batchFetchPrices(
 export async function fetchSinglePrice(
   tcgplayerId: string,
   condition: string,
-  printing?: string | null
+  printing?: string | null,
+  tcgplayerSkuId?: string | null
 ): Promise<PriceResult | null> {
   const cacheKey = buildPriceCacheKey(tcgplayerId, condition, printing);
 
@@ -288,7 +315,7 @@ export async function fetchSinglePrice(
   // caches every variant returned so future lookups for other
   // conditions/printings of this same card hit cache too.
   try {
-    const cards = await getCardsDeduped([tcgplayerId]);
+    const cards = await getCardsDeduped([{ tcgplayerId, tcgplayerSkuId: tcgplayerSkuId ?? null }]);
     const card = cards[0];
     if (!card) return null;
 

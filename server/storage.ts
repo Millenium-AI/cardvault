@@ -28,7 +28,7 @@ export interface ParsedRow {
   addToQuantity: number;
   normalizedMatchKey?: string | null;
   sourceProductId?: string | null;
-  sourceTcgplayerId?: string | null;
+  sourceTcgplayerSkuId?: string | null;
   sourceProductLine?: string | null;
   sourceSetName?: string | null;
   sourcePrinting?: string | null;
@@ -53,7 +53,7 @@ export interface InventoryItem {
   normalizedMatchKey?: string | null;
   matchMetadataJson?: string | null;
   sourceProductId?: string | null;
-  sourceTcgplayerId?: string | null;
+  sourceTcgplayerSkuId?: string | null;
   photoUrl?: string | null;
   firstSeenAt: string;
   lastSeenAt: string;
@@ -196,7 +196,7 @@ class SupabaseStorage {
   }
 
   async getParsedRowsByUpload(userId: string, uploadId: string): Promise<ParsedRow[]> {
-    const { data } = await supabaseAdmin.from('parsed_rows').select('id, user_id, upload_id, row_index, game, product_name, number, condition, raw_market_price, rounded_print_price, add_to_quantity, normalized_match_key, source_product_id, source_tcgplayer_id, source_product_line, source_set_name, source_printing, source_rarity, source_payload, parse_flags, match_status, matched_inventory_id').eq('upload_id', uploadId).eq('user_id', userId);
+    const { data } = await supabaseAdmin.from('parsed_rows').select('id, user_id, upload_id, row_index, game, product_name, number, condition, raw_market_price, rounded_print_price, add_to_quantity, normalized_match_key, source_product_id, source_tcgplayer_sku_id, source_product_line, source_set_name, source_printing, source_rarity, source_payload, parse_flags, match_status, matched_inventory_id').eq('upload_id', uploadId).eq('user_id', userId);
     return (data || []).map(toCamel<ParsedRow>);
   }
 
@@ -222,15 +222,13 @@ class SupabaseStorage {
     return data ? toCamel<InventoryItem>(data) : undefined;
   }
 
-  async getInventoryItemByExternalIds(userId: string, productId?: string, tcgplayerId?: string): Promise<InventoryItem | undefined> {
-    if (!productId && !tcgplayerId) return undefined;
+  async getInventoryItemByExternalIds(userId: string, productId?: string): Promise<InventoryItem | undefined> {
+    if (!productId) return undefined;
 
-    for (const [col, val] of [['source_product_id', productId], ['source_tcgplayer_id', tcgplayerId]] as const) {
-      if (!val) continue;
-      const { data } = await supabaseAdmin.from('inventory_items').select('*')
-        .eq('user_id', userId).eq(col, val).eq('status', 'active').limit(1).maybeSingle();
-      if (data) return toCamel<InventoryItem>(data);
-    }
+    const { data } = await supabaseAdmin.from('inventory_items').select('*')
+      .eq('user_id', userId).eq('source_product_id', productId).eq('status', 'active').limit(1).maybeSingle();
+    if (data) return toCamel<InventoryItem>(data);
+
     return undefined;
   }
 
@@ -241,7 +239,6 @@ class SupabaseStorage {
    */
   async getInventoryLookupMaps(userId: string): Promise<{
     byProductId: Map<string, InventoryItem>;
-    byTcgplayerId: Map<string, InventoryItem>;
     byMatchKey: Map<string, InventoryItem>;
   }> {
     const { data, error } = await supabaseAdmin
@@ -253,17 +250,15 @@ class SupabaseStorage {
     if (error) throw new Error(error.message);
 
     const byProductId = new Map<string, InventoryItem>();
-    const byTcgplayerId = new Map<string, InventoryItem>();
     const byMatchKey = new Map<string, InventoryItem>();
 
     for (const raw of data || []) {
       const item = toCamel<InventoryItem>(raw);
       if (item.sourceProductId) byProductId.set(item.sourceProductId, item);
-      if (item.sourceTcgplayerId) byTcgplayerId.set(item.sourceTcgplayerId, item);
       if (item.normalizedMatchKey) byMatchKey.set(item.normalizedMatchKey, item);
     }
 
-    return { byProductId, byTcgplayerId, byMatchKey };
+    return { byProductId, byMatchKey };
   }
 
   async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string; labelStatuses?: string[] }): Promise<InventoryItem[]> {

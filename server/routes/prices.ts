@@ -13,9 +13,9 @@ export function registerPricesRoutes(app: Express) {
       const allItems = await storage.listInventoryItems(userId);
 
       const toRefresh = ids
-        ? allItems.filter(i => ids.includes(i.id) && i.sourceTcgplayerId)
+        ? allItems.filter(i => ids.includes(i.id) && i.sourceProductId)
         : allItems.filter(i => {
-            if (!i.sourceTcgplayerId) return false;
+            if (!i.sourceProductId) return false;
             if (!i.priceLastFetchedAt) return true;
             const staleMs = Date.now() - new Date(i.priceLastFetchedAt).getTime();
             return staleMs > 6 * 60 * 60 * 1000;
@@ -30,15 +30,19 @@ export function registerPricesRoutes(app: Express) {
         const chunk = toRefresh.slice(i, i + BATCH);
 
         const priceMap = await batchFetchPrices(
-          chunk.map(item => ({
-            id: item.id,
-            tcgplayerId: item.sourceTcgplayerId!,
-            condition: item.condition ?? "Near Mint",
-            printing: (() => {
-              try { return JSON.parse(item.matchMetadataJson || "{}").sourcePrinting ?? null; }
-              catch { return null; }
-            })(),
-          }))
+          chunk.map(item => {
+            const metadata = (() => {
+              try { return JSON.parse(item.matchMetadataJson || "{}"); }
+              catch { return {}; }
+            })();
+            return {
+              id: item.id,
+              tcgplayerId: item.sourceProductId!,
+              tcgplayerSkuId: metadata.sourceTcgplayerSkuId ?? null,
+              condition: item.condition ?? "Near Mint",
+              printing: metadata.sourcePrinting ?? null,
+            };
+          })
         );
 
         const latestSnapshots = await storage.getLatestSnapshotsByItems(userId, chunk.map(i => i.id));

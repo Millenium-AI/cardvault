@@ -88,10 +88,8 @@ export function buildTcgplayerUrl(item: any): string | null {
   try {
     const meta = JSON.parse(item.matchMetadataJson || "{}");
     if (meta.sourceProductId) return `https://www.tcgplayer.com/product/${meta.sourceProductId}`;
-    if (meta.sourceTcgplayerId) return `https://www.tcgplayer.com/product/${meta.sourceTcgplayerId}`;
   } catch {}
   if (item.sourceProductId) return `https://www.tcgplayer.com/product/${item.sourceProductId}`;
-  if (item.sourceTcgplayerId) return `https://www.tcgplayer.com/product/${item.sourceTcgplayerId}`;
   return null;
 }
 

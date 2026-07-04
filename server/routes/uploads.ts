@@ -61,8 +61,8 @@ export async function refreshInventoryPrices(
     itemsToPrice = (itemRows || []).map(r => ({ ...toCamel<InventoryItem>(r), isNew: false }));
 
     itemsToPrice = itemsToPrice.filter(i => {
-      if (!i.sourceTcgplayerId) {
-        console.warn(`[JustTCG] Item ${i.id} (${i.productName}) has no sourceTcgplayerId — skipping price fetch`);
+      if (!i.sourceProductId) {
+        console.warn(`[JustTCG] Item ${i.id} (${i.productName}) has no sourceProductId — skipping price fetch`);
         return false;
       }
       if (game !== "all" && i.game !== game) {
@@ -98,6 +98,7 @@ export async function refreshInventoryPrices(
         return {
           id: item.id,
           tcgplayerId: item.sourceProductId!,
+          tcgplayerSkuId: metadata.sourceTcgplayerSkuId ?? null,
           condition,
           printing,
         };
@@ -124,7 +125,7 @@ export async function refreshInventoryPrices(
             const condition = item.condition ?? "Near Mint";
             const printing = metadata.sourcePrinting ?? "Normal";
             console.warn(
-              `[JustTCG] No price found for ${condition}/${printing} on card ${item.sourceTcgplayerId} (item_id: ${item.id})`
+              `[JustTCG] No price found for ${condition}/${printing} on card ${item.sourceProductId} (item_id: ${item.id})`
             );
             continue;
           }
@@ -362,7 +363,6 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
       for (const row of validRows) {
         let existing =
           (row.sourceProductId && byProductId.get(row.sourceProductId)) ||
-          (row.sourceTcgplayerId && byTcgplayerId.get(row.sourceTcgplayerId)) ||
           (row.normalizedMatchKey && byMatchKey.get(row.normalizedMatchKey)) ||
           undefined;
 
