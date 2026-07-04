@@ -27,7 +27,7 @@ function ceilPrice(price: number | null | undefined): number {
   return price && !isNaN(price) ? Math.ceil(price) : 0;
 }
 
-async function refreshInventoryPrices(
+export async function refreshInventoryPrices(
   userId: string,
   newItemIds: string[],
   game: string,
