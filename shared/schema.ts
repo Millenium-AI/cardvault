@@ -58,6 +58,8 @@ export const inventoryItems = pgTable("inventory_items", {
   currentQuantity: integer("current_quantity").notNull().default(0),
   currentRawMarketPrice: doublePrecision("current_raw_market_price"),
   currentRoundedPrintPrice: integer("current_rounded_print_price"),
+  priceSource: text("price_source").notNull().default("pending"), // pending|csv|justtcg
+  csvMarketPrice: doublePrecision("csv_market_price"), // Audit field: CSV-provided price, never used as live price
   latestUploadId: text("latest_upload_id"),
   normalizedMatchKey: text("normalized_match_key"),
   matchMetadataJson: text("match_metadata_json"), // JSON: productId, tcgplayerId, setName, printing, etc.

@@ -494,8 +494,10 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           number: row.number ?? null,
           condition: finalCondition ?? null,
           addToQuantity: row.addToQuantity ?? 1,
-          rawMarketPrice: finalPrice ?? null,
-          roundedPrintPrice: finalPrice ? ceilPrice(finalPrice) : null,
+          rawMarketPrice: null,  // Keep NULL until JustTCG fetch
+          roundedPrintPrice: null,  // Keep NULL until JustTCG fetch
+          csvMarketPrice: finalPrice ?? null,  // Store CSV price as audit field
+          priceSource: "pending",  // Mark as pending JustTCG fetch
           normalizedMatchKey: parsed?.normalizedMatchKey ?? null,
           matchMetadataJson: JSON.stringify({
             sourceProductId: parsed?.sourceProductId ?? null,
@@ -523,8 +525,8 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           existingId: match.existingId,
           game: resolvedGame,
           newQty: overrides[match.rowId]?.csvQty ?? match.csvQty ?? match.existingQty ?? 0,
-          rawMarketPrice: match.rawMarketPrice ?? null,
-          roundedPrintPrice: match.roundedPrintPrice ?? null,
+          csvMarketPrice: match.rawMarketPrice ?? null,  // Store CSV price as audit field
+          priceSource: "csv",  // Mark that CSV data was available (price kept from existing)
         };
       });
 
