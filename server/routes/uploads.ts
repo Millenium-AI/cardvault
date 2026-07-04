@@ -40,6 +40,7 @@ export async function refreshInventoryPrices(
       return 0;
     }
 
+    console.log(`[JustTCG] Loading ${itemIdsToPrice.length} items to price`);
     const { data: itemRows, error: fetchErr } = await supabaseAdmin
       .from("inventory_items")
       .select("*")
@@ -49,6 +50,11 @@ export async function refreshInventoryPrices(
     if (fetchErr) {
       console.error("[JustTCG] Failed to load items:", fetchErr.message);
       return 0;
+    }
+
+    console.log(`[JustTCG] Loaded ${itemRows?.length || 0} item rows`);
+    if (itemRows && itemRows.length > 0) {
+      console.log(`[JustTCG] Sample item: ${JSON.stringify(itemRows[0])}`);
     }
 
     const { toCamel } = await import("../storage");
@@ -89,10 +95,6 @@ export async function refreshInventoryPrices(
         const condition = item.condition ?? "Near Mint";
         const printing = metadata.sourcePrinting ?? null;
 
-        if (printing !== metadata.sourcePrinting) {
-          console.log(`[DEBUG] Item ${item.id}: metadata=${JSON.stringify(metadata)}, extracted printing="${printing}"`);
-        }
-
         return {
           id: item.id,
           tcgplayerId: item.sourceTcgplayerId!,
@@ -101,7 +103,9 @@ export async function refreshInventoryPrices(
         };
       });
 
+      console.log(`[JustTCG] Requesting prices for ${priceRequests.length} items: ${JSON.stringify(priceRequests.slice(0, 2))}`);
       const priceMap = await batchFetchPrices(priceRequests);
+      console.log(`[JustTCG] Received priceMap with ${priceMap.size} results`);
 
       const latestSnapshots = await storage.getLatestSnapshotsByItems(userId, chunk.map(i => i.id));
       const now = new Date();
@@ -110,17 +114,22 @@ export async function refreshInventoryPrices(
         try {
           const priceResult = priceMap.get(item.id);
           if (!priceResult) {
-            const condition = item.condition ?? "Near Mint";
-            const printing = (() => {
-              try { return JSON.parse(item.matchMetadataJson || "{}").sourcePrinting ?? "Normal"; }
-              catch { return "Normal"; }
+            const metadata = (() => {
+              const val = item.matchMetadataJson;
+              if (!val) return {};
+              if (typeof val === 'object') return val;
+              try { return JSON.parse(val); }
+              catch { return {}; }
             })();
+            const condition = item.condition ?? "Near Mint";
+            const printing = metadata.sourcePrinting ?? "Normal";
             console.warn(
               `[JustTCG] No price found for ${condition}/${printing} on card ${item.sourceTcgplayerId} (item_id: ${item.id})`
             );
             continue;
           }
 
+          console.log(`[JustTCG] Found price for item ${item.id}: $${priceResult.price}`);
           const { error: updateErr } = await supabaseAdmin
             .from("inventory_items")
             .update({
@@ -138,12 +147,12 @@ export async function refreshInventoryPrices(
 
           if (updateErr) {
             console.error(
-              `[JustTCG] Failed to update price for item ${item.id}:`,
-              updateErr.message
+              `[JustTCG] Failed to update price for item ${item.id}: ${updateErr.message}`
             );
             continue;
           }
 
+          console.log(`[JustTCG] Successfully updated price for item ${item.id}`);
           pricedCount++;
           const newPrice = priceResult.price;
           const oldPrice = item.currentRawMarketPrice ?? null;
