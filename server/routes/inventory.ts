@@ -164,6 +164,14 @@ export function registerInventoryRoutes(app: Express) {
         return res.status(400).json({ error: "No items pending label export" });
       }
 
+      const unpricedItems = pendingItems.filter(i => !i.priceLastFetchedAt || i.priceSource !== 'justtcg');
+      if (unpricedItems.length > 0) {
+        return res.status(422).json({
+          error: `${unpricedItems.length} items have no JustTCG price yet. Re-run price refresh before printing labels.`,
+          itemIds: unpricedItems.map(i => i.id),
+        });
+      }
+
       const exportedIds = pendingItems.map(i => i.id);
 
       const enriched = pendingItems.map(item => ({

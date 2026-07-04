@@ -73,7 +73,7 @@ async function refreshInventoryPrices(
         if (!i.sourceTcgplayerId) return false;
         const fetchedAt = i.priceLastFetchedAt;
         if (!fetchedAt) return true;
-        return Date.now() - new Date(fetchedAt).getTime() > 6 * 60 * 60 * 1000;
+        return Date.now() - new Date(fetchedAt).getTime() > 7 * 24 * 60 * 60 * 1000;
       })
       .map(i => ({ ...i, isNew: false }));
 
@@ -119,6 +119,7 @@ async function refreshInventoryPrices(
               current_raw_market_price:    priceResult.price,
               current_rounded_print_price: Math.ceil(priceResult.price),
               price_last_fetched_at:       now.toISOString(),
+              price_source:                'justtcg',
               price_change_24hr:           priceResult.priceChange24hr,
               price_change_7d:             priceResult.priceChange7d,
               justtcg_card_uuid:           priceResult.cardUuid,
@@ -363,10 +364,6 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           const existingQty = existing.currentQuantity || 0;
           const qtyDelta = csvQty !== existingQty ? csvQty - existingQty : 0;
 
-          if (existing.currentRawMarketPrice && row.rawMarketPrice) {
-            const { triggered, rule } = checkRepricingThreshold(row.rawMarketPrice, existing.currentRawMarketPrice, thr);
-            if (triggered) repricingCandidates.push({ row, existingItem: existing, rule, qtyDelta, csvQty, existingQty });
-          }
           matchedItems.push({ row, existingItem: existing, qtyDelta, csvQty, existingQty });
         }
       }
@@ -579,7 +576,11 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           .neq("label_status", "needs_label");
       }
 
-      setTimeout(() => refreshInventoryPrices(userId, newItemIds, uploadLevelGame), 2000);
+      try {
+        await refreshInventoryPrices(userId, newItemIds, uploadLevelGame);
+      } catch (e: any) {
+        console.error('[approve] JustTCG enrichment failed — items remain price_source=pending:', e.message);
+      }
 
       res.json({ success: true });
     } catch (e: any) {

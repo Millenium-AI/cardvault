@@ -131,12 +131,14 @@ export function extractPrice(
   const jtCondition = condition || 'Near Mint';
   const jtPrinting  = printing ?? 'Normal';
 
-  const variant =
-    card.variants?.find((v: any) => v.condition === jtCondition && v.printing === jtPrinting) ??
-    card.variants?.find((v: any) => v.condition === jtCondition) ??
-    card.variants?.[0];
+  const variant = card.variants?.find(
+    (v: any) => v.condition === jtCondition && v.printing === jtPrinting
+  );
 
-  if (!variant?.price) return null;
+  if (!variant?.price) {
+    console.warn(`[JustTCG] No exact variant for ${jtCondition}/${jtPrinting} on card ${card.tcgplayerId}`);
+    return null;
+  }
 
   return {
     price:           variant.price,
