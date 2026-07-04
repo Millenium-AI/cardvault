@@ -131,12 +131,16 @@ export function extractPrice(
   const jtCondition = condition || 'Near Mint';
   const jtPrinting  = printing ?? 'Normal';
 
-  const variant = card.variants?.find(
+  const variants = card.variants || [];
+  const variant = variants.find(
     (v: any) => v.condition === jtCondition && v.printing === jtPrinting
   );
 
   if (!variant?.price) {
-    console.warn(`[JustTCG] No exact variant for ${jtCondition}/${jtPrinting} on card ${card.tcgplayerId}`);
+    const available = variants.map((v: any) => `${v.condition}/${v.printing}`).join(', ');
+    console.warn(
+      `[JustTCG] No exact variant for ${jtCondition}/${jtPrinting} on card ${card.tcgplayerId}. Available: [${available}]`
+    );
     return null;
   }
 
@@ -237,7 +241,10 @@ export async function batchFetchPrices(
     // 4. Map results back to the requesting items
     for (const item of toFetch) {
       const card = cards.find((c: any) => String(c.tcgplayerId) === String(item.tcgplayerId));
-      if (!card) continue;
+      if (!card) {
+        console.warn(`[JustTCG] Card not found in API response for tcgplayerId ${item.tcgplayerId}`);
+        continue;
+      }
 
       const priceResult = extractPrice(card, item.condition, item.printing);
       if (!priceResult) continue;
