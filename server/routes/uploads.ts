@@ -97,7 +97,7 @@ export async function refreshInventoryPrices(
 
         return {
           id: item.id,
-          tcgplayerId: item.sourceTcgplayerId!,
+          tcgplayerId: item.sourceProductId!,
           condition,
           printing,
         };
@@ -507,7 +507,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           normalizedMatchKey: parsed?.normalizedMatchKey ?? null,
           matchMetadataJson: JSON.stringify({
             sourceProductId: parsed?.sourceProductId ?? null,
-            sourceTcgplayerId: parsed?.sourceTcgplayerId ?? null,
+            sourceTcgplayerSkuId: parsed?.sourceTcgplayerSkuId ?? null,
             sourceSetName: parsed?.sourceSetName ?? null,
             sourcePrinting: parsed?.sourcePrinting ?? null,
             sourceProductLine: parsed?.sourceProductLine ?? null,
@@ -516,7 +516,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
             displaySuffix: displaySuffix ?? null,
           }),
           sourceProductId: parsed?.sourceProductId ?? null,
-          sourceTcgplayerId: parsed?.sourceTcgplayerId ?? null,
+          sourceTcgplayerSkuId: parsed?.sourceTcgplayerSkuId ?? null,
           photoUrl,
         };
       });

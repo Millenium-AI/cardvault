@@ -135,7 +135,7 @@ export function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: n
   const rawMarketPrice  = parseFloat(k("TCG Market Price", "Market Price", "TCGplayer Market Price", "Price", "market_price").replace(/[^0-9.]/g, "")) || null;
   const addToQuantity   = parseInt(k("Add to Quantity", "add_to_quantity")) || parseInt(k("Total Quantity", "total_quantity", "Quantity", "Qty", "quantity")) || 1;
   const sourceProductId     = k("Product ID", "product_id") || null;
-  const sourceTcgplayerId   = sourceProductId;
+  const sourceTcgplayerSkuId = k("TCGplayer Id", "tcgplayer_id") || null;
   const sourceProductLine   = k("Product Line", "product_line") || null;
   const resolvedGame        = detectGameFromProductLine(sourceProductLine, game);
   const sourceSetName       = k("Set Name", "set_name", "Set", "Expansion") || null;
@@ -160,7 +160,7 @@ export function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: n
     addToQuantity,
     normalizedMatchKey: buildMatchKey(productName, number, condition, sourcePrinting, sourceSetName, resolvedGame),
     sourceProductId,
-    sourceTcgplayerId,
+    sourceTcgplayerSkuId,
     sourceProductLine,
     sourceSetName,
     sourcePrinting,
