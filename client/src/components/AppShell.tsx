@@ -73,20 +73,19 @@ function SideNavItem({ href, label, icon: Icon, collapsed }: {
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
-    <Link href={href}>
-      <a
-        data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
-        className={cn(
-          "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all",
-          active
-            ? "bg-primary/15 text-primary border border-primary/20"
-            : "text-muted-foreground hover:text-foreground hover:bg-accent",
-          collapsed && "justify-center px-2"
-        )}
-      >
-        <Icon size={18} className="shrink-0" />
-        {!collapsed && <span>{label}</span>}
-      </a>
+    <Link
+      href={href}
+      data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      className={cn(
+        "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all",
+        active
+          ? "bg-primary/15 text-primary border border-primary/20"
+          : "text-muted-foreground hover:text-foreground hover:bg-accent",
+        collapsed && "justify-center px-2"
+      )}
+    >
+      <Icon size={18} className="shrink-0" />
+      {!collapsed && <span>{label}</span>}
     </Link>
   );
 }
@@ -96,27 +95,26 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
-    <Link href={href}>
-      <a
-        data-testid={`mobile-nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
-        className="relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-1 group"
-      >
-        {active && (
-          <span className="absolute inset-x-1 top-1 bottom-1 rounded-xl bg-primary/12 transition-all duration-300" />
-        )}
-        <span className={cn(
-          "relative flex items-center justify-center w-7 h-7 rounded-xl transition-all duration-200",
-          active ? "text-primary" : "text-muted-foreground group-active:text-foreground"
-        )}>
-          <Icon size={active ? 21 : 19} strokeWidth={active ? 2.2 : 1.8} className="transition-all duration-200" />
-        </span>
-        <span className={cn(
-          "relative text-[9.5px] font-semibold tracking-wide leading-none mt-0.5 transition-all duration-200",
-          active ? "text-primary" : "text-muted-foreground/70"
-        )}>
-          {label}
-        </span>
-      </a>
+    <Link
+      href={href}
+      data-testid={`mobile-nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      className="relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-1 group"
+    >
+      {active && (
+        <span className="absolute inset-x-1 top-1 bottom-1 rounded-xl bg-primary/12 transition-all duration-300" />
+      )}
+      <span className={cn(
+        "relative flex items-center justify-center w-7 h-7 rounded-xl transition-all duration-200",
+        active ? "text-primary" : "text-muted-foreground group-active:text-foreground"
+      )}>
+        <Icon size={active ? 21 : 19} strokeWidth={active ? 2.2 : 1.8} className="transition-all duration-200" />
+      </span>
+      <span className={cn(
+        "relative text-[9.5px] font-semibold tracking-wide leading-none mt-0.5 transition-all duration-200",
+        active ? "text-primary" : "text-muted-foreground/70"
+      )}>
+        {label}
+      </span>
     </Link>
   );
 }
@@ -174,26 +172,24 @@ function AvatarMenu({
 
       {/* Menu items */}
       <div className="py-1.5 px-1.5 space-y-0.5">
-        {/* Settings — works with hash router */}
-        <Link href="/settings">
-          <a
-            onClick={onClose}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors"
-          >
-            <Settings size={14} className="text-muted-foreground shrink-0" />
-            <span>Settings</span>
-          </a>
+        {/* Settings */}
+        <Link
+          href="/settings"
+          onClick={onClose}
+          className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors"
+        >
+          <Settings size={14} className="text-muted-foreground shrink-0" />
+          <span>Settings</span>
         </Link>
 
         {isAdmin && (
-          <Link href="/admin">
-            <a
-              onClick={onClose}
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors"
-            >
-              <ShieldCheck size={14} className="text-muted-foreground shrink-0" />
-              <span>Admin</span>
-            </a>
+          <Link
+            href="/admin"
+            onClick={onClose}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors"
+          >
+            <ShieldCheck size={14} className="text-muted-foreground shrink-0" />
+            <span>Admin</span>
           </Link>
         )}
 
