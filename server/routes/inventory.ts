@@ -41,10 +41,11 @@ export function registerInventoryRoutes(app: Express) {
     }
   });
 
+  // FIX: attach tcgplayerUrl on single-item fetch, same as the list endpoint
   app.get("/api/inventory/:id", async (req: any, res) => {
     try {
       const item = await resolveInventoryItem(req.user.id, req.params.id, res);
-      if (item) res.json(item);
+      if (item) res.json({ ...item, tcgplayerUrl: buildTcgplayerUrl(item) });
     } catch (err: any) {
       console.error('[route] error:', err);
       res.status(500).json({ error: err.message ?? 'Internal server error' });
