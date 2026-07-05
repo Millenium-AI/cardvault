@@ -1,20 +1,28 @@
 /**
  * JustTCG API client — native fetch, zero npm dependencies.
- * Docs: https://justtcg.com/docs/sdk
+ * Docs: https://justtcg.com/docs/api/cards
  *
- * Caching model: `price_cache` has no user_id column — it is a single
- * table shared across every user of the app, keyed purely on
- * tcgplayerId|condition|printing. A cache hit from one user's upload
- * transparently serves every other user's lookup for the same
- * card+condition+printing. This file also de-dupes concurrent in-flight
- * requests for the same card and caches every variant returned by a
- * single card lookup (not just the one condition/printing requested),
- * so the app burns as few JustTCG API calls as possible as usage grows
- * across many users.
+ * Identifier priority (per JustTCG docs):
+ *   variantId → tcgplayerSkuId → tcgplayerId → ...
+ *
+ * tcgplayerSkuId (CSV column "TCGplayer Id") resolves directly to a
+ * specific variant (condition + printing), giving the most accurate
+ * price match. tcgplayerId (CSV column "Product ID") returns all
+ * variants for a card and requires condition/printing matching.
+ *
+ * The API uses POST /v1/cards with a JSON body array of identifier
+ * objects — NOT a GET with query params.
+ *
+ * Caching model: `price_cache` is shared across all users, keyed on
+ * the best available identifier + condition + printing. SKU-keyed
+ * entries use the skuId as the key prefix for maximum specificity.
  */
 import { supabaseAdmin } from './supabase.js';
 
 const BASE_URL = 'https://api.justtcg.com/v1';
+
+// Free tier: 20 cards per batch request
+export const JUSTTCG_BATCH_SIZE = 20;
 
 function apiKey(): string {
   const key = process.env.JUSTTCG_API_KEY;
@@ -31,12 +39,17 @@ export interface PriceResult {
 }
 
 // ── Build a deterministic cache key ──────────────────────────────────────────
+// When we have a tcgplayerSkuId, use it as the key prefix — it already
+// encodes the exact variant so condition/printing are redundant but
+// included for human readability and collision safety.
 export function buildPriceCacheKey(
   tcgplayerId: string,
   condition: string,
-  printing?: string | null
+  printing?: string | null,
+  tcgplayerSkuId?: string | null,
 ): string {
-  return [tcgplayerId, condition, printing ?? 'Normal'].join('|').toLowerCase();
+  const prefix = tcgplayerSkuId ? `sku:${tcgplayerSkuId}` : tcgplayerId;
+  return [prefix, condition, printing ?? 'Normal'].join('|').toLowerCase();
 }
 
 // ── Dynamic TTL based on card value ──────────────────────────────────────────
@@ -45,27 +58,27 @@ function expiresAt(price: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
-// ── Low-level GET /v1/cards (batch) ──────────────────────────────────────────
-// A single call returns ALL variants (every condition + printing) for each
-// tcgplayerId requested — condition/printing are not sent as filters, so we
-// always get the full picture and can cache it all in one shot.
-async function getBatchCards(
+// ── Low-level POST /v1/cards (batch) ─────────────────────────────────────────
+// JustTCG expects a POST with a JSON body containing an array of identifier
+// objects. tcgplayerSkuId is sent as the primary identifier when available
+// (higher precedence per docs), falling back to tcgplayerId.
+// Free tier limit: 20 cards per request.
+async function postBatchCards(
   requests: Array<{ tcgplayerId: string; tcgplayerSkuId?: string | null }>
 ): Promise<{ data: any[]; usage?: any }> {
-  const params = new URLSearchParams();
-  for (const req of requests) {
-    params.append('tcgplayerId', req.tcgplayerId);
-    if (req.tcgplayerSkuId) {
-      params.append('tcgplayerSkuId', req.tcgplayerSkuId);
-    }
-  }
+  const body = requests.map(req =>
+    req.tcgplayerSkuId
+      ? { tcgplayerSkuId: req.tcgplayerSkuId }
+      : { tcgplayerId: req.tcgplayerId }
+  );
 
-  const res = await fetch(`${BASE_URL}/cards?${params.toString()}`, {
-    method: 'GET',
+  const res = await fetch(`${BASE_URL}/cards`, {
+    method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey(),
     },
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -83,39 +96,40 @@ async function getBatchCards(
 }
 
 // ── In-flight request de-duplication ─────────────────────────────────────────
-// If two callers (different users, concurrent uploads) ask for the same
-// tcgplayerId at the same moment, only one live JustTCG call should happen —
-// everyone else awaits that same in-flight promise instead of firing their
-// own duplicate request. This matters once many users can trigger uploads
-// concurrently: without this, a burst of simultaneous uploads containing the
-// same popular cards would multiply API calls needlessly.
+// Deduplication key is skuId when available, otherwise productId.
+// This prevents concurrent uploads of the same card from burning
+// multiple API calls.
 const inFlightCardFetches = new Map<string, Promise<any[]>>();
 
 async function getCardsDeduped(
   requests: Array<{ tcgplayerId: string; tcgplayerSkuId?: string | null }>
 ): Promise<any[]> {
-  const requestMap = new Map(requests.map(r => [r.tcgplayerId, r]));
-  const uniqueIds = Array.from(requestMap.keys());
+  // Use SKU ID as dedup key when present — it's more specific
+  const dedupeKey = (r: typeof requests[0]) =>
+    r.tcgplayerSkuId ? `sku:${r.tcgplayerSkuId}` : `pid:${r.tcgplayerId}`;
+
+  const requestMap = new Map(requests.map(r => [dedupeKey(r), r]));
+  const uniqueKeys = Array.from(requestMap.keys());
   const idsToFetch: typeof requests = [];
   const waiters: Promise<any[]>[] = [];
 
-  for (const id of uniqueIds) {
-    const existing = inFlightCardFetches.get(id);
+  for (const key of uniqueKeys) {
+    const existing = inFlightCardFetches.get(key);
     if (existing) {
       waiters.push(existing);
     } else {
-      idsToFetch.push(requestMap.get(id)!);
+      idsToFetch.push(requestMap.get(key)!);
     }
   }
 
   let ownPromise: Promise<any[]> | null = null;
   if (idsToFetch.length) {
-    ownPromise = getBatchCards(idsToFetch)
+    ownPromise = postBatchCards(idsToFetch)
       .then(response => response?.data ?? [])
       .finally(() => {
-        for (const req of idsToFetch) inFlightCardFetches.delete(req.tcgplayerId);
+        for (const req of idsToFetch) inFlightCardFetches.delete(dedupeKey(req));
       });
-    for (const req of idsToFetch) inFlightCardFetches.set(req.tcgplayerId, ownPromise);
+    for (const req of idsToFetch) inFlightCardFetches.set(dedupeKey(req), ownPromise);
   }
 
   const batches = await Promise.all([
@@ -129,23 +143,59 @@ async function getCardsDeduped(
 }
 
 // ── Extract the matching variant price from a card response ──────────────────
+// When the response came from a tcgplayerSkuId lookup, JustTCG returns
+// only the matching variant — variants[0] is the right one.
+// When from a tcgplayerId lookup, we need to match condition + printing.
 export function extractPrice(
   card: any,
   condition: string,
-  printing?: string | null
+  printing?: string | null,
+  resolvedBySkuId?: boolean,
 ): PriceResult | null {
+  const variants: any[] = card.variants || [];
+
+  if (!variants.length) {
+    console.warn(`[JustTCG] No variants returned for card ${card.tcgplayerId ?? card.uuid}`);
+    return null;
+  }
+
+  // SKU lookup → API returns only the exact variant, just take it
+  if (resolvedBySkuId) {
+    const v = variants[0];
+    if (!v?.price) return null;
+    return {
+      price:           v.price,
+      priceChange24hr: v.priceChange24hr ?? null,
+      priceChange7d:   v.priceChange7d   ?? null,
+      variantUuid:     v.uuid            ?? null,
+      cardUuid:        card.uuid         ?? null,
+    };
+  }
+
+  // productId lookup → match on condition + printing
   const jtCondition = condition || 'Near Mint';
   const jtPrinting  = printing ?? 'Normal';
 
-  const variants = card.variants || [];
-  const variant = variants.find(
+  let variant = variants.find(
     (v: any) => v.condition === jtCondition && v.printing === jtPrinting
   );
+
+  // Fallback: match condition only if printing doesn't match
+  if (!variant?.price) {
+    variant = variants.find((v: any) => v.condition === jtCondition);
+    if (variant?.price) {
+      console.warn(
+        `[JustTCG] Printing mismatch for ${jtCondition}/${jtPrinting} on card ${card.tcgplayerId}. ` +
+        `Using fallback printing "${variant.printing}".`
+      );
+    }
+  }
 
   if (!variant?.price) {
     const available = variants.map((v: any) => `${v.condition}/${v.printing}`).join(', ');
     console.warn(
-      `[JustTCG] No exact variant for ${jtCondition}/${jtPrinting} on card ${card.tcgplayerId}. Available: [${available}]`
+      `[JustTCG] No variant for ${jtCondition}/${jtPrinting} on card ${card.tcgplayerId}. ` +
+      `Available: [${available}]`
     );
     return null;
   }
@@ -159,22 +209,27 @@ export function extractPrice(
   };
 }
 
-// ── Cache every variant on a card response, not just the one requested ───────
-// A single JustTCG response for one tcgplayerId includes ALL conditions and
-// printings for that card. Caching only the variant the current upload asked
-// for throws away data that would satisfy other lookups (other rows in the
-// same upload, or a different user entirely) for a different condition of
-// the same card. Writing every variant means the very next lookup for ANY
-// condition/printing of this card, by any user, is a cache hit instead of
-// another billed API call.
-async function cacheAllVariants(card: any): Promise<void> {
+// ── Cache every variant on a card response ───────────────────────────────────
+async function cacheAllVariants(
+  card: any,
+  requestedSkuId?: string | null,
+): Promise<void> {
   const variants: any[] = card?.variants ?? [];
-  if (!variants.length || !card?.tcgplayerId) return;
+  if (!variants.length) return;
 
   const rows = variants
     .filter(v => v?.price != null && v?.condition)
     .map(v => ({
-      cache_key:      buildPriceCacheKey(card.tcgplayerId, v.condition, v.printing),
+      // For SKU-resolved responses, also store a sku-keyed cache entry
+      // so future lookups by the same SKU are instant cache hits.
+      cache_key:      buildPriceCacheKey(
+        card.tcgplayerId ?? '',
+        v.condition,
+        v.printing,
+        // Only attach skuId to the first variant when resolved by SKU
+        // (subsequent variants for a productId lookup have no skuId)
+        variants.indexOf(v) === 0 && requestedSkuId ? requestedSkuId : null,
+      ),
       price:          v.price,
       price_24hr_chg: v.priceChange24hr ?? null,
       price_7d_chg:   v.priceChange7d ?? null,
@@ -192,9 +247,9 @@ async function cacheAllVariants(card: any): Promise<void> {
 // ── Batch fetch prices, with a shared cross-user Supabase cache ──────────────
 export async function batchFetchPrices(
   items: {
-    id:                string;   // inventory item UUID (for mapping results back)
-    tcgplayerId:       string;   // Product ID (constant across conditions/printings)
-    tcgplayerSkuId?:   string | null;  // Variant/SKU ID (optional, for precise variant lookup)
+    id:                string;
+    tcgplayerId:       string;
+    tcgplayerSkuId?:   string | null;
     condition:         string;
     printing?:         string | null;
   }[]
@@ -202,20 +257,11 @@ export async function batchFetchPrices(
   const resultMap = new Map<string, PriceResult>();
   if (!items.length) return resultMap;
 
-  // Defensive check: warn if tcgplayerId looks suspiciously long (7+ digits = likely SKU instead of product ID)
-  for (const item of items) {
-    if (item.tcgplayerId && item.tcgplayerId.length > 6) {
-      console.warn(
-        `[JustTCG] WARNING: tcgplayerId "${item.tcgplayerId}" is unusually long (${item.tcgplayerId.length} chars). ` +
-        `This might be a SKU ID instead of a Product ID. Item: ${item.id}`
-      );
-    }
-  }
+  // 1. Check Supabase cache — prefer SKU-keyed cache entry when skuId present
+  const cacheKeys = items.map(item =>
+    buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing, item.tcgplayerSkuId)
+  );
 
-  // 1. Check Supabase cache first — one batched IN() query instead of N
-  // sequential round-trips, so this scales with concurrent uploads instead
-  // of serializing on Supabase latency per item.
-  const cacheKeys = items.map(item => buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing));
   const { data: cachedRows } = await supabaseAdmin
     .from('price_cache')
     .select('cache_key, price, price_24hr_chg, price_7d_chg, variant_uuid, card_uuid')
@@ -226,7 +272,7 @@ export async function batchFetchPrices(
   const toFetch: typeof items = [];
 
   for (const item of items) {
-    const cacheKey = buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing);
+    const cacheKey = buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing, item.tcgplayerSkuId);
     const cached = cacheByKey.get(cacheKey);
 
     if (cached?.price) {
@@ -244,35 +290,46 @@ export async function batchFetchPrices(
 
   if (!toFetch.length) return resultMap;
 
-  // 2. Call JustTCG for cache misses, deduped against any identical
-  // in-flight request from a concurrent upload (possibly a different user).
+  // 2. POST to JustTCG for cache misses, deduped by SKU or product ID
   try {
-    const requestMap = new Map<string, { tcgplayerId: string; tcgplayerSkuId?: string | null }>();
+    // Build unique request list — prefer skuId over productId per identifier priority
+    const requestMap = new Map<string, typeof toFetch[0]>();
     for (const item of toFetch) {
-      const existing = requestMap.get(item.tcgplayerId);
-      if (!existing) {
-        requestMap.set(item.tcgplayerId, {
-          tcgplayerId: item.tcgplayerId,
-          tcgplayerSkuId: item.tcgplayerSkuId ?? null,
-        });
-      }
+      const key = item.tcgplayerSkuId ? `sku:${item.tcgplayerSkuId}` : `pid:${item.tcgplayerId}`;
+      if (!requestMap.has(key)) requestMap.set(key, item);
     }
-    const cards = await getCardsDeduped(Array.from(requestMap.values()));
 
-    // 3. Cache EVERY variant on every card returned, not just the requested
-    // condition/printing — this is what lets a future lookup for a
-    // different condition of the same card, by any user, hit the cache.
-    await Promise.all(cards.map(cacheAllVariants));
+    const cards = await getCardsDeduped(
+      Array.from(requestMap.values()).map(item => ({
+        tcgplayerId:    item.tcgplayerId,
+        tcgplayerSkuId: item.tcgplayerSkuId ?? null,
+      }))
+    );
 
-    // 4. Map results back to the requesting items
+    // 3. Cache all variants returned
+    await Promise.all(
+      cards.map((card, i) => {
+        const req = Array.from(requestMap.values())[i];
+        return cacheAllVariants(card, req?.tcgplayerSkuId ?? null);
+      })
+    );
+
+    // 4. Map results back to requesting items
     for (const item of toFetch) {
-      const card = cards.find((c: any) => String(c.tcgplayerId) === String(item.tcgplayerId));
+      // Match card by skuId first, then productId
+      const card = item.tcgplayerSkuId
+        ? cards.find((c: any) =>
+            c.variants?.some((v: any) => String(v.tcgplayerSkuId) === String(item.tcgplayerSkuId))
+          ) ?? cards.find((c: any) => String(c.tcgplayerId) === String(item.tcgplayerId))
+        : cards.find((c: any) => String(c.tcgplayerId) === String(item.tcgplayerId));
+
       if (!card) {
-        console.warn(`[JustTCG] Card not found in API response for tcgplayerId ${item.tcgplayerId}`);
+        console.warn(`[JustTCG] No card returned for item ${item.id} (skuId: ${item.tcgplayerSkuId}, productId: ${item.tcgplayerId})`);
         continue;
       }
 
-      const priceResult = extractPrice(card, item.condition, item.printing);
+      const resolvedBySkuId = !!item.tcgplayerSkuId;
+      const priceResult = extractPrice(card, item.condition, item.printing, resolvedBySkuId);
       if (!priceResult) continue;
 
       resultMap.set(item.id, priceResult);
@@ -289,11 +346,10 @@ export async function fetchSinglePrice(
   tcgplayerId: string,
   condition: string,
   printing?: string | null,
-  tcgplayerSkuId?: string | null
+  tcgplayerSkuId?: string | null,
 ): Promise<PriceResult | null> {
-  const cacheKey = buildPriceCacheKey(tcgplayerId, condition, printing);
+  const cacheKey = buildPriceCacheKey(tcgplayerId, condition, printing, tcgplayerSkuId);
 
-  // Cache check
   const { data: cached } = await supabaseAdmin
     .from('price_cache')
     .select('price, price_24hr_chg, price_7d_chg, variant_uuid, card_uuid')
@@ -311,17 +367,15 @@ export async function fetchSinglePrice(
     };
   }
 
-  // Live fetch — deduped against any identical in-flight request, and
-  // caches every variant returned so future lookups for other
-  // conditions/printings of this same card hit cache too.
   try {
     const cards = await getCardsDeduped([{ tcgplayerId, tcgplayerSkuId: tcgplayerSkuId ?? null }]);
     const card = cards[0];
     if (!card) return null;
 
-    await cacheAllVariants(card);
+    await cacheAllVariants(card, tcgplayerSkuId ?? null);
 
-    return extractPrice(card, condition, printing);
+    const resolvedBySkuId = !!tcgplayerSkuId;
+    return extractPrice(card, condition, printing, resolvedBySkuId);
   } catch (err: any) {
     console.error('[JustTCG] fetchSinglePrice error:', err.message);
     return null;
