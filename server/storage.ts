@@ -53,14 +53,24 @@ export interface InventoryItem {
   normalizedMatchKey?: string | null;
   matchMetadataJson?: string | null;
   sourceProductId?: string | null;
+  /** Legacy TCGplayer product-level ID column (source_tcgplayer_id) */
+  sourceTcgplayerId?: string | null;
+  /** Preferred: SKU-level ID column (source_tcgplayer_sku_id) */
   sourceTcgplayerSkuId?: string | null;
   photoUrl?: string | null;
   firstSeenAt: string;
   lastSeenAt: string;
+  updatedAt?: string | null;
   status: string;
   labelStatus?: string;
+  priceSource?: string | null;
+  csvMarketPrice?: number | null;
   priceLastFetchedAt?: string | null;
+  priceChange24hr?: number | null;
+  priceChange7d?: number | null;
   notes?: string | null;
+  justtcgCardUuid?: string | null;
+  justtcgVariantUuid?: string | null;
 }
 
 export interface PriceSnapshot {
@@ -233,12 +243,13 @@ class SupabaseStorage {
   }
 
   /**
-   * Bulk-fetch all active inventory for a user and return two lookup Maps:
-   * one keyed by source_product_id, one by normalized_match_key.
+   * Bulk-fetch all active inventory for a user and return three lookup Maps:
+   * keyed by source_product_id, normalized_match_key, and source_tcgplayer_id.
    * Used during CSV upload matching to avoid N×DB-round-trips.
    */
   async getInventoryLookupMaps(userId: string): Promise<{
     byProductId: Map<string, InventoryItem>;
+    byTcgplayerId: Map<string, InventoryItem>;
     byMatchKey: Map<string, InventoryItem>;
   }> {
     const { data, error } = await supabaseAdmin
@@ -250,15 +261,17 @@ class SupabaseStorage {
     if (error) throw new Error(error.message);
 
     const byProductId = new Map<string, InventoryItem>();
+    const byTcgplayerId = new Map<string, InventoryItem>();
     const byMatchKey = new Map<string, InventoryItem>();
 
     for (const raw of data || []) {
       const item = toCamel<InventoryItem>(raw);
       if (item.sourceProductId) byProductId.set(item.sourceProductId, item);
+      if (item.sourceTcgplayerId) byTcgplayerId.set(item.sourceTcgplayerId, item);
       if (item.normalizedMatchKey) byMatchKey.set(item.normalizedMatchKey, item);
     }
 
-    return { byProductId, byMatchKey };
+    return { byProductId, byTcgplayerId, byMatchKey };
   }
 
   async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string; labelStatuses?: string[] }): Promise<InventoryItem[]> {
@@ -342,8 +355,6 @@ class SupabaseStorage {
   /**
    * Batch version of getLatestSnapshot: fetches the latest snapshot per
    * inventory item id in ONE query instead of N sequential round-trips.
-   * Used by the live-price refresh paths so checking whether a batch of
-   * items' history is stale doesn't serialize on per-item Supabase calls.
    */
   async getLatestSnapshotsByItems(userId: string, inventoryItemIds: string[]): Promise<Map<string, PriceSnapshot>> {
     const result = new Map<string, PriceSnapshot>();
@@ -356,20 +367,11 @@ class SupabaseStorage {
 
     for (const row of data || []) {
       const snap = toCamel<PriceSnapshot>(row);
-      // Rows arrive newest-first per the order() above; keep only the first
-      // (i.e. latest) snapshot seen for each inventory item id.
       if (!result.has(snap.inventoryItemId)) result.set(snap.inventoryItemId, snap);
     }
     return result;
   }
 
-  /**
-   * Overwrite an existing snapshot row's price/quantity in place (keeps its
-   * original id, upload_id and snapshot_date). Used when a snapshot was
-   * just created moments ago with a provisional CSV price and we now have
-   * the live JustTCG price for that same moment — we correct the existing
-   * row rather than adding a second entry for the same instant.
-   */
   async updateSnapshotPrice(
     userId: string,
     snapshotId: string,
@@ -382,31 +384,12 @@ class SupabaseStorage {
     if (error) throw new Error(error.message);
   }
 
-  /**
-   * Reconcile the very first snapshot for a newly-uploaded item with the
-   * live JustTCG price fetched moments after upload approval. The
-   * approve_upload RPC inserts a snapshot using the CSV-uploaded price
-   * before enrichment has a chance to run; once the live price comes back
-   * seconds later, that provisional snapshot should reflect the live price
-   * instead of the stale CSV number — otherwise the very first history
-   * point a user sees would never match what JustTCG actually returned.
-   *
-   * If the latest snapshot is "fresh" (created moments ago, i.e. this is
-   * that same provisional RPC snapshot) its price is corrected in place.
-   * If the latest snapshot is older than the freshness window, it is left
-   * untouched and no new snapshot is created here — the weekly refresh gate
-   * (createWeeklySnapshotIfStale) owns creating new entries after that.
-   *
-   * Returns true if a snapshot was reconciled, false if nothing needed to
-   * change (no snapshot yet at all, or it wasn't fresh enough to be the
-   * provisional CSV-price entry).
-   */
   async reconcileFreshSnapshotWithLivePrice(
     userId: string,
     latestSnapshot: PriceSnapshot | undefined,
     result: { rawMarketPrice: number; roundedPrintPrice: number },
     now: Date = new Date(),
-    freshnessWindowMs: number = 5 * 60 * 1000, // 5 minutes: comfortably covers the setImmediate gap after approve
+    freshnessWindowMs: number = 5 * 60 * 1000,
   ): Promise<boolean> {
     if (!latestSnapshot) return false;
     const ageMs = now.getTime() - new Date(latestSnapshot.snapshotDate).getTime();
@@ -416,17 +399,6 @@ class SupabaseStorage {
     return true;
   }
 
-  /**
-   * Create a price snapshot from an already-fetched live price result, but
-   * ONLY if the item has no snapshot yet or its latest snapshot is 7+ days
-   * old. This is the shared weekly-history gate used by both the new-item
-   * live enrichment path and the existing-inventory refresh path
-   * (scheduled or manual). It never triggers a new price fetch itself --
-   * it only decides whether to persist a result the caller already has.
-   *
-   * Returns the created snapshot, or null if skipped because the latest
-   * snapshot is still within the 7-day window.
-   */
   async createWeeklySnapshotIfStale(
     userId: string,
     inventoryItemId: string,
@@ -443,7 +415,7 @@ class SupabaseStorage {
 
     return this.createPriceSnapshot(userId, {
       inventoryItemId,
-      uploadId: null, // live-fetched snapshot, not tied to a CSV upload
+      uploadId: null,
       snapshotDate: now.toISOString(),
       rawMarketPrice: result.rawMarketPrice,
       roundedPrintPrice: result.roundedPrintPrice,
