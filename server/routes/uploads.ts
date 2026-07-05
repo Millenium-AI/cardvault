@@ -33,46 +33,37 @@ export async function refreshInventoryPrices(
   game: string,
 ) {
   try {
-    let itemsToPrice: Array<InventoryItem & { isNew: boolean }> = [];
+    if (!itemIdsToPrice.length) return 0;
 
-    if (!itemIdsToPrice.length) {
-      console.log("[JustTCG] No items to price");
-      return 0;
-    }
-
-    console.log(`[JustTCG] Loading ${itemIdsToPrice.length} items to price`);
     const { data: itemRows, error: fetchErr } = await supabaseAdmin
       .from("inventory_items")
-      .select("*")
+      .select("id, product_name, condition, source_product_id, source_tcgplayer_sku_id, match_metadata_json, current_raw_market_price, current_quantity, photo_url, label_status, game")
       .eq("user_id", userId)
       .in("id", itemIdsToPrice);
 
-    if (fetchErr) {
-      console.error("[JustTCG] Failed to load items:", fetchErr.message);
+    if (fetchErr || !itemRows?.length) {
+      console.error("[JustTCG] Failed to load items:", fetchErr?.message);
       return 0;
     }
 
-    console.log(`[JustTCG] Loaded ${itemRows?.length || 0} item rows`);
-    if (itemRows && itemRows.length > 0) {
-      console.log(`[JustTCG] Sample item: ${JSON.stringify(itemRows[0])}`);
-    }
-
-    const { toCamel } = await import("../storage");
-    itemsToPrice = (itemRows || []).map(r => ({ ...toCamel<InventoryItem>(r), isNew: false }));
-
-    itemsToPrice = itemsToPrice.filter(i => {
-      if (!i.sourceProductId) {
-        console.warn(`[JustTCG] Item ${i.id} (${i.productName}) has no sourceProductId — skipping price fetch`);
-        return false;
-      }
-      if (game !== "all" && i.game !== game) {
-        return false;
-      }
-      return true;
-    });
+    // Map snake_case DB columns directly — no toCamel needed
+    const itemsToPrice = itemRows
+      .filter(r => r.source_product_id && (game === "all" || r.game === game))
+      .map(r => ({
+        id:                      r.id as string,
+        productName:             r.product_name as string,
+        condition:               r.condition as string,
+        sourceProductId:         r.source_product_id as string,
+        sourceTcgplayerSkuId:    r.source_tcgplayer_sku_id as string | null,
+        matchMetadataJson:       r.match_metadata_json as any,
+        currentRawMarketPrice:   r.current_raw_market_price as number | null,
+        currentQuantity:         r.current_quantity as number,
+        photoUrl:                r.photo_url as string | null,
+        labelStatus:             r.label_status as string,
+      }));
 
     if (!itemsToPrice.length) {
-      console.log("[JustTCG] No items to price after filtering");
+      console.warn("[JustTCG] No items with sourceProductId to price");
       return 0;
     }
 
@@ -87,131 +78,82 @@ export async function refreshInventoryPrices(
         const metadata = (() => {
           const val = item.matchMetadataJson;
           if (!val) return {};
-          if (typeof val === 'object') return val;
-          try { return JSON.parse(val); }
-          catch { return {}; }
+          if (typeof val === "object") return val;
+          try { return JSON.parse(val); } catch { return {}; }
         })();
-
-        const condition = item.condition ?? "Near Mint";
-        const printing = metadata.sourcePrinting ?? null;
-
         return {
-          id: item.id,
-          tcgplayerId: item.sourceProductId!,
-          tcgplayerSkuId: metadata.sourceTcgplayerSkuId ?? null,
-          condition,
-          printing,
+          id:             item.id,
+          tcgplayerId:    item.sourceProductId,
+          tcgplayerSkuId: item.sourceTcgplayerSkuId ?? metadata.sourceTcgplayerSkuId ?? null,
+          condition:      item.condition ?? "Near Mint",
+          printing:       metadata.sourcePrinting || null,
         };
       });
 
-      console.log(`[JustTCG] Requesting prices for ${priceRequests.length} items: ${JSON.stringify(priceRequests.slice(0, 2))}`);
       const priceMap = await batchFetchPrices(priceRequests);
-      console.log(`[JustTCG] Received priceMap with ${priceMap.size} results`);
 
-      // Fetch latest snapshots for this chunk so we can reconcile the fresh ones
       const latestSnapshots = await storage.getLatestSnapshotsByItems(userId, chunk.map(i => i.id));
       const now = new Date();
 
       for (const item of chunk) {
-        try {
-          const priceResult = priceMap.get(item.id);
-          if (!priceResult) {
-            const metadata = (() => {
-              const val = item.matchMetadataJson;
-              if (!val) return {};
-              if (typeof val === 'object') return val;
-              try { return JSON.parse(val); }
-              catch { return {}; }
-            })();
-            const condition = item.condition ?? "Near Mint";
-            const printing = metadata.sourcePrinting ?? "Normal";
-            console.warn(
-              `[JustTCG] No price found for ${condition}/${printing} on card ${item.sourceProductId} (item_id: ${item.id})`
-            );
-            continue;
-          }
+        const priceResult = priceMap.get(item.id);
+        if (!priceResult) {
+          console.warn(`[JustTCG] No price for item ${item.id} (${item.productName}) productId=${item.sourceProductId}`);
+          continue;
+        }
 
-          console.log(`[JustTCG] Found price for item ${item.id}: $${priceResult.price}`);
+        const itemUpdate: Record<string, any> = {
+          current_raw_market_price:    priceResult.price,
+          current_rounded_print_price: Math.ceil(priceResult.price),
+          price_last_fetched_at:       now.toISOString(),
+          price_source:                "justtcg",
+          price_change_24hr:           priceResult.priceChange24hr,
+          price_change_7d:             priceResult.priceChange7d,
+          justtcg_card_uuid:           priceResult.cardUuid,
+          justtcg_variant_uuid:        priceResult.variantUuid,
+        };
 
-          // Build the update payload — include photo_url if JustTCG returned one
-          const itemUpdate: Record<string, any> = {
-            current_raw_market_price:    priceResult.price,
-            current_rounded_print_price: Math.ceil(priceResult.price),
-            price_last_fetched_at:       now.toISOString(),
-            price_source:                'justtcg',
-            price_change_24hr:           priceResult.priceChange24hr,
-            price_change_7d:             priceResult.priceChange7d,
-            justtcg_card_uuid:           priceResult.cardUuid,
-            justtcg_variant_uuid:        priceResult.variantUuid,
-          };
+        const { error: updateErr } = await supabaseAdmin
+          .from("inventory_items")
+          .update(itemUpdate)
+          .eq("id", item.id)
+          .eq("user_id", userId);
 
-          // FIX: if item has no photo yet and JustTCG returned an image, store it
-          if (!item.photoUrl && priceResult.imageUrl) {
-            itemUpdate.photo_url = priceResult.imageUrl;
-          }
+        if (updateErr) {
+          console.error(`[JustTCG] DB update failed for ${item.id}:`, updateErr.message);
+          continue;
+        }
 
-          const { error: updateErr } = await supabaseAdmin
-            .from("inventory_items")
-            .update(itemUpdate)
-            .eq("id", item.id)
-            .eq("user_id", userId);
+        pricedCount++;
 
-          if (updateErr) {
-            console.error(
-              `[JustTCG] Failed to update price for item ${item.id}: ${updateErr.message}`
-            );
-            continue;
-          }
-
-          console.log(`[JustTCG] Successfully updated price for item ${item.id}`);
-          pricedCount++;
-          const newPrice = priceResult.price;
-          const oldPrice = item.currentRawMarketPrice ?? null;
-          const { triggered } = oldPrice !== null
-            ? checkRepricingThreshold(newPrice, oldPrice, thr)
-            : { triggered: false };
-
+        const oldPrice = item.currentRawMarketPrice ?? null;
+        if (oldPrice !== null) {
+          const { triggered } = checkRepricingThreshold(priceResult.price, oldPrice, thr);
           if (triggered && item.labelStatus !== "needs_label") {
-            const { error: labelErr } = await supabaseAdmin
+            await supabaseAdmin
               .from("inventory_items")
               .update({ label_status: "needs_repricing" })
               .eq("id", item.id)
               .eq("user_id", userId);
-            if (labelErr) {
-              console.error(`[JustTCG] Failed to update label_status for item ${item.id}:`, labelErr.message);
-            }
           }
+        }
 
-          // FIX: Reconcile the fresh snapshot (seeded from CSV) with the live JustTCG price.
-          // If the snapshot was created within the last 5 minutes (i.e. just seeded by the
-          // approve_upload RPC), update it in-place so price history shows the real live price.
-          // Otherwise fall back to the weekly-staleness check to create a new snapshot.
-          const latestSnap = latestSnapshots.get(item.id);
-          const reconciled = await storage.reconcileFreshSnapshotWithLivePrice(
+        const latestSnap = latestSnapshots.get(item.id);
+        const reconciled = await storage.reconcileFreshSnapshotWithLivePrice(
+          userId,
+          latestSnap,
+          { rawMarketPrice: priceResult.price, roundedPrintPrice: Math.ceil(priceResult.price) },
+          now,
+          5 * 60 * 1000,
+        );
+
+        if (!reconciled) {
+          await storage.createWeeklySnapshotIfStale(
             userId,
+            item.id,
             latestSnap,
-            { rawMarketPrice: newPrice, roundedPrintPrice: Math.ceil(newPrice) },
+            { rawMarketPrice: priceResult.price, roundedPrintPrice: Math.ceil(priceResult.price), quantityAfterMerge: item.currentQuantity ?? 0 },
             now,
-            5 * 60 * 1000, // 5-minute freshness window
-          );
-
-          if (!reconciled) {
-            await storage.createWeeklySnapshotIfStale(
-              userId,
-              item.id,
-              latestSnap,
-              {
-                rawMarketPrice: newPrice,
-                roundedPrintPrice: Math.ceil(newPrice),
-                quantityAfterMerge: item.currentQuantity ?? 0,
-              },
-              now,
-            );
-          }
-        } catch (itemErr: any) {
-          console.error(
-            `[JustTCG] Failed to process item ${item.id} (${item.productName}):`,
-            itemErr.message
           );
         }
       }
@@ -221,7 +163,7 @@ export async function refreshInventoryPrices(
       }
     }
 
-    console.log(`[JustTCG] Priced ${pricedCount} items for user ${userId}`);
+    console.log(`[JustTCG] Priced ${pricedCount}/${itemsToPrice.length} items`);
     return pricedCount;
   } catch (err: any) {
     console.error("[JustTCG] refreshInventoryPrices error:", err.message);
@@ -500,31 +442,24 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
 
       const rpcNewItems = (payload.newItems || []).map((row: any) => {
         const parsed = parsedById.get(row.id);
-        const dbGame = (parsed as any)?.game;
-        const reviewGame = row.game;
-        const resolvedGame = dbGame || reviewGame || uploadLevelGame;
-        console.log(`[Game resolution] id=${row.id}, dbGame=${dbGame}, reviewGame=${reviewGame}, final=${resolvedGame}`);
+        const resolvedGame = (overrides[row.id] as any)?.game || (parsed as any)?.game || row.game || uploadLevelGame;
 
-        // FIX: extract photo_url from sourcePayload so it is stored on the inventory item
-        // even before JustTCG runs. Previously this was buried in sourcePayload and never
-        // forwarded to the inventory_items insert.
         let photoUrl: string | null = null;
         try {
           const src = JSON.parse(parsed?.sourcePayload || "{}");
           photoUrl = src._photoUrl || src["Photo URL"] || null;
         } catch {}
 
-        const finalGame = (overrides[row.id] as any)?.game || resolvedGame;
         const finalCondition = (overrides[row.id] as any)?.condition || row.condition;
         const finalPrice = (overrides[row.id] as any)?.rawMarketPrice ?? row.rawMarketPrice;
         const rawName = (row.productName ?? "").trim();
         const csvNumber = (row.number ?? "").trim();
-        const { cleanName, displaySuffix } = parseProductName(rawName, finalGame, csvNumber);
+        const { cleanName, displaySuffix } = parseProductName(rawName, resolvedGame, csvNumber);
 
         return {
           inventoryItemId: crypto.randomUUID(),
           parsedRowId: parsed?.id ?? null,
-          game: finalGame,
+          game: resolvedGame,
           productName: row.productName,
           number: row.number ?? null,
           condition: finalCondition ?? null,
@@ -535,34 +470,31 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           priceSource: "pending",
           normalizedMatchKey: parsed?.normalizedMatchKey ?? null,
           matchMetadataJson: JSON.stringify({
-            sourceProductId: parsed?.sourceProductId ?? null,
-            sourceTcgplayerSkuId: parsed?.sourceTcgplayerSkuId ?? null,
-            sourceSetName: parsed?.sourceSetName ?? null,
-            sourcePrinting: parsed?.sourcePrinting ?? null,
-            sourceProductLine: parsed?.sourceProductLine ?? null,
-            sourceRarity: parsed?.sourceRarity ?? null,
+            sourceProductId:       parsed?.sourceProductId ?? null,
+            sourceTcgplayerSkuId:  parsed?.sourceTcgplayerSkuId ?? null,
+            sourceSetName:         parsed?.sourceSetName ?? null,
+            sourcePrinting:        parsed?.sourcePrinting ?? null,
+            sourceProductLine:     parsed?.sourceProductLine ?? null,
+            sourceRarity:          parsed?.sourceRarity ?? null,
             cleanName,
             displaySuffix: displaySuffix ?? null,
           }),
-          sourceProductId: parsed?.sourceProductId ?? null,
+          sourceProductId:      parsed?.sourceProductId ?? null,
           sourceTcgplayerSkuId: parsed?.sourceTcgplayerSkuId ?? null,
-          // FIX: pass photo_url directly so the card image shows immediately after approve
           photoUrl,
         };
       });
 
       const rpcMatchedItems = (payload.matchedItems || []).map((match: any) => {
         const parsed = parsedById.get(match.rowId);
-        const dbGame = (parsed as any)?.game;
-        const reviewGame = match.game;
-        const resolvedGame = (overrides[match.rowId] as any)?.game || dbGame || reviewGame || uploadLevelGame;
+        const resolvedGame = (overrides[match.rowId] as any)?.game || (parsed as any)?.game || match.game || uploadLevelGame;
         return {
-          parsedRowId: parsed?.id ?? null,
-          existingId: match.existingId,
-          game: resolvedGame,
-          newQty: overrides[match.rowId]?.csvQty ?? match.csvQty ?? match.existingQty ?? 0,
+          parsedRowId:    parsed?.id ?? null,
+          existingId:     match.existingId,
+          game:           resolvedGame,
+          newQty:         overrides[match.rowId]?.csvQty ?? match.csvQty ?? match.existingQty ?? 0,
           csvMarketPrice: match.rawMarketPrice ?? null,
-          priceSource: "csv",
+          priceSource:    "csv",
         };
       });
 
@@ -570,24 +502,24 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         .map((candidate: any) => {
           const matched = (payload.matchedItems || []).find((m: any) => m.rowId === candidate.rowId);
           return {
-            existingId: matched?.existingId ?? null,
-            priorPrice: candidate.priorPrice ?? null,
-            newPrice: candidate.newPrice ?? null,
+            existingId:        matched?.existingId ?? null,
+            priorPrice:        candidate.priorPrice ?? null,
+            newPrice:          candidate.newPrice ?? null,
             roundedPrintPrice: candidate.roundedPrintPrice ?? null,
-            percentChange: parseFloat(candidate.percentChange) || null,
-            rule: candidate.rule ?? null,
+            percentChange:     parseFloat(candidate.percentChange) || null,
+            rule:              candidate.rule ?? null,
           };
         })
         .filter((r: any) => r.existingId !== null);
 
       const { error: rpcError } = await supabaseAdmin.rpc("approve_upload", {
-        p_user_id: userId,
-        p_upload_id: uploadId,
-        p_review_id: review.id,
-        p_new_items: rpcNewItems,
+        p_user_id:      userId,
+        p_upload_id:    uploadId,
+        p_review_id:    review.id,
+        p_new_items:    rpcNewItems,
         p_matched_items: rpcMatchedItems,
-        p_repricing: rpcRepricing,
-        p_now: now,
+        p_repricing:    rpcRepricing,
+        p_now:          now,
       });
 
       if (rpcError) {
@@ -615,11 +547,10 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           .neq("label_status", "needs_label");
       }
 
-      try {
-        await refreshInventoryPrices(userId, newItemIds, uploadLevelGame);
-      } catch (e: any) {
-        console.error('[approve] JustTCG enrichment failed — items remain price_source=pending:', e.message);
-      }
+      // Fire-and-forget: fetch live JustTCG prices for newly inserted items
+      refreshInventoryPrices(userId, newItemIds, uploadLevelGame).catch(e =>
+        console.error("[approve] JustTCG enrichment failed:", e.message)
+      );
 
       res.json({ success: true });
     } catch (e: any) {
