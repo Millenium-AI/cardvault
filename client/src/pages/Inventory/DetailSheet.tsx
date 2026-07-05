@@ -8,12 +8,7 @@ import { ConditionBadge } from "@/components/ConditionBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 
-// ── Shared card body used by both Sheet (list) and Modal (grid) ───────────────
-export function ItemDetailBody({
-  item, onClose,
-}: {
-  item: any; onClose: () => void;
-}) {
+// ── Shared card body ───────────────────────────────────────────────────────────────nexport function ItemDetailBody({ item, onClose }: { item: any; onClose: () => void }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
@@ -39,13 +34,14 @@ export function ItemDetailBody({
   return (
     <div className="overflow-y-auto flex-1">
       {item.photoUrl && (
-        <div className="w-full bg-muted/30 flex items-center justify-center py-6">
-          <img src={item.photoUrl} alt="" className="max-h-52 max-w-full object-contain rounded-lg" />
+        <div className="w-full bg-muted/30 flex items-center justify-center py-5">
+          <img src={item.photoUrl} alt=""
+            className="max-h-44 max-w-full object-contain rounded-lg" />
         </div>
       )}
-      <div className="p-5 space-y-4">
+      <div className="p-4 space-y-4">
         <div>
-          <div className="text-lg font-semibold text-foreground leading-tight pr-6">{item.productName}</div>
+          <div className="text-base font-semibold text-foreground leading-tight pr-6">{item.productName}</div>
           {item.number && <div className="text-xs text-muted-foreground mt-0.5">#{item.number}</div>}
         </div>
         {hasChips && (
@@ -63,8 +59,8 @@ export function ItemDetailBody({
         <div className="grid grid-cols-3 gap-2">
           {([
             { label: "Qty",    value: String(item.currentQuantity),                        highlight: false },
-            { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "—"}`, highlight: false },
-            { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "—"}`,           highlight: true  },
+            { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`, highlight: false },
+            { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,           highlight: true  },
           ] as const).map(({ label, value, highlight }) => (
             <div key={label} className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-center">
               <div className="text-[10px] text-muted-foreground">{label}</div>
@@ -72,7 +68,6 @@ export function ItemDetailBody({
             </div>
           ))}
         </div>
-        {/* Pass itemId so PriceHistory always works regardless of whether full item has identifiers */}
         <PriceHistory itemId={item.id} item={item} />
         {!editing && item.notes && (
           <div className="text-xs">
@@ -91,7 +86,7 @@ export function ItemDetailBody({
               <Button variant="outline" size="sm" disabled={deleteMut.isPending}
                 className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
                 onClick={handleDelete}>
-                <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
+                <Trash2 size={12} /> {deleteMut.isPending ? "Deleting\u2026" : "Delete"}
               </Button>
             </div>
             {item.tcgplayerUrl ? (
@@ -115,7 +110,6 @@ export function ItemDetailBody({
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 export function InventoryDetailSheet({ item, open, onClose }: { item: any; open: boolean; onClose: () => void }) {
-  useEffect(() => {}, [open]);
   if (!item) return null;
   return (
     <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -128,7 +122,6 @@ export function InventoryDetailSheet({ item, open, onClose }: { item: any; open:
 
 // ── Centred pop-out modal (grid views) ────────────────────────────────────────
 export function InventoryDetailModal({ item, open, onClose }: { item: any; open: boolean; onClose: () => void }) {
-  // Close on Escape
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
@@ -137,24 +130,37 @@ export function InventoryDetailModal({ item, open, onClose }: { item: any; open:
   }, [open, onClose]);
 
   if (!open || !item) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in-0 duration-150"
+        className="absolute inset-0 bg-black/65 backdrop-blur-sm animate-in fade-in-0 duration-150"
         onClick={onClose}
       />
-      {/* Panel */}
-      <div className="relative z-10 w-full sm:w-[440px] max-h-[92dvh] sm:max-h-[85dvh] flex flex-col rounded-t-2xl sm:rounded-2xl bg-card border border-border/60 shadow-2xl shadow-black/60 animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200 overflow-hidden">
-        {/* Drag handle (mobile) */}
-        <div className="flex items-center justify-between px-4 pt-3 pb-1 shrink-0">
-          <div className="sm:hidden mx-auto w-10 h-1 rounded-full bg-muted-foreground/30" />
+      {/* Panel — on mobile: full-width bottom sheet, on sm+: centered card */}
+      <div className="relative z-10 w-full sm:w-[440px]
+        max-h-[88dvh] sm:max-h-[82dvh]
+        flex flex-col
+        rounded-t-3xl sm:rounded-2xl
+        bg-card border border-border/50
+        shadow-2xl shadow-black/60
+        animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-250
+        overflow-hidden">
+
+        {/* ── Mobile drag handle + close ── */}
+        <div className="sm:hidden flex flex-col items-center pt-2.5 pb-1 shrink-0">
+          <div className="w-12 h-1 rounded-full bg-muted-foreground/25" />
+        </div>
+        {/* ── Desktop close button ── */}
+        <div className="hidden sm:flex items-center justify-end px-4 pt-3 pb-0 shrink-0">
           <button
             onClick={onClose}
-            className="hidden sm:flex ml-auto items-center justify-center h-7 w-7 rounded-full bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
+            className="flex items-center justify-center h-7 w-7 rounded-full bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
             <X size={14} />
           </button>
         </div>
+
         <ItemDetailBody item={item} onClose={onClose} />
       </div>
     </div>

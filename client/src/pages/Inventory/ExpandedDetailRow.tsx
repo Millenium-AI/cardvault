@@ -34,13 +34,7 @@ export function ExpandedDetail({
 
   return (
     <div className="rounded-xl border border-border bg-card/60 p-4 space-y-4" onClick={wrap}>
-      {/* Card image inside expanded row */}
-      {item.photoUrl && (
-        <div className="flex justify-center">
-          <img src={item.photoUrl} alt=""
-            className="max-h-40 max-w-[120px] object-contain rounded-lg" />
-        </div>
-      )}
+      {/* No duplicate image here — the row thumbnail already shows the card art */}
 
       {hasChips && (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -72,7 +66,7 @@ export function ExpandedDetail({
               disabled={deleteMut.isPending}
               className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
               onClick={handleDelete}>
-              <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
+              <Trash2 size={12} /> {deleteMut.isPending ? "Deleting\u2026" : "Delete"}
             </Button>
           </div>
           {item.tcgplayerUrl ? (

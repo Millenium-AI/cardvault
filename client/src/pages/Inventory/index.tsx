@@ -123,17 +123,20 @@ export default function Inventory() {
 
   function openSheet(item: any) { setSheetItem(item); setSheetOpen(true); }
   const liveSheetItem = sheetItem ? (items.find((i: any) => i.id === sheetItem.id) ?? sheetItem) : null;
-  const emptyMsg = "No inventory — upload a CSV to get started";
+  const emptyMsg = "No inventory \u2014 upload a CSV to get started";
   const activeFilterCount = [game !== "all", condition !== "all", sortBy !== "name", labelFilter !== "all"].filter(Boolean).length;
 
   const isGridMode = viewMode === "grid-sm" || viewMode === "grid-lg";
 
-  const labelPills = ([
-    { key: "all",             label: "All",             count: items.length,                 cls: undefined as string | undefined },
+  // Label filter options — used by both mobile dropdown and desktop pills
+  const labelOptions = [
+    { key: "all",             label: "All Items",       count: items.length,                 cls: undefined as string | undefined },
     { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     cls: "text-amber-400" },
-    { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, cls: "text-blue-400" },
+    { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, cls: "text-blue-400"  },
     { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   cls: "text-green-400" },
-  ] as const);
+  ] as const;
+
+  const activeLabelOption = labelOptions.find(o => o.key === labelFilter) ?? labelOptions[0];
 
   return (
     <div>
@@ -153,10 +156,11 @@ export default function Inventory() {
 
       {/* ── MOBILE FILTER BAR ─────────────────────────────────────── */}
       <div className="md:hidden space-y-2 mb-3">
+        {/* Row 1: search + action buttons */}
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input data-testid="input-search" placeholder="Search cards…" value={search}
+            <Input data-testid="input-search" placeholder="Search cards\u2026" value={search}
               onChange={e => setSearch(e.target.value)} className="pl-7 h-9 text-sm w-full" />
           </div>
           <button onClick={() => setFilterOpen(o => !o)}
@@ -183,14 +187,16 @@ export default function Inventory() {
             <CheckSquare size={14} />
           </Button>
         </div>
+
+        {/* Row 2: expandable filter grid (game / condition / sort / label as selects) */}
         {filterOpen && (
           <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
             <Select value={game} onValueChange={setSelectedGame}>
               <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Game" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Games</SelectItem>
-                <SelectItem value="pokemon">Pokémon</SelectItem>
-                <SelectItem value="pokemon-jp">Pokémon JP</SelectItem>
+                <SelectItem value="pokemon">Pok\u00e9mon</SelectItem>
+                <SelectItem value="pokemon-jp">Pok\u00e9mon JP</SelectItem>
                 <SelectItem value="one-piece">One Piece</SelectItem>
                 <SelectItem value="sorcery">Sorcery</SelectItem>
                 <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
@@ -219,36 +225,55 @@ export default function Inventory() {
                 <SelectItem value="name">Name A-Z</SelectItem>
               </SelectContent>
             </Select>
+            {/* Label filter as a select — replaces the pill row */}
             <Select value={labelFilter} onValueChange={v => setLabelFilter(v as LabelFilter)}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Label status" /></SelectTrigger>
+              <SelectTrigger className={cn(
+                "h-8 text-xs",
+                labelFilter !== "all" && "border-primary/40 text-primary"
+              )}>
+                <SelectValue>
+                  <span className="flex items-center gap-1.5">
+                    <span>{activeLabelOption.label}</span>
+                    <span className={cn("font-mono tabular-nums text-[10px]", activeLabelOption.cls ?? "text-muted-foreground")}>
+                      {activeLabelOption.count}
+                    </span>
+                  </span>
+                </SelectValue>
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Labels</SelectItem>
-                <SelectItem value="needs_label">Needs Label</SelectItem>
-                <SelectItem value="needs_repricing">Needs Repricing</SelectItem>
-                <SelectItem value="label_created">Label Created</SelectItem>
+                {labelOptions.map(opt => (
+                  <SelectItem key={opt.key} value={opt.key}>
+                    <span className="flex items-center gap-2">
+                      <span>{opt.label}</span>
+                      <span className={cn("font-mono tabular-nums text-[10px] ml-auto", opt.cls ?? "text-muted-foreground")}>
+                        {opt.count}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
         )}
-        {/* Pills row: scroll independently, ViewModeToggle pinned outside */}
-        <div className="flex items-center gap-1.5">
-          <div className="flex items-center gap-1.5 overflow-x-auto flex-1 pb-0.5 no-scrollbar">
-            {labelPills.map(({ key, label, count, cls }) => (
-              <button key={key} onClick={() => setLabelFilter(key as LabelFilter)}
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0",
-                  labelFilter === key
-                    ? "border-primary bg-primary/15 text-primary"
-                    : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                )}>
-                <span>{label}</span>
-                <span className={cn("font-mono tabular-nums", labelFilter === key ? "text-primary" : (cls || "text-muted-foreground"))}>{count}</span>
-              </button>
-            ))}
-          </div>
-          <div className="shrink-0 pl-1">
-            <ViewModeToggle value={viewMode} onChange={handleViewMode} />
-          </div>
+
+        {/* Row 3: active label chip (compact summary) + ViewModeToggle */}
+        <div className="flex items-center justify-between gap-2">
+          {/* Shows the active label filter as a dismissible chip when not "all" */}
+          {labelFilter !== "all" ? (
+            <button
+              onClick={() => setLabelFilter("all")}
+              className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
+            >
+              <span>{activeLabelOption.label}</span>
+              <span className="font-mono tabular-nums text-[10px]">{activeLabelOption.count}</span>
+              <span className="text-primary/60 ml-0.5">\u00d7</span>
+            </button>
+          ) : (
+            <div className="text-[11px] text-muted-foreground font-mono">
+              {sorted.length} items
+            </div>
+          )}
+          <ViewModeToggle value={viewMode} onChange={handleViewMode} />
         </div>
       </div>
 
@@ -257,15 +282,15 @@ export default function Inventory() {
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <div className="relative flex-1 min-w-[150px] max-w-[260px]">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input data-testid="input-search" placeholder="Search cards…" value={search}
+            <Input data-testid="input-search" placeholder="Search cards\u2026" value={search}
               onChange={e => setSearch(e.target.value)} className="pl-7 h-9 text-sm" />
           </div>
           <Select value={game} onValueChange={setSelectedGame}>
             <SelectTrigger data-testid="select-filter-game" className="w-[120px] h-9 text-xs"><SelectValue placeholder="Game" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Games</SelectItem>
-              <SelectItem value="pokemon">Pokémon</SelectItem>
-              <SelectItem value="pokemon-jp">Pokémon JP</SelectItem>
+              <SelectItem value="pokemon">Pok\u00e9mon</SelectItem>
+              <SelectItem value="pokemon-jp">Pok\u00e9mon JP</SelectItem>
               <SelectItem value="one-piece">One Piece</SelectItem>
               <SelectItem value="sorcery">Sorcery</SelectItem>
               <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
@@ -297,7 +322,7 @@ export default function Inventory() {
           <Button size="sm" variant="outline" className="h-9 px-3 text-xs gap-1.5"
             onClick={handleRefreshPrices} disabled={refreshing}>
             <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
-            {refreshing ? "Refreshing…" : "Refresh Prices"}
+            {refreshing ? "Refreshing\u2026" : "Refresh Prices"}
           </Button>
           <Button data-testid="button-bulk-edit" size="sm"
             variant={selectMode ? "default" : "outline"} className="h-9 px-3 text-xs gap-1.5"
@@ -306,7 +331,7 @@ export default function Inventory() {
           </Button>
         </div>
         <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-          {labelPills.map(({ key, label, count, cls }) => (
+          {labelOptions.map(({ key, label, count, cls }) => (
             <button key={key} onClick={() => setLabelFilter(key as LabelFilter)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                 labelFilter === key ? "border-primary bg-primary/15 text-primary" : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
@@ -322,7 +347,7 @@ export default function Inventory() {
               className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
               onClick={() => setExportOpen(prev => !prev)} disabled={exportMut.isPending}>
               <Download size={13} />
-              {exportMut.isPending ? "Exporting…" : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
+              {exportMut.isPending ? "Exporting\u2026" : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
               <ChevronDown size={12} className={`transition-transform ${exportOpen ? "rotate-180" : ""}`} />
             </Button>
             {exportOpen && (
@@ -437,7 +462,7 @@ export default function Inventory() {
             </div>
       )}
 
-      {/* Detail panel: sidebar for list, pop-out modal for grid */}
+      {/* Detail panel */}
       {isGridMode ? (
         <InventoryDetailModal item={liveSheetItem} open={sheetOpen}
           onClose={() => { setSheetOpen(false); setSheetItem(null); }} />
