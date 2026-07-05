@@ -41,7 +41,10 @@ export function ExpandedDetail({
           {meta.sourceRarity && <Chip>{meta.sourceRarity}</Chip>}
         </div>
       )}
-      <PriceHistory itemId={item.id} />
+
+      {/* Pass full item — PriceHistory needs justtcgVariantUuid + sourceProductId */}
+      <PriceHistory item={item} />
+
       {!editing && item.notes && (
         <div className="text-xs">
           <span className="text-muted-foreground">Notes: </span>
