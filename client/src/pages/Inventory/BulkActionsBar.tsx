@@ -43,7 +43,12 @@ export function BulkActionBar({
   }
 
   return (
-    <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-2 duration-200">
+    // On mobile: sit above the 56px tab bar + safe-area-inset-bottom.
+    // On md+: no tab bar, so bottom-5 (20px) is fine.
+    <div
+      className="fixed left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-2 duration-200 md:bottom-5"
+      style={{ bottom: "calc(56px + env(safe-area-inset-bottom) + 8px)" }}
+    >
       <div className="flex items-center gap-3 rounded-2xl border border-border/80 bg-card/95 backdrop-blur-md shadow-2xl shadow-black/40 ring-1 ring-white/5 px-4 py-3">
         <button onClick={allSelected ? onDeselectAll : onSelectAll}
           className="flex items-center gap-1.5 text-muted-foreground hover:text-primary transition-colors shrink-0"
