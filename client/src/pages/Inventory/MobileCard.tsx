@@ -50,7 +50,6 @@ export function MobileInventoryCard({
           )}
         </div>
 
-        {/* Card image — no crossOrigin */}
         {item.photoUrl ? (
           <img src={item.photoUrl} alt=""
             className="w-9 h-[50px] rounded object-contain bg-muted shrink-0" />
@@ -79,11 +78,11 @@ export function MobileInventoryCard({
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Mkt</span>
-              <span className="text-xs font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+              <span className="text-xs font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Print</span>
-              <span className="text-xs font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
+              <span className="text-xs font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "\u2014"}</span>
             </div>
             {item.labelStatus && item.labelStatus !== "label_created" && (
               <LabelStatusBadge status={item.labelStatus} />
@@ -95,6 +94,8 @@ export function MobileInventoryCard({
       {expanded && !selectMode && (
         <div className="px-3 pb-3">
           <ExpandedDetail item={item} meta={meta} editing={editing} setEditing={setEditing} stopProp />
+          {/* Spacer so the last expanded card isn’t hidden under the floating nav */}
+          <div className="h-[calc(72px+env(safe-area-inset-bottom,0px))] md:hidden" />
         </div>
       )}
     </div>
