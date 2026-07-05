@@ -42,6 +42,40 @@
     --sidebar-border: 0 0% 10%;
     --sidebar-hover: 0 0% 8%;
     --sidebar-active: 0 0% 11%;
+
+    /* Condition badge colors — overridable via JS (useUserPrefs) */
+    --badge-near-mint-color:         #34d399;
+    --badge-lightly-played-color:    #4ade80;
+    --badge-moderately-played-color: #facc15;
+    --badge-heavily-played-color:    #f87171;
+    --badge-damaged-color:           #ef4444;
+  }
+
+  /* Light theme overrides */
+  html.light {
+    --background: 0 0% 98%;
+    --foreground: 0 0% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 142 60% 35%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 94%;
+    --secondary-foreground: 0 0% 20%;
+    --muted: 0 0% 95%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 93%;
+    --accent-foreground: 0 0% 10%;
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 86%;
+    --input: 0 0% 86%;
+    --ring: 142 60% 35%;
+    --sidebar-bg: 0 0% 96%;
+    --sidebar-border: 0 0% 88%;
+    --sidebar-hover: 0 0% 90%;
+    --sidebar-active: 0 0% 88%;
   }
 }
 
@@ -55,6 +89,12 @@ body {
   overscroll-behavior: none;
   -webkit-overflow-scrolling: auto;
   touch-action: manipulation;
+}
+
+/* Body scroll lock when modal open */
+body.modal-open {
+  overflow: hidden !important;
+  touch-action: none;
 }
 
 @layer base {
@@ -88,13 +128,16 @@ body {
   .page-title {
     @apply text-xl font-semibold text-foreground;
   }
-  /* Condition badges — green tones for good conditions, red for bad */
-  .badge-nm { @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/25; }
-  .badge-lp { @apply bg-green-600/15 text-green-400 border border-green-600/25; }
-  .badge-mp { @apply bg-yellow-600/15 text-yellow-400 border border-yellow-600/25; }
-  .badge-hp { @apply bg-red-500/15 text-red-400 border border-red-500/25; }
-  .badge-d  { @apply bg-red-700/20 text-red-400 border border-red-700/30; }
+  /* Condition badges — now driven by CSS custom properties set via useUserPrefs */
+  .badge-nm { background: color-mix(in srgb, var(--badge-near-mint-color) 15%, transparent); color: var(--badge-near-mint-color); border: 1px solid color-mix(in srgb, var(--badge-near-mint-color) 30%, transparent); }
+  .badge-lp { background: color-mix(in srgb, var(--badge-lightly-played-color) 15%, transparent); color: var(--badge-lightly-played-color); border: 1px solid color-mix(in srgb, var(--badge-lightly-played-color) 30%, transparent); }
+  .badge-mp { background: color-mix(in srgb, var(--badge-moderately-played-color) 15%, transparent); color: var(--badge-moderately-played-color); border: 1px solid color-mix(in srgb, var(--badge-moderately-played-color) 30%, transparent); }
+  .badge-hp { background: color-mix(in srgb, var(--badge-heavily-played-color) 15%, transparent); color: var(--badge-heavily-played-color); border: 1px solid color-mix(in srgb, var(--badge-heavily-played-color) 30%, transparent); }
+  .badge-d  { background: color-mix(in srgb, var(--badge-damaged-color) 20%, transparent); color: var(--badge-damaged-color); border: 1px solid color-mix(in srgb, var(--badge-damaged-color) 35%, transparent); }
   .price-up { @apply text-emerald-400; }
   .price-down { @apply text-red-400; }
   .table-row-hover { @apply hover:bg-accent/40 transition-colors; }
+  /* Hide scrollbar but keep scrolling */
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 }

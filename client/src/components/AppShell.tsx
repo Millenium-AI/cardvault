@@ -1,11 +1,12 @@
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard, Upload, Package,
-  Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, User,
+  Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/AuthContext";
+import { useUserPrefs } from "@/lib/useUserPrefs";
 
 // Bottom nav excludes Settings — that lives in the avatar dropdown
 const bottomNav = [
@@ -51,7 +52,7 @@ function isActive(href: string, location: string) {
   return href === "/" ? location === "/" : location.startsWith(href);
 }
 
-// ── Logo SVG ──────────────────────────────────────────────────────────────────
+// ── Logo SVG ───────────────────────────────────────────────────────────────────────────────
 function Logo({ size = 28 }: { size?: number }) {
   return (
     <svg viewBox="0 0 28 28" fill="none" style={{ width: size, height: size }} aria-label="CardVault">
@@ -65,7 +66,7 @@ function Logo({ size = 28 }: { size?: number }) {
   );
 }
 
-// ── Desktop sidebar nav item ──────────────────────────────────────────────────
+// ── Desktop sidebar nav item ────────────────────────────────────────────────────────────
 function SideNavItem({ href, label, icon: Icon, collapsed }: {
   href: string; label: string; icon: any; collapsed: boolean;
 }) {
@@ -90,7 +91,7 @@ function SideNavItem({ href, label, icon: Icon, collapsed }: {
   );
 }
 
-// ── Mobile floating bottom nav item ──────────────────────────────────────────
+// ── Mobile floating bottom nav item ───────────────────────────────────────────────────
 function BottomNavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
   const [location] = useLocation();
   const active = isActive(href, location);
@@ -122,37 +123,32 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
 
 // ── Avatar dropdown — fixed-positioned so it never clips under the header ────
 function AvatarMenu({
-  user, isAdmin, avatarRef, onClose, onSignOut,
+  user, isAdmin, avatarRef, onClose, onSignOut, theme, onToggleTheme,
 }: {
   user: any; isAdmin: boolean; avatarRef: React.RefObject<HTMLButtonElement>;
   onClose: () => void; onSignOut: () => void;
+  theme: "dark" | "light"; onToggleTheme: () => void;
 }) {
   const [pos, setPos] = useState({ top: 0, right: 0 });
 
-  // Calculate position from the avatar button's bounding rect
   useEffect(() => {
     if (!avatarRef.current) return;
     const r = avatarRef.current.getBoundingClientRect();
-    setPos({
-      top:   r.bottom + 8,
-      right: window.innerWidth - r.right,
-    });
+    setPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
   }, [avatarRef]);
 
-  // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (avatarRef.current?.contains(e.target as Node)) return;
       onClose();
     }
-    // slight delay so the button's own onClick doesn't immediately re-close
     const t = setTimeout(() => document.addEventListener("mousedown", handler), 10);
     return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
   }, [avatarRef, onClose]);
 
   return (
     <div
-      className="fixed z-[200] w-56 rounded-2xl border border-border/50 bg-card/95 backdrop-blur-2xl shadow-2xl shadow-black/50 overflow-hidden animate-in fade-in-0 slide-in-from-top-2 duration-150"
+      className="fixed z-[200] w-60 rounded-2xl border border-border/50 bg-card/95 backdrop-blur-2xl shadow-2xl shadow-black/50 overflow-hidden animate-in fade-in-0 slide-in-from-top-2 duration-150"
       style={{ top: pos.top, right: pos.right }}
     >
       {/* User identity */}
@@ -178,6 +174,7 @@ function AvatarMenu({
 
       {/* Menu items */}
       <div className="py-1.5 px-1.5 space-y-0.5">
+        {/* Settings — works with hash router */}
         <Link href="/settings">
           <a
             onClick={onClose}
@@ -187,6 +184,7 @@ function AvatarMenu({
             <span>Settings</span>
           </a>
         </Link>
+
         {isAdmin && (
           <Link href="/admin">
             <a
@@ -198,9 +196,23 @@ function AvatarMenu({
             </a>
           </Link>
         )}
+
+        {/* Theme toggle */}
+        <button
+          onClick={onToggleTheme}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors"
+        >
+          {theme === "dark"
+            ? <Sun size={14} className="text-muted-foreground shrink-0" />
+            : <Moon size={14} className="text-muted-foreground shrink-0" />}
+          <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+          <span className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">
+            {theme === "dark" ? "OFF" : "ON"}
+          </span>
+        </button>
       </div>
 
-      {/* Sign out — separated with a divider */}
+      {/* Sign out */}
       <div className="border-t border-border/40 py-1.5 px-1.5">
         <button
           data-testid="mobile-button-sign-out"
@@ -215,7 +227,7 @@ function AvatarMenu({
   );
 }
 
-// ── AppShell ─────────────────────────────────────────────────────────────────
+// ── AppShell ──────────────────────────────────────────────────────────────────────
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== "undefined" && window.innerWidth < 1024
@@ -224,6 +236,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const avatarRef = useRef<HTMLButtonElement>(null);
   const [location] = useLocation();
   const { signOut, user, isAdmin } = useAuth();
+  const { theme, setTheme } = useUserPrefs();
 
   const pageTitle    = PAGE_TITLES[location]    ?? "CardVault";
   const pageSubtitle = PAGE_SUBTITLES[location] ?? "";
@@ -234,7 +247,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       className="flex h-dvh overflow-hidden bg-background"
       style={{ paddingTop: isStandalone ? "env(safe-area-inset-top)" : "0px" }}
     >
-      {/* ── Desktop sidebar ──────────────────────────────────────────────── */}
+      {/* ── Desktop sidebar ─────────────────────────────────────────────── */}
       <aside className={cn(
         "hidden md:flex flex-col shrink-0 transition-all duration-200 border-r",
         "border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-bg))]",
@@ -258,6 +271,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </nav>
         <div className="border-t border-[hsl(var(--sidebar-border))] px-2 py-2">
+          {/* Theme toggle in desktop sidebar */}
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className={cn(
+              "w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-colors mb-1",
+              "text-muted-foreground hover:text-foreground hover:bg-accent",
+              collapsed && "justify-center px-2"
+            )}
+          >
+            {theme === "dark"
+              ? <Sun size={15} className="shrink-0" />
+              : <Moon size={15} className="shrink-0" />}
+            {!collapsed && <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
+          </button>
           {!collapsed && user && (
             <p className="text-[10px] text-muted-foreground truncate px-2 pb-1.5">{user.email}</p>
           )}
@@ -287,10 +314,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </aside>
 
-      {/* ── Main column ──────────────────────────────────────────────────── */}
+      {/* ── Main column ──────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
-        {/* ── Mobile header ─────────────────────────────────────────────── */}
+        {/* ── Mobile header ───────────────────────────────────────────────────── */}
         <header
           className="md:hidden shrink-0 flex items-center px-4 gap-3 border-b border-white/[0.06]"
           style={{
@@ -301,13 +328,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             paddingBottom: "14px",
           }}
         >
-          {/* Left: logo mark + page identity */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            {/* Logo badge */}
             <div className="shrink-0 w-9 h-9 rounded-xl bg-primary/15 border border-primary/20 flex items-center justify-center">
               <Logo size={22} />
             </div>
-            {/* Page title + sub-label */}
             <div className="min-w-0 flex-1">
               <div className="text-[15px] font-bold tracking-tight text-foreground leading-tight truncate">
                 {pageTitle}
@@ -320,7 +344,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Right: avatar button */}
           <button
             ref={avatarRef}
             onClick={() => setAvatarOpen(o => !o)}
@@ -337,7 +360,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </header>
 
-        {/* Avatar dropdown — rendered outside header so it layers correctly */}
+        {/* Avatar dropdown */}
         {avatarOpen && (
           <AvatarMenu
             user={user}
@@ -345,10 +368,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             avatarRef={avatarRef}
             onClose={() => setAvatarOpen(false)}
             onSignOut={() => { signOut(); setAvatarOpen(false); }}
+            theme={theme}
+            onToggleTheme={() => {
+              setTheme(theme === "dark" ? "light" : "dark");
+            }}
           />
         )}
 
-        {/* ── Scrollable content ─────────────────────────────────────────────── */}
+        {/* ── Scrollable content ────────────────────────────────────────────────────── */}
         <main
           className="flex-1 overflow-y-auto"
           style={{
@@ -361,7 +388,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
-        {/* ── Floating pill bottom nav (mobile, 4 items) ─────────────────────── */}
+        {/* ── Floating pill bottom nav ────────────────────────────────────────────────────── */}
         <div
           className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
           style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)" }}

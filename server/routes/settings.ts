@@ -49,6 +49,35 @@ export function registerSettingsRoutes(app: Express) {
     }
   });
 
+  // ── User preferences (theme + condition colors) ───────────────────────────
+  app.get("/api/settings/user-prefs", async (req: any, res) => {
+    try {
+      const raw = await storage.getSetting(req.user.id, "user_prefs");
+      if (!raw) return res.json({ theme: "dark", conditionColors: {} });
+      try {
+        return res.json(JSON.parse(raw));
+      } catch {
+        return res.json({ theme: "dark", conditionColors: {} });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/settings/user-prefs", async (req: any, res) => {
+    try {
+      const { theme, conditionColors } = req.body;
+      const current: any = (() => {
+        try { return JSON.parse(""); } catch { return {}; }
+      })();
+      const next = { ...current, theme, conditionColors };
+      await storage.setSetting(req.user.id, "user_prefs", JSON.stringify(next));
+      res.json(next);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/settings/presets", (_req, res) => {
     res.json({
       tcgplayer: {

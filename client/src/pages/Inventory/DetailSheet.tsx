@@ -8,7 +8,7 @@ import { ConditionBadge } from "@/components/ConditionBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 
-// ── Shared card body ─────────────────────────────────────────────────────────────
+// ── Shared card body ───────────────────────────────────────────────────────────────────────
 export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => void }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
@@ -60,8 +60,8 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
         <div className="grid grid-cols-3 gap-2">
           {([
             { label: "Qty",    value: String(item.currentQuantity),                        highlight: false },
-            { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`, highlight: false },
-            { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,           highlight: true  },
+            { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "—"}`, highlight: false },
+            { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "—"}`,           highlight: true  },
           ] as const).map(({ label, value, highlight }) => (
             <div key={label} className="rounded-lg border border-border bg-muted/30 px-2.5 py-2 text-center">
               <div className="text-[10px] text-muted-foreground">{label}</div>
@@ -87,7 +87,7 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
               <Button variant="outline" size="sm" disabled={deleteMut.isPending}
                 className="h-8 text-xs gap-1.5 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
                 onClick={handleDelete}>
-                <Trash2 size={12} /> {deleteMut.isPending ? "Deleting\u2026" : "Delete"}
+                <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
               </Button>
             </div>
             {item.tcgplayerUrl ? (
@@ -107,7 +107,7 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
   );
 }
 
-// ── Sidebar sheet (list view) ─────────────────────────────────────────────────
+// ── Sidebar sheet (list view) ──────────────────────────────────────────────────────────────────
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 export function InventoryDetailSheet({ item, open, onClose }: { item: any; open: boolean; onClose: () => void }) {
@@ -121,8 +121,15 @@ export function InventoryDetailSheet({ item, open, onClose }: { item: any; open:
   );
 }
 
-// ── Centred pop-out modal (grid views) ────────────────────────────────────────
+// ── Centred pop-out modal (grid views) ──────────────────────────────────────────────────────
 export function InventoryDetailModal({ item, open, onClose }: { item: any; open: boolean; onClose: () => void }) {
+  // Lock body scroll when modal is open (prevents inventory scrolling behind)
+  useEffect(() => {
+    if (!open) return;
+    document.body.classList.add("modal-open");
+    return () => document.body.classList.remove("modal-open");
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
@@ -133,27 +140,34 @@ export function InventoryDetailModal({ item, open, onClose }: { item: any; open:
   if (!open || !item) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    // z-[60] ensures we sit above the bottom nav (z-50) and sidebar (no z set)
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/65 backdrop-blur-sm animate-in fade-in-0 duration-150"
         onClick={onClose}
       />
-      {/* Panel — on mobile: full-width bottom sheet, on sm+: centered card */}
-      <div className="relative z-10 w-full sm:w-[440px]
-        max-h-[88dvh] sm:max-h-[82dvh]
-        flex flex-col
-        rounded-t-3xl sm:rounded-2xl
-        bg-card border border-border/50
-        shadow-2xl shadow-black/60
-        animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-250
-        overflow-hidden">
-
-        {/* ── Mobile drag handle + close ── */}
+      {/* Panel — on mobile: full-width bottom sheet that clears the nav bar */}
+      <div
+        className="relative z-10 w-full sm:w-[440px] flex flex-col rounded-t-3xl sm:rounded-2xl bg-card border border-border/50 shadow-2xl shadow-black/60 animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-250 overflow-hidden"
+        style={{
+          // On mobile, leave room for the bottom nav bar (~72px) + safe area
+          maxHeight: "calc(88dvh - env(safe-area-inset-bottom, 0px))",
+        }}
+      >
+        {/* Mobile drag handle */}
         <div className="sm:hidden flex flex-col items-center pt-2.5 pb-1 shrink-0">
           <div className="w-12 h-1 rounded-full bg-muted-foreground/25" />
         </div>
-        {/* ── Desktop close button ── */}
+        {/* Mobile close button */}
+        <div className="sm:hidden flex items-center justify-end px-4 pt-1 pb-0 shrink-0">
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center h-7 w-7 rounded-full bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+        {/* Desktop close button */}
         <div className="hidden sm:flex items-center justify-end px-4 pt-3 pb-0 shrink-0">
           <button
             onClick={onClose}
