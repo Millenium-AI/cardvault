@@ -1,14 +1,13 @@
 import { useState, useRef, useEffect } from "react";
-import { Search, ChevronDown, CheckSquare, Square, Download, SlidersHorizontal } from "lucide-react";
+import { Search, ChevronDown, CheckSquare, Square, Download, SlidersHorizontal, RefreshCw } from "lucide-react";
 import { useGameParam } from "@/lib/useGameParam";
-import { gameLabel } from "@shared/gameLabels";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useInventoryList, useColumnOrder } from "./hooks/useInventoryQueries";
 import { useLabelsExportMutation, useColumnOrderMutation } from "./hooks/useInventoryMutations";
 import { DEFAULT_COLUMN_ORDER, mergeColumnOrder, moveColumn, ColumnKey, COLUMN_LABELS, LabelFilter, ViewMode } from "./constants";
@@ -30,6 +29,7 @@ export default function Inventory() {
   const [labelFilter, setLabelFilter] = useState<LabelFilter>("all");
   const [exportOpen, setExportOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -42,7 +42,6 @@ export default function Inventory() {
   const [sheetItem, setSheetItem] = useState<any>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  // Load column settings
   const columnQuery = useColumnOrder();
   useEffect(() => {
     if (columnQuery.data?.order && Array.isArray(columnQuery.data.order)) {
@@ -50,14 +49,25 @@ export default function Inventory() {
     }
   }, [columnQuery.data?.order]);
 
-  // Fetch inventory data
   const { data: items = [], isLoading } = useInventoryList(game, condition, search);
 
-  // Mutations
   const columnMut = useColumnOrderMutation();
   const exportMut = useLabelsExportMutation();
 
-  // Handlers
+  async function handleRefreshPrices() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await apiRequest("POST", "/api/prices/refresh");
+      await queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      toast({ title: "Prices refreshed", description: "Market prices updated." });
+    } catch {
+      toast({ title: "Refresh failed", description: "Could not refresh prices.", variant: "destructive" });
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   function handleViewMode(v: ViewMode) {
     setViewMode(v);
     try { localStorage.setItem("inventory-view-mode", v); } catch { }
@@ -85,7 +95,6 @@ export default function Inventory() {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
-  // Data processing
   const sortedAll = [...items].sort((a: any, b: any) => {
     if (sortBy === "price")    return (b.currentRawMarketPrice || 0) - (a.currentRawMarketPrice || 0);
     if (sortBy === "quantity") return b.currentQuantity - a.currentQuantity;
@@ -105,12 +114,11 @@ export default function Inventory() {
   const totalValue = items.reduce((s: number, i: any) => s + (i.currentRawMarketPrice || 0) * i.currentQuantity, 0);
   const totalUnits = items.reduce((s: number, i: any) => s + i.currentQuantity, 0);
 
-  // Selection handlers
   function handleSelect(id: string, checked: boolean) {
     setSelectedIds(prev => { const next = new Set(prev); checked ? next.add(id) : next.delete(id); return next; });
   }
-  function selectAll()     { setSelectedIds(new Set(sorted.map((i: any) => i.id))); }
-  function deselectAll()   { setSelectedIds(new Set()); }
+  function selectAll()      { setSelectedIds(new Set(sorted.map((i: any) => i.id))); }
+  function deselectAll()    { setSelectedIds(new Set()); }
   function exitSelectMode() { setSelectMode(false); setSelectedIds(new Set()); }
   const someSelected = selectedIds.size > 0;
 
@@ -118,6 +126,14 @@ export default function Inventory() {
   const liveSheetItem = sheetItem ? (items.find((i: any) => i.id === sheetItem.id) ?? sheetItem) : null;
   const emptyMsg = "No inventory — upload a CSV to get started";
   const activeFilterCount = [game !== "all", condition !== "all", sortBy !== "name", labelFilter !== "all"].filter(Boolean).length;
+
+  // Label filter pills (shared between mobile + desktop)
+  const labelPills = ([
+    { key: "all",             label: "All",             count: items.length,                 cls: undefined as string | undefined },
+    { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     cls: "text-amber-400" },
+    { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, cls: "text-blue-400" },
+    { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   cls: "text-green-400" },
+  ] as const);
 
   return (
     <div>
@@ -135,8 +151,9 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* MOBILE FILTER BAR */}
+      {/* ── MOBILE FILTER BAR ─────────────────────────────────────────────── */}
       <div className="md:hidden space-y-2 mb-3">
+        {/* Row 1: search + filter toggle + bulk + refresh */}
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -150,12 +167,18 @@ export default function Inventory() {
                 ? "border-primary/50 bg-primary/10 text-primary"
                 : "border-border text-muted-foreground hover:text-foreground"
             )}>
-            <SlidersHorizontal size={13} />Filters
+            <SlidersHorizontal size={13} />
             {activeFilterCount > 0 && (
-              <span className="ml-0.5 flex items-center justify-center w-4 h-4 rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+              <span className="flex items-center justify-center w-4 h-4 rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
                 {activeFilterCount}
               </span>
             )}
+          </button>
+          <button
+            onClick={handleRefreshPrices} disabled={refreshing}
+            title="Refresh prices"
+            className="flex items-center justify-center h-9 w-9 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors shrink-0 disabled:opacity-50">
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
           </button>
           <Button data-testid="button-bulk-edit" size="sm"
             variant={selectMode ? "default" : "outline"} className="h-9 px-3 text-xs shrink-0"
@@ -164,6 +187,7 @@ export default function Inventory() {
           </Button>
         </div>
 
+        {/* Filter panel */}
         {filterOpen && (
           <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
             <Select value={game} onValueChange={setSelectedGame}>
@@ -212,31 +236,30 @@ export default function Inventory() {
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
-          {([
-            { key: "all",             label: "All",             count: items.length },
-            { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     cls: "text-amber-400" },
-            { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, cls: "text-blue-400" },
-            { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   cls: "text-green-400" },
-          ] as const).map(({ key, label, count, cls }: any) => (
-            <button key={key} onClick={() => setLabelFilter(key as LabelFilter)}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0",
-                labelFilter === key
-                  ? "border-primary bg-primary/15 text-primary"
-                  : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
-              )}>
-              <span>{label}</span>
-              <span className={cn("font-mono tabular-nums", labelFilter === key ? "text-primary" : (cls || "text-muted-foreground"))}>{count}</span>
-            </button>
-          ))}
-          <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        {/* Row 2: label filter pills — ViewModeToggle sits OUTSIDE the scroll container so it's always visible */}
+        <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto flex-1 pb-0.5 no-scrollbar">
+            {labelPills.map(({ key, label, count, cls }) => (
+              <button key={key} onClick={() => setLabelFilter(key as LabelFilter)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0",
+                  labelFilter === key
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                )}>
+                <span>{label}</span>
+                <span className={cn("font-mono tabular-nums", labelFilter === key ? "text-primary" : (cls || "text-muted-foreground"))}>{count}</span>
+              </button>
+            ))}
+          </div>
+          {/* ViewModeToggle: fixed outside scroll so it's always visible */}
+          <div className="shrink-0 pl-1">
             <ViewModeToggle value={viewMode} onChange={handleViewMode} />
           </div>
         </div>
       </div>
 
-      {/* DESKTOP FILTER BAR */}
+      {/* ── DESKTOP FILTER BAR ────────────────────────────────────────────── */}
       <div className="hidden md:block">
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <div className="relative flex-1 min-w-[150px] max-w-[260px]">
@@ -278,6 +301,12 @@ export default function Inventory() {
               <SelectItem value="name">Name A-Z</SelectItem>
             </SelectContent>
           </Select>
+          <Button
+            size="sm" variant="outline" className="h-9 px-3 text-xs gap-1.5"
+            onClick={handleRefreshPrices} disabled={refreshing}>
+            <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Refreshing…" : "Refresh Prices"}
+          </Button>
           <Button data-testid="button-bulk-edit" size="sm"
             variant={selectMode ? "default" : "outline"} className="h-9 px-3 text-xs gap-1.5"
             onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}>
@@ -286,12 +315,7 @@ export default function Inventory() {
         </div>
 
         <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-          {([
-            { key: "all",             label: "All",             count: items.length,                 className: undefined as string | undefined },
-            { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     className: "text-amber-400" as string | undefined },
-            { key: "needs_repricing", label: "Needs Repricing", count: labelCounts.needs_repricing, className: "text-blue-400" as string | undefined },
-            { key: "label_created",   label: "Label Created",   count: labelCounts.label_created,   className: "text-green-400" as string | undefined },
-          ]).map(({ key, label, count, className: cls }) => (
+          {labelPills.map(({ key, label, count, cls }) => (
             <button key={key} onClick={() => setLabelFilter(key as LabelFilter)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                 labelFilter === key ? "border-primary bg-primary/15 text-primary" : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
@@ -398,7 +422,6 @@ export default function Inventory() {
         </div>
       )}
 
-      {/* SMALL GRID */}
       {viewMode === "grid-sm" && (
         isLoading
           ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-40 rounded-lg" />)}</div>
@@ -413,7 +436,6 @@ export default function Inventory() {
             </div>
       )}
 
-      {/* LARGE GRID */}
       {viewMode === "grid-lg" && (
         isLoading
           ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-lg" />)}</div>
