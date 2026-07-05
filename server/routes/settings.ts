@@ -67,10 +67,17 @@ export function registerSettingsRoutes(app: Express) {
   app.put("/api/settings/user-prefs", async (req: any, res) => {
     try {
       const { theme, conditionColors } = req.body;
-      const current: any = (() => {
-        try { return JSON.parse(""); } catch { return {}; }
-      })();
-      const next = { ...current, theme, conditionColors };
+      // Read existing prefs first so we don't blow away fields we aren't updating
+      let current: any = { theme: "dark", conditionColors: {} };
+      try {
+        const raw = await storage.getSetting(req.user.id, "user_prefs");
+        if (raw) current = JSON.parse(raw);
+      } catch {}
+      const next = {
+        ...current,
+        ...(theme !== undefined ? { theme } : {}),
+        ...(conditionColors !== undefined ? { conditionColors } : {}),
+      };
       await storage.setSetting(req.user.id, "user_prefs", JSON.stringify(next));
       res.json(next);
     } catch (e: any) {

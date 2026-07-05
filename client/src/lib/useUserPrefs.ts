@@ -16,11 +16,11 @@ export interface UserPrefs {
 }
 
 export const DEFAULT_CONDITION_COLORS: Required<ConditionColors> = {
-  "Near Mint":         "#34d399", // emerald-400
-  "Lightly Played":    "#4ade80", // green-400
-  "Moderately Played": "#facc15", // yellow-400
-  "Heavily Played":    "#f87171", // red-400
-  "Damaged":           "#ef4444", // red-500
+  "Near Mint":         "#34d399",
+  "Lightly Played":    "#4ade80",
+  "Moderately Played": "#facc15",
+  "Heavily Played":    "#f87171",
+  "Damaged":           "#ef4444",
 };
 
 const CONDITIONS = Object.keys(DEFAULT_CONDITION_COLORS) as (keyof ConditionColors)[];
@@ -35,8 +35,8 @@ function applyConditionColors(colors: ConditionColors) {
   });
 }
 
-/** Apply theme class to <html> */
-function applyTheme(theme: "dark" | "light") {
+/** Apply theme class to <html> and persist to localStorage immediately */
+export function applyTheme(theme: "dark" | "light") {
   const root = document.documentElement;
   if (theme === "light") {
     root.classList.add("light");
@@ -44,6 +44,17 @@ function applyTheme(theme: "dark" | "light") {
   } else {
     root.classList.add("dark");
     root.classList.remove("light");
+  }
+  try { localStorage.setItem("cv_theme", theme); } catch {}
+}
+
+/** Read theme from localStorage before API responds — prevents flash */
+export function initThemeFromStorage() {
+  try {
+    const saved = localStorage.getItem("cv_theme") as "dark" | "light" | null;
+    applyTheme(saved ?? "dark");
+  } catch {
+    applyTheme("dark");
   }
 }
 
@@ -60,14 +71,23 @@ export function useUserPrefs() {
       applyTheme(data.theme ?? "dark");
     } else {
       applyConditionColors({});
+      initThemeFromStorage();
     }
   }, [data]);
 
   const saveMut = useMutation({
     mutationFn: async (next: Partial<UserPrefs>) => {
-      const merged = { theme: data?.theme ?? "dark", conditionColors: data?.conditionColors ?? {}, ...next };
+      const merged = {
+        theme: data?.theme ?? "dark",
+        conditionColors: data?.conditionColors ?? {},
+        ...next,
+      };
       await apiRequest("PUT", "/api/settings/user-prefs", merged);
       return merged as UserPrefs;
+    },
+    onMutate: async (next: Partial<UserPrefs>) => {
+      // Optimistically apply theme to DOM + localStorage immediately
+      if (next.theme) applyTheme(next.theme);
     },
     onSuccess: (merged) => {
       queryClient.setQueryData(["/api/settings/user-prefs"], merged);
@@ -79,7 +99,7 @@ export function useUserPrefs() {
   return {
     prefs: data,
     isLoading,
-    theme: data?.theme ?? "dark",
+    theme: (data?.theme ?? (typeof window !== "undefined" ? (localStorage.getItem("cv_theme") as "dark" | "light" | null) : null) ?? "dark") as "dark" | "light",
     conditionColors: { ...DEFAULT_CONDITION_COLORS, ...(data?.conditionColors ?? {}) },
     setTheme: (theme: "dark" | "light") => saveMut.mutate({ theme }),
     setConditionColors: (conditionColors: ConditionColors) => saveMut.mutate({ conditionColors }),
