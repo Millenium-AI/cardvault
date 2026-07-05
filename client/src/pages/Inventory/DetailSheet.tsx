@@ -8,7 +8,8 @@ import { ConditionBadge } from "@/components/ConditionBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 
-// ── Shared card body ───────────────────────────────────────────────────────────────nexport function ItemDetailBody({ item, onClose }: { item: any; onClose: () => void }) {
+// ── Shared card body ─────────────────────────────────────────────────────────────
+export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => void }) {
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
