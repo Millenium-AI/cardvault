@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { useLocation, useHashLocation } from "wouter";
 import {
   LayoutDashboard, Upload, Package,
   Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon,
@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/AuthContext";
 import { useUserPrefs } from "@/lib/useUserPrefs";
 
-// Bottom nav excludes Settings — that lives in the avatar dropdown
 const bottomNav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
   { href: "/uploads",   label: "Uploads",   icon: Upload          },
@@ -16,7 +15,6 @@ const bottomNav = [
   { href: "/shows",     label: "Shows",     icon: Tent            },
 ];
 
-// Full nav for desktop sidebar
 const sideNav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
   { href: "/uploads",   label: "Uploads",   icon: Upload          },
@@ -52,7 +50,6 @@ function isActive(href: string, location: string) {
   return href === "/" ? location === "/" : location.startsWith(href);
 }
 
-// ── Logo SVG ───────────────────────────────────────────────────────────────────────────────
 function Logo({ size = 28 }: { size?: number }) {
   return (
     <svg viewBox="0 0 28 28" fill="none" style={{ width: size, height: size }} aria-label="CardVault">
@@ -66,14 +63,13 @@ function Logo({ size = 28 }: { size?: number }) {
   );
 }
 
-// ── Desktop sidebar nav item ────────────────────────────────────────────────────────────
 function SideNavItem({ href, label, icon: Icon, collapsed }: {
   href: string; label: string; icon: any; collapsed: boolean;
 }) {
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
-    <Link
+    <a
       href={href}
       data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
       className={cn(
@@ -86,16 +82,15 @@ function SideNavItem({ href, label, icon: Icon, collapsed }: {
     >
       <Icon size={18} className="shrink-0" />
       {!collapsed && <span>{label}</span>}
-    </Link>
+    </a>
   );
 }
 
-// ── Mobile floating bottom nav item ───────────────────────────────────────────────────
 function BottomNavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
-    <Link
+    <a
       href={href}
       data-testid={`mobile-nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
       className="relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-1 group"
@@ -115,19 +110,20 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
       )}>
         {label}
       </span>
-    </Link>
+    </a>
   );
 }
 
-// ── Avatar dropdown — fixed-positioned so it never clips under the header ────
+// AvatarMenu: reads its own theme from useUserPrefs, navigates via useHashLocation
 function AvatarMenu({
-  user, isAdmin, avatarRef, onClose, onSignOut, theme, onToggleTheme,
+  user, isAdmin, avatarRef, onClose, onSignOut,
 }: {
   user: any; isAdmin: boolean; avatarRef: React.RefObject<HTMLButtonElement>;
   onClose: () => void; onSignOut: () => void;
-  theme: "dark" | "light"; onToggleTheme: () => void;
 }) {
   const [pos, setPos] = useState({ top: 0, right: 0 });
+  const [navigate] = useHashLocation();
+  const { theme, setTheme } = useUserPrefs();
 
   useEffect(() => {
     if (!avatarRef.current) return;
@@ -144,12 +140,30 @@ function AvatarMenu({
     return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
   }, [avatarRef, onClose]);
 
+  function goSettings(e: React.MouseEvent) {
+    e.preventDefault();
+    onClose();
+    navigate("/settings");
+  }
+
+  function goAdmin(e: React.MouseEvent) {
+    e.preventDefault();
+    onClose();
+    navigate("/admin");
+  }
+
+  function toggleTheme(e: React.MouseEvent) {
+    e.preventDefault();
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    onClose();
+  }
+
   return (
     <div
       className="fixed z-[200] w-60 rounded-2xl border border-border/50 bg-card/95 backdrop-blur-2xl shadow-2xl shadow-black/50 overflow-hidden animate-in fade-in-0 slide-in-from-top-2 duration-150"
       style={{ top: pos.top, right: pos.right }}
     >
-      {/* User identity */}
       {user && (
         <div className="px-4 py-3 border-b border-border/40">
           <div className="flex items-center gap-3">
@@ -170,33 +184,28 @@ function AvatarMenu({
         </div>
       )}
 
-      {/* Menu items */}
       <div className="py-1.5 px-1.5 space-y-0.5">
-        {/* Settings */}
-        <Link
-          href="/settings"
-          onClick={onClose}
-          className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors"
+        <button
+          onClick={goSettings}
+          className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors w-full text-left"
         >
           <Settings size={14} className="text-muted-foreground shrink-0" />
           <span>Settings</span>
-        </Link>
+        </button>
 
         {isAdmin && (
-          <Link
-            href="/admin"
-            onClick={onClose}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors"
+          <button
+            onClick={goAdmin}
+            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors w-full text-left"
           >
             <ShieldCheck size={14} className="text-muted-foreground shrink-0" />
             <span>Admin</span>
-          </Link>
+          </button>
         )}
 
-        {/* Theme toggle */}
         <button
-          onClick={onToggleTheme}
-          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors"
+          onClick={toggleTheme}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm text-foreground hover:bg-accent/60 active:bg-accent transition-colors text-left"
         >
           {theme === "dark"
             ? <Sun size={14} className="text-muted-foreground shrink-0" />
@@ -208,7 +217,6 @@ function AvatarMenu({
         </button>
       </div>
 
-      {/* Sign out */}
       <div className="border-t border-border/40 py-1.5 px-1.5">
         <button
           data-testid="mobile-button-sign-out"
@@ -223,16 +231,25 @@ function AvatarMenu({
   );
 }
 
-// ── AppShell ──────────────────────────────────────────────────────────────────────
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== "undefined" && window.innerWidth < 1024
   );
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const avatarRef = useRef<HTMLButtonElement>(null);
   const [location] = useLocation();
   const { signOut, user, isAdmin } = useAuth();
   const { theme, setTheme } = useUserPrefs();
+
+  // Watch body.modal-open class to reactively hide bottom nav
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setModalOpen(document.body.classList.contains("modal-open"));
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   const pageTitle    = PAGE_TITLES[location]    ?? "CardVault";
   const pageSubtitle = PAGE_SUBTITLES[location] ?? "";
@@ -243,7 +260,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       className="flex h-dvh overflow-hidden bg-background"
       style={{ paddingTop: isStandalone ? "env(safe-area-inset-top)" : "0px" }}
     >
-      {/* ── Desktop sidebar ─────────────────────────────────────────────── */}
+      {/* ── Desktop sidebar ───────────────────────────────────────────── */}
       <aside className={cn(
         "hidden md:flex flex-col shrink-0 transition-all duration-200 border-r",
         "border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-bg))]",
@@ -267,7 +284,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
         </nav>
         <div className="border-t border-[hsl(var(--sidebar-border))] px-2 py-2">
-          {/* Theme toggle in desktop sidebar */}
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className={cn(
@@ -310,10 +326,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </aside>
 
-      {/* ── Main column ──────────────────────────────────────────────── */}
+      {/* ── Main column ────────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
-        {/* ── Mobile header ───────────────────────────────────────────────────── */}
+        {/* Mobile header */}
         <header
           className="md:hidden shrink-0 flex items-center px-4 gap-3 border-b border-white/[0.06]"
           style={{
@@ -356,7 +372,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </header>
 
-        {/* Avatar dropdown */}
+        {/* Avatar dropdown portal */}
         {avatarOpen && (
           <AvatarMenu
             user={user}
@@ -364,14 +380,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             avatarRef={avatarRef}
             onClose={() => setAvatarOpen(false)}
             onSignOut={() => { signOut(); setAvatarOpen(false); }}
-            theme={theme}
-            onToggleTheme={() => {
-              setTheme(theme === "dark" ? "light" : "dark");
-            }}
           />
         )}
 
-        {/* ── Scrollable content ────────────────────────────────────────────────────── */}
+        {/* Scrollable page content */}
         <main
           className="flex-1 overflow-y-auto"
           style={{
@@ -384,9 +396,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
-        {/* ── Floating pill bottom nav ────────────────────────────────────────────────────── */}
+        {/* Floating bottom nav — hidden while any modal is open */}
         <div
-          className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
+          className={cn(
+            "md:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none",
+            "transition-all duration-300",
+            modalOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"
+          )}
           style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)" }}
         >
           <nav
