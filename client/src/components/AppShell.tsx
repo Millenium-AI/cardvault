@@ -8,11 +8,11 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/AuthContext";
 
 const nav = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/uploads", label: "Uploads", icon: Upload },
-  { href: "/inventory", label: "Inventory", icon: Package },
-  { href: "/shows", label: "Shows", icon: Tent },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/",          label: "Dashboard", icon: LayoutDashboard },
+  { href: "/uploads",   label: "Uploads",   icon: Upload          },
+  { href: "/inventory", label: "Inventory", icon: Package         },
+  { href: "/shows",     label: "Shows",     icon: Tent            },
+  { href: "/settings",  label: "Settings",  icon: Settings        },
 ];
 
 const PAGE_TITLES: Record<string, string> = {
@@ -24,7 +24,6 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin":     "Admin",
 };
 
-/** True when running as an installed PWA (Add to Home Screen) */
 const isStandalone =
   typeof window !== "undefined" &&
   (window.matchMedia("(display-mode: standalone)").matches ||
@@ -34,9 +33,8 @@ function isActive(href: string, location: string) {
   return href === "/" ? location === "/" : location.startsWith(href);
 }
 
-function SideNavItem({
-  href, label, icon: Icon, collapsed,
-}: {
+// ── Sidebar nav item (desktop) ───────────────────────────────────────────────
+function SideNavItem({ href, label, icon: Icon, collapsed }: {
   href: string; label: string; icon: any; collapsed: boolean;
 }) {
   const [location] = useLocation();
@@ -60,29 +58,48 @@ function SideNavItem({
   );
 }
 
-function BottomNavItem({
-  href, label, icon: Icon,
-}: {
-  href: string; label: string; icon: any;
-}) {
+// ── Logo SVG ─────────────────────────────────────────────────────────────────
+function Logo({ size = 28 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 28 28" fill="none" style={{ width: size, height: size }} aria-label="CardVault">
+      <rect width="28" height="28" rx="6" fill="hsl(142 71% 45%)" />
+      <rect x="5" y="7" width="12" height="16" rx="2" fill="hsl(224 20% 8%)" />
+      <rect x="5" y="7" width="12" height="16" rx="2" stroke="hsl(142 71% 45% / 0.3)" strokeWidth="1" />
+      <rect x="10" y="5" width="12" height="16" rx="2" fill="hsl(0 0% 10%)" stroke="hsl(142 71% 45% / 0.5)" strokeWidth="1" />
+      <line x1="12" y1="10" x2="19" y2="10" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="12" y1="13" x2="17" y2="13" stroke="hsl(142 71% 45% / 0.6)" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ── Mobile floating bottom nav item ──────────────────────────────────────────
+function BottomNavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
     <Link href={href}>
       <a
         data-testid={`mobile-nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
-        className={cn(
-          "flex flex-col items-center justify-center gap-0.5 py-2 px-1 flex-1 min-w-0 transition-colors",
-          active ? "text-primary" : "text-muted-foreground"
-        )}
+        className="relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-1 group"
       >
-        <Icon size={20} className="shrink-0" />
-        <span
-          className={cn(
-            "text-[10px] font-medium leading-none truncate w-full text-center",
-            active ? "text-primary" : "text-muted-foreground"
-          )}
-        >
+        {/* Active glow blob */}
+        {active && (
+          <span className="absolute inset-x-1 top-1 bottom-1 rounded-xl bg-primary/12 transition-all duration-300" />
+        )}
+        {/* Icon */}
+        <span className={cn(
+          "relative flex items-center justify-center w-7 h-7 rounded-xl transition-all duration-200",
+          active
+            ? "text-primary"
+            : "text-muted-foreground group-active:text-foreground"
+        )}>
+          <Icon size={active ? 21 : 19} strokeWidth={active ? 2.2 : 1.8} className="transition-all duration-200" />
+        </span>
+        {/* Label */}
+        <span className={cn(
+          "relative text-[9.5px] font-semibold tracking-wide leading-none mt-0.5 transition-all duration-200",
+          active ? "text-primary" : "text-muted-foreground/70"
+        )}>
           {label}
         </span>
       </a>
@@ -90,6 +107,7 @@ function BottomNavItem({
   );
 }
 
+// ── AppShell ─────────────────────────────────────────────────────────────────
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== "undefined" && window.innerWidth < 1024
@@ -106,28 +124,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       className="flex h-dvh overflow-hidden bg-background"
       style={{ paddingTop: isStandalone ? "env(safe-area-inset-top)" : "0px" }}
     >
-      {/* ── Sidebar (tablet+) ────────────────────────────────────────────── */}
-      <aside
-        className={cn(
-          "hidden md:flex flex-col shrink-0 transition-all duration-200 border-r",
-          "border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-bg))]",
-          collapsed ? "w-14" : "w-56"
-        )}
-      >
-        <div
-          className={cn(
-            "flex items-center gap-2.5 px-4 py-4 border-b border-[hsl(var(--sidebar-border))]",
-            collapsed && "justify-center px-2"
-          )}
-        >
-          <svg viewBox="0 0 28 28" fill="none" className="shrink-0 w-7 h-7" aria-label="CardVault">
-            <rect width="28" height="28" rx="6" fill="hsl(142 71% 45%)" />
-            <rect x="5" y="7" width="12" height="16" rx="2" fill="hsl(224 20% 8%)" />
-            <rect x="5" y="7" width="12" height="16" rx="2" stroke="hsl(142 71% 45% / 0.3)" strokeWidth="1" />
-            <rect x="10" y="5" width="12" height="16" rx="2" fill="hsl(0 0% 10%)" stroke="hsl(142 71% 45% / 0.5)" strokeWidth="1" />
-            <line x1="12" y1="10" x2="19" y2="10" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
-            <line x1="12" y1="13" x2="17" y2="13" stroke="hsl(142 71% 45% / 0.6)" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
+      {/* ── Desktop sidebar ──────────────────────────────────────────────── */}
+      <aside className={cn(
+        "hidden md:flex flex-col shrink-0 transition-all duration-200 border-r",
+        "border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-bg))]",
+        collapsed ? "w-14" : "w-56"
+      )}>
+        <div className={cn(
+          "flex items-center gap-2.5 px-4 py-4 border-b border-[hsl(var(--sidebar-border))]",
+          collapsed && "justify-center px-2"
+        )}>
+          <Logo size={28} />
           {!collapsed && (
             <span className="font-semibold text-foreground text-sm tracking-tight">CardVault</span>
           )}
@@ -169,37 +176,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             collapsed && "justify-center"
           )}
         >
-          {collapsed ? (
-            <ChevronRight size={16} />
-          ) : (
-            <><Menu size={16} /><span>Collapse</span></>
-          )}
+          {collapsed ? <ChevronRight size={16} /> : <><Menu size={16} /><span>Collapse</span></>}
         </button>
       </aside>
 
-      {/* ── Main column ───────────────────────────────────────────────────── */}
+      {/* ── Main column ──────────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Mobile header */}
+
+        {/* ── Mobile header ────────────────────────────────────────────────
+            Glass-morphism bar: blurred bg, subtle border, logo + wordmark    */}
         <header
-          className="md:hidden flex items-center gap-3 px-4 border-b border-border bg-[hsl(var(--sidebar-bg))] shrink-0"
+          className="md:hidden shrink-0 flex items-center gap-3 px-4 border-b border-white/[0.06] bg-[hsl(var(--sidebar-bg))]/80 backdrop-blur-xl"
           style={{
             paddingTop: isStandalone ? "8px" : "max(env(safe-area-inset-top), 12px)",
             paddingBottom: "12px",
           }}
         >
-          <svg viewBox="0 0 28 28" fill="none" className="w-6 h-6 shrink-0" aria-label="CardVault">
-            <rect width="28" height="28" rx="6" fill="hsl(142 71% 45%)" />
-            <rect x="10" y="5" width="12" height="16" rx="2" fill="hsl(0 0% 10%)" stroke="hsl(142 71% 45% / 0.5)" strokeWidth="1" />
-            <line x1="12" y1="10" x2="19" y2="10" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
-            <line x1="12" y1="13" x2="17" y2="13" stroke="hsl(142 71% 45% / 0.6)" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          <span className="font-semibold text-foreground text-sm flex-1 truncate">{pageTitle}</span>
+          {/* Logo + wordmark */}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Logo size={26} />
+            <div className="flex flex-col leading-none min-w-0">
+              <span className="text-[13px] font-bold tracking-tight text-foreground truncate">
+                {pageTitle}
+              </span>
+              {pageTitle !== "CardVault" && (
+                <span className="text-[9px] font-semibold tracking-widest uppercase text-primary/70 mt-px">
+                  CardVault
+                </span>
+              )}
+            </div>
+          </div>
 
-          {/* Avatar bubble */}
-          <div className="relative">
+          {/* Avatar + dropdown */}
+          <div className="relative shrink-0">
             <button
               onClick={() => setAvatarOpen(o => !o)}
-              className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-primary text-xs font-bold transition-colors hover:bg-primary/30"
+              className="w-8 h-8 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center text-primary text-xs font-bold transition-all hover:bg-primary/25 hover:border-primary/40 active:scale-95"
               aria-label="User menu"
             >
               {userInitial}
@@ -207,27 +219,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {avatarOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setAvatarOpen(false)} />
-                <div className="absolute right-0 top-10 z-50 w-52 rounded-lg border border-border bg-card shadow-xl py-1">
+                <div className="absolute right-0 top-10 z-50 w-52 rounded-xl border border-border/60 bg-card/95 backdrop-blur-xl shadow-2xl shadow-black/40 py-1 animate-in fade-in-0 slide-in-from-top-2 duration-150">
                   {user && (
-                    <p className="text-[11px] text-muted-foreground px-3 py-2 border-b border-border truncate">
+                    <p className="text-[11px] text-muted-foreground px-3 py-2 border-b border-border/50 truncate">
                       {user.email}
                     </p>
                   )}
                   <Link href="/settings">
-                    <a
-                      onClick={() => setAvatarOpen(false)}
-                      className="flex items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
-                    >
-                      <Settings size={14} />
+                    <a onClick={() => setAvatarOpen(false)}
+                      className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground hover:bg-accent/60 transition-colors rounded-lg mx-1 mt-0.5">
+                      <Settings size={14} className="text-muted-foreground" />
                       Settings
                     </a>
                   </Link>
                   <button
                     data-testid="mobile-button-sign-out"
                     onClick={() => { signOut(); setAvatarOpen(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-accent transition-colors"
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-foreground hover:bg-accent/60 transition-colors rounded-lg mx-1 mb-0.5"
                   >
-                    <LogOut size={14} />
+                    <LogOut size={14} className="text-muted-foreground" />
                     Sign Out
                   </button>
                 </div>
@@ -236,12 +246,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        {/* Scrollable content — inner overflow-y triggers Chrome iOS toolbar auto-hide */}
+        {/* Scrollable content */}
         <main
-          className="flex-1 overflow-y-auto md:pb-0"
+          className="flex-1 overflow-y-auto"
           style={{
             WebkitOverflowScrolling: "touch",
-            paddingBottom: "calc(56px + env(safe-area-inset-bottom) + 8px)",
+            paddingBottom: "calc(76px + env(safe-area-inset-bottom))",
           }}
         >
           <div className="p-4 md:p-6 max-w-screen-2xl mx-auto md:pb-0">
@@ -249,18 +259,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
-        {/* ── Bottom nav (mobile only) ────────────────────────────────────── */}
-        <nav
-          className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-[hsl(var(--sidebar-bg))]"
-          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        {/* ── Floating pill bottom nav (mobile only) ───────────────────────
+            Floats above content on a glassy pill, clear separation from edge */}
+        <div
+          className="md:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)" }}
         >
-          {/* Inner row: fixed 56px touch-target height, grows safe-area via nav padding */}
-          <div className="flex items-stretch w-full min-h-[56px]">
+          <nav
+            className="pointer-events-auto flex items-stretch gap-1 px-3 rounded-2xl border border-white/[0.08] shadow-2xl shadow-black/50"
+            style={{
+              background: "hsl(var(--sidebar-bg) / 0.88)",
+              backdropFilter: "blur(24px) saturate(180%)",
+              WebkitBackdropFilter: "blur(24px) saturate(180%)",
+              height: 62,
+            }}
+          >
             {nav.map(item => (
               <BottomNavItem key={item.href} {...item} />
             ))}
-          </div>
-        </nav>
+          </nav>
+        </div>
+
       </div>
     </div>
   );
