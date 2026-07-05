@@ -16,7 +16,7 @@ import { ViewModeToggle } from "./ViewModeToggle";
 import { InventoryGridCard } from "./ItemGrid";
 import { InventoryRow } from "./ItemRow";
 import { MobileInventoryCard } from "./MobileCard";
-import { InventoryDetailSheet } from "./DetailSheet";
+import { InventoryDetailSheet, InventoryDetailModal } from "./DetailSheet";
 import { BulkActionBar } from "./BulkActionsBar";
 
 export default function Inventory() {
@@ -50,7 +50,6 @@ export default function Inventory() {
   }, [columnQuery.data?.order]);
 
   const { data: items = [], isLoading } = useInventoryList(game, condition, search);
-
   const columnMut = useColumnOrderMutation();
   const exportMut = useLabelsExportMutation();
 
@@ -127,7 +126,8 @@ export default function Inventory() {
   const emptyMsg = "No inventory — upload a CSV to get started";
   const activeFilterCount = [game !== "all", condition !== "all", sortBy !== "name", labelFilter !== "all"].filter(Boolean).length;
 
-  // Label filter pills (shared between mobile + desktop)
+  const isGridMode = viewMode === "grid-sm" || viewMode === "grid-lg";
+
   const labelPills = ([
     { key: "all",             label: "All",             count: items.length,                 cls: undefined as string | undefined },
     { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     cls: "text-amber-400" },
@@ -151,9 +151,8 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* ── MOBILE FILTER BAR ─────────────────────────────────────────────── */}
+      {/* ── MOBILE FILTER BAR ─────────────────────────────────────── */}
       <div className="md:hidden space-y-2 mb-3">
-        {/* Row 1: search + filter toggle + bulk + refresh */}
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -174,9 +173,7 @@ export default function Inventory() {
               </span>
             )}
           </button>
-          <button
-            onClick={handleRefreshPrices} disabled={refreshing}
-            title="Refresh prices"
+          <button onClick={handleRefreshPrices} disabled={refreshing} title="Refresh prices"
             className="flex items-center justify-center h-9 w-9 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors shrink-0 disabled:opacity-50">
             <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
           </button>
@@ -186,8 +183,6 @@ export default function Inventory() {
             <CheckSquare size={14} />
           </Button>
         </div>
-
-        {/* Filter panel */}
         {filterOpen && (
           <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
             <Select value={game} onValueChange={setSelectedGame}>
@@ -235,8 +230,7 @@ export default function Inventory() {
             </Select>
           </div>
         )}
-
-        {/* Row 2: label filter pills — ViewModeToggle sits OUTSIDE the scroll container so it's always visible */}
+        {/* Pills row: scroll independently, ViewModeToggle pinned outside */}
         <div className="flex items-center gap-1.5">
           <div className="flex items-center gap-1.5 overflow-x-auto flex-1 pb-0.5 no-scrollbar">
             {labelPills.map(({ key, label, count, cls }) => (
@@ -252,14 +246,13 @@ export default function Inventory() {
               </button>
             ))}
           </div>
-          {/* ViewModeToggle: fixed outside scroll so it's always visible */}
           <div className="shrink-0 pl-1">
             <ViewModeToggle value={viewMode} onChange={handleViewMode} />
           </div>
         </div>
       </div>
 
-      {/* ── DESKTOP FILTER BAR ────────────────────────────────────────────── */}
+      {/* ── DESKTOP FILTER BAR ─────────────────────────────────────── */}
       <div className="hidden md:block">
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <div className="relative flex-1 min-w-[150px] max-w-[260px]">
@@ -301,8 +294,7 @@ export default function Inventory() {
               <SelectItem value="name">Name A-Z</SelectItem>
             </SelectContent>
           </Select>
-          <Button
-            size="sm" variant="outline" className="h-9 px-3 text-xs gap-1.5"
+          <Button size="sm" variant="outline" className="h-9 px-3 text-xs gap-1.5"
             onClick={handleRefreshPrices} disabled={refreshing}>
             <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
             {refreshing ? "Refreshing…" : "Refresh Prices"}
@@ -313,7 +305,6 @@ export default function Inventory() {
             <CheckSquare size={14} />{selectMode ? "Cancel" : "Bulk Edit"}
           </Button>
         </div>
-
         <div className="flex items-center gap-1.5 mb-4 flex-wrap">
           {labelPills.map(({ key, label, count, cls }) => (
             <button key={key} onClick={() => setLabelFilter(key as LabelFilter)}
@@ -361,10 +352,7 @@ export default function Inventory() {
               ? Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-3 px-3 py-3">
                     <Skeleton className="w-9 h-[50px] rounded shrink-0" />
-                    <div className="flex-1 space-y-2">
-                      <Skeleton className="h-4 w-3/4" />
-                      <Skeleton className="h-3 w-1/2" />
-                    </div>
+                    <div className="flex-1 space-y-2"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-3 w-1/2" /></div>
                   </div>
                 ))
               : sorted.length === 0
@@ -375,7 +363,6 @@ export default function Inventory() {
                 ))
             }
           </div>
-
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -394,9 +381,7 @@ export default function Inventory() {
                           )}
                           {COLUMN_LABELS.card}
                         </div>
-                      ) : (
-                        COLUMN_LABELS[col]
-                      )}
+                      ) : COLUMN_LABELS[col]}
                     </DraggableColHeader>
                   ))}
                 </tr>
@@ -422,6 +407,7 @@ export default function Inventory() {
         </div>
       )}
 
+      {/* SMALL GRID */}
       {viewMode === "grid-sm" && (
         isLoading
           ? <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-40 rounded-lg" />)}</div>
@@ -436,6 +422,7 @@ export default function Inventory() {
             </div>
       )}
 
+      {/* LARGE GRID */}
       {viewMode === "grid-lg" && (
         isLoading
           ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-lg" />)}</div>
@@ -450,8 +437,14 @@ export default function Inventory() {
             </div>
       )}
 
-      <InventoryDetailSheet item={liveSheetItem} open={sheetOpen}
-        onClose={() => { setSheetOpen(false); setSheetItem(null); }} />
+      {/* Detail panel: sidebar for list, pop-out modal for grid */}
+      {isGridMode ? (
+        <InventoryDetailModal item={liveSheetItem} open={sheetOpen}
+          onClose={() => { setSheetOpen(false); setSheetItem(null); }} />
+      ) : (
+        <InventoryDetailSheet item={liveSheetItem} open={sheetOpen}
+          onClose={() => { setSheetOpen(false); setSheetItem(null); }} />
+      )}
 
       {selectMode && (
         <BulkActionBar selectedIds={selectedIds} allCount={sorted.length}

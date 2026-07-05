@@ -30,7 +30,7 @@ export function InventoryGridCard({
         )}
         <div className="flex justify-center mb-2">
           {item.photoUrl
-            ? <img src={item.photoUrl} alt="" crossOrigin="anonymous" className="w-14 h-[78px] rounded object-contain bg-muted" />
+            ? <img src={item.photoUrl} alt="" className="w-14 h-[78px] rounded object-contain bg-muted" />
             : <div className="w-14 h-[78px] rounded bg-muted" />}
         </div>
         <div className="text-xs font-medium text-foreground truncate leading-tight">{item.productName}</div>
@@ -59,7 +59,7 @@ export function InventoryGridCard({
       <div className="flex gap-3">
         <div className="shrink-0">
           {item.photoUrl
-            ? <img src={item.photoUrl} alt="" crossOrigin="anonymous" className="w-[88px] h-[123px] rounded object-contain bg-muted" />
+            ? <img src={item.photoUrl} alt="" className="w-[88px] h-[123px] rounded object-contain bg-muted" />
             : <div className="w-[88px] h-[123px] rounded bg-muted" />}
         </div>
         <div className="flex-1 min-w-0">
@@ -71,18 +71,9 @@ export function InventoryGridCard({
           </div>
           <div className="mt-0.5"><LabelStatusBadge status={item.labelStatus} /></div>
           <div className="mt-2 space-y-0.5">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Market</span>
-              <span className="font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Print</span>
-              <span className="font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Qty</span>
-              <span className="font-mono text-foreground">{item.currentQuantity}</span>
-            </div>
+            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Market</span><span className="font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span></div>
+            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Print</span><span className="font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span></div>
+            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Qty</span><span className="font-mono text-foreground">{item.currentQuantity}</span></div>
           </div>
         </div>
       </div>

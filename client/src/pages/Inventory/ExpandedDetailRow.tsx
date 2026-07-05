@@ -34,15 +34,22 @@ export function ExpandedDetail({
 
   return (
     <div className="rounded-xl border border-border bg-card/60 p-4 space-y-4" onClick={wrap}>
-      {hasChips && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {meta.sourceSetName && <Chip>{meta.sourceSetName}</Chip>}
-          {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
-          {meta.sourceRarity && <Chip>{meta.sourceRarity}</Chip>}
+      {/* Card image inside expanded row */}
+      {item.photoUrl && (
+        <div className="flex justify-center">
+          <img src={item.photoUrl} alt=""
+            className="max-h-40 max-w-[120px] object-contain rounded-lg" />
         </div>
       )}
 
-      {/* Pass full item — PriceHistory needs justtcgVariantUuid + sourceProductId */}
+      {hasChips && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {meta.sourceSetName  && <Chip>{meta.sourceSetName}</Chip>}
+          {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
+          {meta.sourceRarity   && <Chip>{meta.sourceRarity}</Chip>}
+        </div>
+      )}
+
       <PriceHistory item={item} />
 
       {!editing && item.notes && (

@@ -50,8 +50,9 @@ export function MobileInventoryCard({
           )}
         </div>
 
+        {/* Card image — no crossOrigin */}
         {item.photoUrl ? (
-          <img src={item.photoUrl} alt="" crossOrigin="anonymous"
+          <img src={item.photoUrl} alt=""
             className="w-9 h-[50px] rounded object-contain bg-muted shrink-0" />
         ) : (
           <div className="w-9 h-[50px] rounded bg-muted/60 shrink-0" />
@@ -64,18 +65,13 @@ export function MobileInventoryCard({
                 {meta.cleanName || item.productName}
               </div>
               <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                {item.number && (
-                  <span className="text-[11px] text-muted-foreground">#{item.number}</span>
-                )}
+                {item.number && <span className="text-[11px] text-muted-foreground">#{item.number}</span>}
                 {item.number && meta.sourceSetName && <span className="text-muted-foreground/50 text-[11px]">·</span>}
-                {meta.sourceSetName && (
-                  <span className="text-[11px] text-muted-foreground truncate max-w-[130px]">{meta.sourceSetName}</span>
-                )}
+                {meta.sourceSetName && <span className="text-[11px] text-muted-foreground truncate max-w-[130px]">{meta.sourceSetName}</span>}
               </div>
             </div>
             <ConditionBadge condition={item.condition} abbreviated />
           </div>
-
           <div className="flex items-center gap-3 mt-1.5">
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Qty</span>

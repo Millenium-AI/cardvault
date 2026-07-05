@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Trash2, ExternalLink, Check, X, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -7,53 +7,42 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { useItemUpdateMutation } from "./hooks/useInventoryMutations";
 
 // ── Time window config ───────────────────────────────────────────────────────
 const WINDOWS = [
-  { key: "7d",  label: "7D"  },
-  { key: "30d", label: "30D" },
-  { key: "90d", label: "90D" },
-  { key: "180d",label: "6M"  },
-  { key: "1y",  label: "1Y"  },
+  { key: "7d",   label: "7D"  },
+  { key: "30d",  label: "30D" },
+  { key: "90d",  label: "90D" },
+  { key: "180d", label: "6M"  },
+  { key: "1y",   label: "1Y"  },
 ] as const;
 type HistoryWindow = typeof WINDOWS[number]["key"];
 
-// ── Tiny sparkline drawn with inline SVG ─────────────────────────────────────
+// ── Tiny sparkline ────────────────────────────────────────────────────────────
 function Sparkline({ points }: { points: { t: number; p: number }[] }) {
   if (points.length < 2) return null;
   const prices = points.map(p => p.p);
   const minP = Math.min(...prices);
   const maxP = Math.max(...prices);
   const range = maxP - minP || 1;
-  const W = 200, H = 40, PAD = 2;
-
+  const W = 200, H = 48, PAD = 3;
   const coords = points.map((pt, i) => {
     const x = PAD + (i / (points.length - 1)) * (W - PAD * 2);
     const y = H - PAD - ((pt.p - minP) / range) * (H - PAD * 2);
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
-
-  const first = prices[0];
-  const last = prices[prices.length - 1];
-  const isUp = last >= first;
+  const areaBottom = `${PAD},${H - PAD} ${coords.join(" ")} ${W - PAD},${H - PAD}`;
+  const isUp = prices[prices.length - 1] >= prices[0];
   const color = isUp ? "#34d399" : "#f87171";
-
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-10" preserveAspectRatio="none">
-      <polyline
-        points={coords.join(" ")}
-        fill="none"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 48 }} preserveAspectRatio="none">
+      <polyline points={areaBottom} fill={color} fillOpacity="0.12" stroke="none" />
+      <polyline points={coords.join(" ")} fill="none" stroke={color} strokeWidth="2"
+        strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );
 }
 
-// ── Stat pill ────────────────────────────────────────────────────────────────
 function StatPill({ label, value }: { label: string; value: number | null | undefined }) {
   if (value == null) return null;
   const up = value >= 0;
@@ -67,100 +56,62 @@ function StatPill({ label, value }: { label: string; value: number | null | unde
   );
 }
 
-// ── PriceHistory — lazy, window-gated ────────────────────────────────────────
-export function PriceHistory({ item }: { item: any }) {
+// ── PriceHistory ── accepts either `item` object OR `itemId` string ───────────
+export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?: string }) {
   const [activeWindow, setActiveWindow] = useState<HistoryWindow | null>(null);
 
-  const hasIdentifier = !!(item?.justtcgVariantUuid || item?.sourceProductId);
+  // Support both call signatures
+  const resolvedItem = item ?? null;
+  const resolvedId   = itemIdProp ?? item?.id ?? null;
+  const hasIdentifier = !!(resolvedItem?.justtcgVariantUuid || resolvedItem?.sourceProductId) || !!itemIdProp;
 
   const { data, isFetching, isError } = useQuery({
-    queryKey: ["/api/inventory", item?.id, "price-history", activeWindow],
+    queryKey: ["/api/inventory", resolvedId, "price-history", activeWindow],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory/${item.id}/price-history?window=${activeWindow}`);
-      if (!res.ok) throw new Error("Failed to load price history");
+      const res = await apiRequest("GET", `/api/inventory/${resolvedId}/price-history?window=${activeWindow}`);
+      if (!res.ok) throw new Error("Failed");
       return res.json();
     },
-    enabled: !!activeWindow && !!item?.id && hasIdentifier,
-    staleTime: 30 * 60 * 1000, // 30 min — matches server cache
+    enabled: !!activeWindow && !!resolvedId,
+    staleTime: 30 * 60 * 1000,
   });
-
-  const Heading = () => (
-    <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Price History</div>
-  );
-
-  if (!hasIdentifier) {
-    return (
-      <div>
-        <Heading />
-        <p className="text-xs text-muted-foreground">No JustTCG identifier — refresh prices to enable history.</p>
-      </div>
-    );
-  }
 
   return (
     <div>
-      <Heading />
-
-      {/* Window selector */}
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Price History</div>
       <div className="flex items-center gap-1 mb-3">
         {WINDOWS.map(w => (
-          <button
-            key={w.key}
-            onClick={() => setActiveWindow(w.key)}
+          <button key={w.key} onClick={() => setActiveWindow(w.key)}
             className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
               activeWindow === w.key
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}
-          >
-            {w.label}
-          </button>
+            }`}>{w.label}</button>
         ))}
       </div>
-
-      {/* No window selected yet */}
-      {!activeWindow && (
-        <p className="text-xs text-muted-foreground">Select a time window to load history.</p>
-      )}
-
-      {/* Loading */}
+      {!activeWindow && <p className="text-xs text-muted-foreground">Select a time window to load history.</p>}
       {activeWindow && isFetching && (
         <div className="flex items-center gap-2 py-2">
           <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           <span className="text-xs text-muted-foreground">Loading…</span>
         </div>
       )}
-
-      {/* Error */}
       {activeWindow && isError && !isFetching && (
         <p className="text-xs text-red-400">Failed to load history. Try again.</p>
       )}
-
-      {/* Data */}
       {activeWindow && data && !isFetching && (
         <div className="space-y-3">
-          {/* Sparkline */}
           {data.history?.length >= 2 ? (
             <div className="rounded-lg border border-border bg-muted/20 px-2 pt-2 pb-1">
               <Sparkline points={data.history} />
               <div className="flex justify-between text-[9px] text-muted-foreground font-mono mt-0.5 px-0.5">
-                <span>
-                  {data.history[0]
-                    ? new Date(data.history[0].t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                    : ""}
-                </span>
-                <span>
-                  {data.history[data.history.length - 1]
-                    ? new Date(data.history[data.history.length - 1].t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                    : ""}
-                </span>
+                <span>{data.history[0] ? new Date(data.history[0].t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}</span>
+                <span>{data.history[data.history.length - 1] ? new Date(data.history[data.history.length - 1].t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}</span>
               </div>
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">Not enough data points for this window.</p>
           )}
-
-          {/* Current price + 24hr/7d inline changes */}
           <div className="flex items-center gap-3">
             {data.current != null && (
               <div className="flex flex-col">
@@ -171,8 +122,6 @@ export function PriceHistory({ item }: { item: any }) {
             <StatPill label="24h" value={data.priceChange24hr != null ? data.priceChange24hr * 100 : null} />
             <StatPill label="7d"  value={data.priceChange7d  != null ? data.priceChange7d  * 100 : null} />
           </div>
-
-          {/* Statistics grid */}
           {data.stats && Object.keys(data.stats).length > 0 && (
             <div>
               <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Statistics</div>
@@ -182,47 +131,19 @@ export function PriceHistory({ item }: { item: any }) {
                   if (!stat) return null;
                   return (
                     <div key={key} className="rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 min-w-[80px] space-y-0.5">
-                      <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        {key === "allTime" ? "All Time" : key}
-                      </div>
-                      {stat.high != null && (
-                        <div className="flex justify-between gap-2">
-                          <span className="text-[10px] text-muted-foreground">H</span>
-                          <span className="text-[10px] font-mono font-semibold text-emerald-400 tabular-nums">${stat.high.toFixed(2)}</span>
-                        </div>
-                      )}
-                      {stat.low != null && (
-                        <div className="flex justify-between gap-2">
-                          <span className="text-[10px] text-muted-foreground">L</span>
-                          <span className="text-[10px] font-mono font-semibold text-red-400 tabular-nums">${stat.low.toFixed(2)}</span>
-                        </div>
-                      )}
-                      {stat.avg != null && (
-                        <div className="flex justify-between gap-2">
-                          <span className="text-[10px] text-muted-foreground">Avg</span>
-                          <span className="text-[10px] font-mono font-semibold text-foreground/80 tabular-nums">${stat.avg.toFixed(2)}</span>
-                        </div>
-                      )}
-                      {stat.change != null && (
-                        <div className="flex justify-between gap-2">
-                          <span className="text-[10px] text-muted-foreground">Chg</span>
-                          <span className={`text-[10px] font-mono font-semibold tabular-nums ${stat.change >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                            {stat.change >= 0 ? "+" : ""}{(stat.change * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                      )}
+                      <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{key === "allTime" ? "All Time" : key}</div>
+                      {stat.high != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">H</span><span className="text-[10px] font-mono font-semibold text-emerald-400 tabular-nums">${stat.high.toFixed(2)}</span></div>}
+                      {stat.low  != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">L</span><span className="text-[10px] font-mono font-semibold text-red-400 tabular-nums">${stat.low.toFixed(2)}</span></div>}
+                      {stat.avg  != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">Avg</span><span className="text-[10px] font-mono font-semibold text-foreground/80 tabular-nums">${stat.avg.toFixed(2)}</span></div>}
+                      {stat.change != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">Chg</span><span className={`text-[10px] font-mono font-semibold tabular-nums ${stat.change >= 0 ? "text-emerald-400" : "text-red-400"}`}>{stat.change >= 0 ? "+" : ""}{(stat.change * 100).toFixed(1)}%</span></div>}
                     </div>
                   );
                 })}
               </div>
             </div>
           )}
-
-          {/* Condition / printing context */}
           {(data.condition || data.printing) && (
-            <p className="text-[10px] text-muted-foreground">
-              {[data.condition, data.printing].filter(Boolean).join(" · ")}
-            </p>
+            <p className="text-[10px] text-muted-foreground">{[data.condition, data.printing].filter(Boolean).join(" · ")}</p>
           )}
         </div>
       )}
