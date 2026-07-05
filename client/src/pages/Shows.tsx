@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Plus, Edit2, Trash2, TrendingUp, DollarSign, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Edit2, Trash2, TrendingUp, DollarSign, ChevronDown, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,7 +45,7 @@ function NumInput({ label, hint, name, register, placeholder }: any) {
         type="number"
         step="0.01"
         placeholder={placeholder || "0.00"}
-        className="h-9 text-sm"
+        className="h-10 text-sm"
         {...register(name, { valueAsNumber: true })}
       />
     </div>
@@ -83,25 +83,33 @@ function ShowModal({ show, onClose }: { show?: any; onClose: () => void }) {
   });
 
   return (
-    <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto bg-card border-border">
-      <DialogHeader>
+    <DialogContent className="w-[calc(100vw-1rem)] max-w-2xl max-h-[88dvh] overflow-y-auto bg-card border-border">
+      <DialogHeader className="flex flex-row items-center justify-between pr-2 space-y-0">
         <DialogTitle className="text-foreground">{isEdit ? "Edit Show" : "New Show"}</DialogTitle>
+        <button
+          type="button"
+          onClick={onClose}
+          className="sm:hidden flex items-center justify-center h-7 w-7 rounded-full bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Close"
+        >
+          <X size={14} />
+        </button>
       </DialogHeader>
       <form onSubmit={handleSubmit(d => saveMut.mutate(d))} className="space-y-4">
         {/* Name, location, date */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="sm:col-span-2">
             <label className="text-xs text-muted-foreground block mb-0.5">Show Name *</label>
-            <Input data-testid="input-show-name" className="h-9 text-sm" placeholder="e.g. Tampa Card Show — Mar 2026" {...register("showName", { required: true })} />
+            <Input data-testid="input-show-name" className="h-10 text-sm" placeholder="e.g. Tampa Card Show — Mar 2026" {...register("showName", { required: true })} />
             {errors.showName && <span className="text-xs text-red-400">Required</span>}
           </div>
           <div>
             <label className="text-xs text-muted-foreground block mb-0.5">Location</label>
-            <Input data-testid="input-show-location" className="h-9 text-sm" placeholder="e.g. Tampa Convention Center" {...register("location")} />
+            <Input data-testid="input-show-location" className="h-10 text-sm" placeholder="e.g. Tampa Convention Center" {...register("location")} />
           </div>
           <div>
             <label className="text-xs text-muted-foreground block mb-0.5">Date *</label>
-            <Input data-testid="input-show-date" type="date" className="h-9 text-sm" {...register("showDate", { required: true })} />
+            <Input data-testid="input-show-date" type="date" className="h-10 text-sm" {...register("showDate", { required: true })} />
             {errors.showDate && <span className="text-xs text-red-400">Required</span>}
           </div>
         </div>
@@ -135,7 +143,7 @@ function ShowModal({ show, onClose }: { show?: any; onClose: () => void }) {
           <Textarea className="text-sm resize-none" rows={2} {...register("notes")} />
         </div>
 
-        <div className="flex gap-3 justify-end pt-2">
+        <div className="flex gap-3 justify-end pt-2 pb-2">
           <Button type="button" variant="outline" onClick={onClose} className="border-border">Cancel</Button>
           <Button type="submit" disabled={saveMut.isPending} className="bg-primary text-primary-foreground hover:bg-primary/90">
             {saveMut.isPending ? "Saving…" : "Save Show"}
@@ -446,7 +454,7 @@ export default function Shows() {
           : shows.length === 0
           ? (
               <div className="py-16 text-center text-muted-foreground text-sm">
-                No shows yet — tap "New Show" to add your first record
+                No shows yet — tap “New Show” to add your first record
               </div>
             )
           : shows.map((show: any) => (
