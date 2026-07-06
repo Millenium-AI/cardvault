@@ -22,27 +22,42 @@
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
 
-    <!-- Splash screens -->
-    <!-- iPhone SE 3rd gen: 375×667 logical, 750×1334 physical -->
+    <!--
+      Splash screens
+      IMPORTANT: All media queries MUST include (orientation: portrait).
+      WebKit silently ignores apple-touch-startup-image without it.
+      Physical pixel sizes are noted for PNG generation reference.
+    -->
+
+    <!-- iPhone SE 3rd gen — 750×1334 physical -->
     <link rel="apple-touch-startup-image"
-      media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)"
+      media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)"
       href="/splash/iphonese.png" />
-    <!-- iPhone 14 Pro: 393×852 logical, 1179×2556 physical -->
+
+    <!-- iPhone 14 Pro — 1179×2556 physical -->
     <link rel="apple-touch-startup-image"
-      media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)"
+      media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
       href="/splash/iphone14pro.png" />
-    <!-- iPhone 14 Pro Max: 430×932 logical, 1290×2796 physical -->
+
+    <!-- iPhone 14 Pro Max — 1290×2796 physical -->
     <link rel="apple-touch-startup-image"
-      media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)"
+      media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
       href="/splash/iphone14promax.png" />
-    <!-- iPhone 16 Pro: 402×874 logical, 1206×2622 physical -->
+
+    <!-- iPhone 16 Pro — 1206×2622 physical -->
     <link rel="apple-touch-startup-image"
-      media="screen and (device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3)"
+      media="screen and (device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
       href="/splash/iphone16pro.png" />
-    <!-- iPhone 16 Pro Max: 440×956 logical, 1320×2868 physical -->
+
+    <!-- iPhone 16 Pro Max — 1320×2868 physical -->
     <link rel="apple-touch-startup-image"
-      media="screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3)"
+      media="screen and (device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)"
       href="/splash/iphone16promax.png" />
+
+    <!-- iPad Pro 12.9" (2x) — 2048×2732 physical -->
+    <link rel="apple-touch-startup-image"
+      media="screen and (device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)"
+      href="/splash/vertsplashipad.png" />
 
     <link rel="icon" type="image/png" href="/favicon.png" />
 

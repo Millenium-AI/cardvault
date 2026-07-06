@@ -1,9 +1,19 @@
-const CACHE_VERSION = "cardvault-v1";
+const CACHE_VERSION = "cardvault-v2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const DYNAMIC_CACHE = `${CACHE_VERSION}-dynamic`;
 
-// App shell to pre-cache on install
-const APP_SHELL = ["/", "/index.html"];
+// App shell to pre-cache on install — includes all splash screens so they are
+// available on the very first cold PWA launch before any fetch handler runs.
+const APP_SHELL = [
+  "/",
+  "/index.html",
+  "/splash/iphonese.png",
+  "/splash/iphone14pro.png",
+  "/splash/iphone14promax.png",
+  "/splash/iphone16pro.png",
+  "/splash/iphone16promax.png",
+  "/splash/vertsplashipad.png",
+];
 
 // Static asset extensions — cache-first candidates
 const STATIC_EXTENSIONS = /\.(js|css|woff2?|ttf|otf|eot|png|jpg|jpeg|gif|svg|ico|webp)$/i;
