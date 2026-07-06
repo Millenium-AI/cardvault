@@ -1,5 +1,14 @@
+import { useRef, useState } from "react";
+
 type Point = { t: number; p: number };
 type Stats = { high?: number; low?: number; avg?: number; change?: number } | null;
+
+interface Crosshair {
+  x: number;
+  y: number;
+  price: number;
+  date: string;
+}
 
 export function Chart({
   points,
@@ -16,6 +25,9 @@ export function Chart({
   height?: number;
   padding?: number;
 }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [crosshair, setCrosshair] = useState<Crosshair | null>(null);
+
   if (!points || points.length < 2) return null;
 
   const prices = points.map(p => p.p);
@@ -25,10 +37,10 @@ export function Chart({
 
   const W = width;
   const H = height;
-  const PAD_L = padding + 18; // extra left room for y-axis labels
+  const PAD_L = padding + 18;
   const PAD_R = padding;
   const PAD_T = padding * 0.6;
-  const PAD_B = padding + 4; // extra bottom room for x-axis labels
+  const PAD_B = padding + 4;
 
   const yMin = minP - 0.06 * range;
   const yMax = maxP + 0.06 * range;
@@ -46,22 +58,19 @@ export function Chart({
   const stroke = isUp ? "#34d399" : "#f87171";
   const fill   = isUp ? "#34d399" : "#f87171";
 
-  // High / low from stats
   const hiY = stats?.high != null ? yCoord(stats.high) : null;
   const loY = stats?.low  != null ? yCoord(stats.low)  : null;
 
-  // 4 y-axis grid ticks
   const yTicks = [0, 0.33, 0.67, 1].map(r => {
     const p = yMin + r * yRange;
     return { y: yCoord(p), label: `$${p.toFixed(2)}` };
   });
 
-  // X labels: first, mid, last
   const midIdx = Math.floor((points.length - 1) / 2);
   const xLabels = [
-    { x: PAD_L, label: fmt(first.t) },
+    { x: PAD_L,          label: fmt(first.t) },
     { x: xCoord(midIdx), label: fmt(points[midIdx].t) },
-    { x: W - PAD_R, label: fmt(latest.t) },
+    { x: W - PAD_R,      label: fmt(latest.t) },
   ];
 
   function fmt(ts: number) {
@@ -70,20 +79,86 @@ export function Chart({
 
   const latX = xCoord(points.length - 1);
   const latY = yCoord(latest.p);
+  const firstX = xCoord(0);
+  const firstY = yCoord(first.p);
+
+  // ── Crosshair helpers ────────────────────────────────────────────────────
+  function getSVGX(clientX: number): number | null {
+    if (!svgRef.current) return null;
+    const rect = svgRef.current.getBoundingClientRect();
+    const scaleX = W / rect.width;
+    return (clientX - rect.left) * scaleX;
+  }
+
+  function findNearest(svgX: number): number {
+    let nearest = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const dist = Math.abs(xCoord(i) - svgX);
+      if (dist < minDist) { minDist = dist; nearest = i; }
+    }
+    return nearest;
+  }
+
+  function updateCrosshair(clientX: number) {
+    const svgX = getSVGX(clientX);
+    if (svgX == null) return;
+    const idx = findNearest(svgX);
+    const pt = points[idx];
+    setCrosshair({
+      x: xCoord(idx),
+      y: yCoord(pt.p),
+      price: pt.p,
+      date: fmt(pt.t),
+    });
+  }
+
+  function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    updateCrosshair(e.clientX);
+  }
+
+  function handleMouseLeave() {
+    setCrosshair(null);
+  }
+
+  function handleTouchMove(e: React.TouchEvent<SVGSVGElement>) {
+    e.preventDefault();
+    if (e.touches.length > 0) updateCrosshair(e.touches[0].clientX);
+  }
+
+  function handleTouchEnd() {
+    setCrosshair(null);
+  }
+
+  // Pill dimensions
+  const PILL_W = 88;
+  const PILL_H = 18;
+  const pillX = crosshair
+    ? Math.min(Math.max(crosshair.x - PILL_W / 2, PAD_L), W - PAD_R - PILL_W)
+    : 0;
+  const pillY = crosshair ? Math.max(crosshair.y - PILL_H - 6, PAD_T) : 0;
 
   return (
     <div className="w-full">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ height: H, touchAction: "none" }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
         {/* Grid lines */}
         {yTicks.map((t, i) => (
           <line key={i} x1={PAD_L} x2={W - PAD_R} y1={t.y} y2={t.y}
             stroke="currentColor" strokeOpacity="0.08" strokeWidth="1" />
         ))}
 
-        {/* Y axis */}
+        {/* Axes */}
         <line x1={PAD_L} x2={PAD_L} y1={PAD_T} y2={H - PAD_B}
           stroke="currentColor" strokeOpacity="0.15" strokeWidth="1" />
-        {/* X axis */}
         <line x1={PAD_L} x2={W - PAD_R} y1={H - PAD_B} y2={H - PAD_B}
           stroke="currentColor" strokeOpacity="0.15" strokeWidth="1" />
 
@@ -111,7 +186,7 @@ export function Chart({
         <polyline points={linePoints} fill="none" stroke={stroke} strokeWidth="1.75"
           strokeLinejoin="round" strokeLinecap="round" />
 
-        {/* High dashed line */}
+        {/* Hi dashed line */}
         {hiY != null && (
           <>
             <line x1={PAD_L} x2={W - PAD_R} y1={hiY} y2={hiY}
@@ -122,7 +197,7 @@ export function Chart({
           </>
         )}
 
-        {/* Low dashed line */}
+        {/* Lo dashed line */}
         {loY != null && (
           <>
             <line x1={PAD_L} x2={W - PAD_R} y1={loY} y2={loY}
@@ -133,12 +208,49 @@ export function Chart({
           </>
         )}
 
-        {/* Latest dot + label */}
+        {/* Open price dot (hollow) — visual anchor for start price */}
+        <circle cx={firstX} cy={firstY} r="3" fill="none" stroke={stroke} strokeWidth="1.5" strokeOpacity="0.6" />
+
+        {/* Latest dot + price label */}
         <circle cx={latX} cy={latY} r="3.5" fill={stroke} />
         <text x={latX - 5} y={latY - 6} textAnchor="end" fontSize="10"
           fontWeight="600" fill={stroke}>
           ${latest.p.toFixed(2)}
         </text>
+
+        {/* ── Crosshair ── */}
+        {crosshair && (
+          <>
+            {/* Vertical dashed line */}
+            <line
+              x1={crosshair.x} x2={crosshair.x}
+              y1={PAD_T} y2={H - PAD_B}
+              stroke="currentColor" strokeOpacity="0.35" strokeWidth="1"
+              strokeDasharray="3 3"
+            />
+            {/* Dot on line */}
+            <circle cx={crosshair.x} cy={crosshair.y} r="3.5" fill={stroke} opacity="0.9" />
+            <circle cx={crosshair.x} cy={crosshair.y} r="6" fill={stroke} fillOpacity="0.2" />
+            {/* Pill label */}
+            <rect
+              x={pillX} y={pillY}
+              width={PILL_W} height={PILL_H}
+              rx="5" ry="5"
+              fill="hsl(0 0% 8%)" stroke="hsl(0 0% 20%)" strokeWidth="0.75"
+            />
+            <text
+              x={pillX + PILL_W / 2}
+              y={pillY + PILL_H / 2 + 4}
+              textAnchor="middle"
+              fontSize="9.5"
+              fontWeight="600"
+              fill={stroke}
+              style={{ fontVariantNumeric: "tabular-nums" }}
+            >
+              ${crosshair.price.toFixed(2)} · {crosshair.date}
+            </text>
+          </>
+        )}
       </svg>
 
       {/* Compact stats row */}
