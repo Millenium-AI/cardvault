@@ -109,8 +109,8 @@ export function InventoryRow({
         {columnOrder.map(col => renderCell(col))}
       </tr>
       {expanded && !selectMode && (
-        <tr className="border-b border-border/20 bg-muted/10">
-          <td colSpan={columnOrder.length} className="px-6 py-4">
+        <tr className="bg-muted/5">
+          <td colSpan={columnOrder.length} className="px-4 py-3">
             <ExpandedDetail item={item} meta={meta} editing={editing} setEditing={setEditing} stopProp />
           </td>
         </tr>

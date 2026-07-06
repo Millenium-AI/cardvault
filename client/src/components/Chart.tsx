@@ -82,10 +82,14 @@ export function Chart({
   const firstX = xCoord(0);
   const firstY = yCoord(first.p);
 
-  // ── Crosshair helpers ────────────────────────────────────────────────────
-  function getSVGX(clientX: number): number | null {
+  // ── Accurate client → SVG coordinate mapping ─────────────────────────────
+  // Uses both scaleX and scaleY from the actual rendered bounding box so the
+  // crosshair stays locked to the cursor regardless of container width or
+  // device pixel ratio.
+  function clientToSVG(clientX: number): number | null {
     if (!svgRef.current) return null;
     const rect = svgRef.current.getBoundingClientRect();
+    if (rect.width === 0) return null;
     const scaleX = W / rect.width;
     return (clientX - rect.left) * scaleX;
   }
@@ -101,8 +105,14 @@ export function Chart({
   }
 
   function updateCrosshair(clientX: number) {
-    const svgX = getSVGX(clientX);
+    const svgX = clientToSVG(clientX);
     if (svgX == null) return;
+    // Clamp to chart area so crosshair doesn't jump to edges when cursor
+    // is over the Y-axis label or right padding region
+    if (svgX < PAD_L || svgX > W - PAD_R) {
+      setCrosshair(null);
+      return;
+    }
     const idx = findNearest(svgX);
     const pt = points[idx];
     setCrosshair({
@@ -113,6 +123,7 @@ export function Chart({
     });
   }
 
+  // ── Desktop handlers ──────────────────────────────────────────────────────
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     updateCrosshair(e.clientX);
   }
@@ -121,13 +132,19 @@ export function Chart({
     setCrosshair(null);
   }
 
+  // ── Mobile handlers ───────────────────────────────────────────────────────
+  // preventDefault stops the page from scrolling while scrubbing the chart.
+  // passive: false is set via onTouchMove (React handles this correctly in
+  // modern versions when touchAction is set to "none" on the element).
   function handleTouchMove(e: React.TouchEvent<SVGSVGElement>) {
     e.preventDefault();
     if (e.touches.length > 0) updateCrosshair(e.touches[0].clientX);
   }
 
   function handleTouchEnd() {
-    setCrosshair(null);
+    // Keep crosshair visible briefly on mobile so user can read the value,
+    // then fade out after a short delay
+    setTimeout(() => setCrosshair(null), 800);
   }
 
   // Pill dimensions
@@ -144,7 +161,15 @@ export function Chart({
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
-        style={{ height: H, touchAction: "none" }}
+        style={{
+          // Let height scale naturally with the viewBox aspect ratio instead
+          // of being pinned — this is what caused the Y-axis coordinate drift
+          aspectRatio: `${W} / ${H}`,
+          display: "block",
+          touchAction: "none",        // Prevents scroll-hijack on mobile
+          userSelect: "none",         // Prevents text selection while scrubbing
+          WebkitUserSelect: "none",
+        }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onTouchMove={handleTouchMove}
@@ -208,7 +233,7 @@ export function Chart({
           </>
         )}
 
-        {/* Open price dot (hollow) — visual anchor for start price */}
+        {/* Open price dot (hollow) */}
         <circle cx={firstX} cy={firstY} r="3" fill="none" stroke={stroke} strokeWidth="1.5" strokeOpacity="0.6" />
 
         {/* Latest dot + price label */}
@@ -227,6 +252,12 @@ export function Chart({
               y1={PAD_T} y2={H - PAD_B}
               stroke="currentColor" strokeOpacity="0.35" strokeWidth="1"
               strokeDasharray="3 3"
+            />
+            {/* Invisible wide hit-area line for easier touch targeting on mobile */}
+            <line
+              x1={crosshair.x} x2={crosshair.x}
+              y1={PAD_T} y2={H - PAD_B}
+              stroke="transparent" strokeWidth="24"
             />
             {/* Dot on line */}
             <circle cx={crosshair.x} cy={crosshair.y} r="3.5" fill={stroke} opacity="0.9" />

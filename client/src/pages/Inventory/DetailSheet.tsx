@@ -33,75 +33,161 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
 
   return (
     <div className="overflow-y-auto flex-1">
-      {item.photoUrl && (
-        <div className="w-full bg-muted/30 flex items-center justify-center py-6">
-          <img src={item.photoUrl} alt=""
-            className="max-h-52 max-w-full object-contain rounded-xl shadow-lg" />
-        </div>
-      )}
-      <div className="px-5 pb-5 pt-4 space-y-4">
-        <div>
-          <div className="text-lg font-semibold text-foreground leading-tight pr-6">{item.productName}</div>
-          {item.number && <div className="text-xs text-muted-foreground mt-1">#{item.number}</div>}
-        </div>
-        {hasChips && (
-          <div className="flex flex-wrap gap-1.5">
-            {meta.sourceSetName  && <Chip>{meta.sourceSetName}</Chip>}
-            {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
-            {meta.sourceRarity   && <Chip>{meta.sourceRarity}</Chip>}
-          </div>
-        )}
-        <div className="flex items-center gap-2 flex-wrap">
-          <ConditionBadge condition={item.condition} abbreviated />
-          <span className="text-xs text-muted-foreground">{gameLabel(item.game)}</span>
-          <LabelStatusBadge status={item.labelStatus} />
-        </div>
-        <div className="grid grid-cols-3 gap-3">
-          {([
-            { label: "Qty",    value: String(item.currentQuantity),                             highlight: false },
-            { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`, highlight: false },
-            { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,          highlight: true  },
-          ] as const).map(({ label, value, highlight }) => (
-            <div key={label} className="rounded-xl border border-border bg-muted/30 px-3 py-3 text-center">
-              <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{label}</div>
-              <div className={`text-base font-mono font-bold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
+      {/* ── Desktop: two-column layout ── */}
+      <div className="hidden sm:flex gap-0 h-full">
+        {/* Left col: image + meta + stats */}
+        <div className="w-[220px] shrink-0 border-r border-border/40 flex flex-col">
+          {item.photoUrl && (
+            <div className="w-full bg-muted/30 flex items-center justify-center py-5 px-4">
+              <img src={item.photoUrl} alt=""
+                className="max-h-52 max-w-full object-contain rounded-xl shadow-lg" />
             </div>
-          ))}
-        </div>
-        <PriceHistory itemId={item.id} item={item} />
-        {!editing && item.notes && (
-          <div className="text-xs bg-muted/40 rounded-lg px-3 py-2 border border-border/50">
-            <span className="text-muted-foreground font-medium">Notes: </span>
-            <span className="italic text-foreground/80">{item.notes}</span>
-          </div>
-        )}
-        {editing ? (
-          <InlineEditPanel item={item} onDone={() => setEditing(false)} />
-        ) : (
-          <>
-            <div className="flex gap-2 pt-1">
-              <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5 flex-1 rounded-xl" onClick={() => setEditing(true)}>
-                <Pencil size={12} /> Edit item
-              </Button>
-              <Button variant="outline" size="sm" disabled={deleteMut.isPending}
-                className="h-9 text-xs gap-1.5 rounded-xl border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
-                onClick={handleDelete}>
-                <Trash2 size={12} /> {deleteMut.isPending ? "Deleting\u2026" : "Delete"}
-              </Button>
+          )}
+          <div className="px-4 pb-4 pt-3 space-y-3 flex-1">
+            <div>
+              <div className="text-base font-semibold text-foreground leading-tight">{item.productName}</div>
+              {item.number && <div className="text-xs text-muted-foreground mt-0.5">#{item.number}</div>}
             </div>
-            {item.tcgplayerUrl ? (
-              <a href={item.tcgplayerUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center justify-center gap-1.5 w-full rounded-xl border border-blue-500/40 px-3 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors">
-                View on TCGplayer <ExternalLink size={14} />
-              </a>
-            ) : (
-              <div className="flex items-center justify-center gap-1.5 w-full rounded-xl border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground opacity-40 cursor-not-allowed">
-                View on TCGplayer <ExternalLink size={14} />
+            {hasChips && (
+              <div className="flex flex-wrap gap-1">
+                {meta.sourceSetName  && <Chip>{meta.sourceSetName}</Chip>}
+                {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
+                {meta.sourceRarity   && <Chip>{meta.sourceRarity}</Chip>}
               </div>
             )}
-          </>
+            <div className="flex items-center gap-2 flex-wrap">
+              <ConditionBadge condition={item.condition} abbreviated />
+              <span className="text-xs text-muted-foreground">{gameLabel(item.game)}</span>
+              <LabelStatusBadge status={item.labelStatus} />
+            </div>
+            {/* Stat tiles */}
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { label: "Qty",    value: String(item.currentQuantity),                              highlight: false },
+                { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`,  highlight: false },
+                { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,           highlight: true  },
+              ] as const).map(({ label, value, highlight }) => (
+                <div key={label} className="rounded-lg border border-border bg-muted/30 px-2 py-2 text-center">
+                  <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{label}</div>
+                  <div className={`text-xs font-mono font-bold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
+                </div>
+              ))}
+            </div>
+            {/* Notes */}
+            {!editing && item.notes && (
+              <div className="text-xs bg-muted/40 rounded-lg px-3 py-2 border border-border/50">
+                <span className="text-muted-foreground font-medium">Notes: </span>
+                <span className="italic text-foreground/80">{item.notes}</span>
+              </div>
+            )}
+            {/* Actions */}
+            {editing ? (
+              <InlineEditPanel item={item} onDone={() => setEditing(false)} />
+            ) : (
+              <div className="space-y-2 pt-1">
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 flex-1 rounded-lg" onClick={() => setEditing(true)}>
+                    <Pencil size={11} /> Edit
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={deleteMut.isPending}
+                    className="h-8 text-xs gap-1.5 rounded-lg border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+                    onClick={handleDelete}>
+                    <Trash2 size={11} /> {deleteMut.isPending ? "…" : "Delete"}
+                  </Button>
+                </div>
+                {item.tcgplayerUrl ? (
+                  <a href={item.tcgplayerUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-blue-500/40 px-3 py-2 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors">
+                    TCGplayer <ExternalLink size={11} />
+                  </a>
+                ) : (
+                  <div className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+                    TCGplayer <ExternalLink size={11} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right col: chart fills remaining width */}
+        <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto">
+          <PriceHistory itemId={item.id} item={item} />
+        </div>
+      </div>
+
+      {/* ── Mobile: original single-column stacked layout ── */}
+      <div className="sm:hidden">
+        {item.photoUrl && (
+          <div className="w-full bg-muted/30 flex items-center justify-center py-6">
+            <img src={item.photoUrl} alt=""
+              className="max-h-52 max-w-full object-contain rounded-xl shadow-lg" />
+          </div>
         )}
-        <div className="h-2" />
+        <div className="px-5 pb-5 pt-4 space-y-4">
+          <div>
+            <div className="text-lg font-semibold text-foreground leading-tight pr-6">{item.productName}</div>
+            {item.number && <div className="text-xs text-muted-foreground mt-1">#{item.number}</div>}
+          </div>
+          {hasChips && (
+            <div className="flex flex-wrap gap-1.5">
+              {meta.sourceSetName  && <Chip>{meta.sourceSetName}</Chip>}
+              {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
+              {meta.sourceRarity   && <Chip>{meta.sourceRarity}</Chip>}
+            </div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <ConditionBadge condition={item.condition} abbreviated />
+            <span className="text-xs text-muted-foreground">{gameLabel(item.game)}</span>
+            <LabelStatusBadge status={item.labelStatus} />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {([
+              { label: "Qty",    value: String(item.currentQuantity),                             highlight: false },
+              { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`, highlight: false },
+              { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,          highlight: true  },
+            ] as const).map(({ label, value, highlight }) => (
+              <div key={label} className="rounded-xl border border-border bg-muted/30 px-3 py-3 text-center">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{label}</div>
+                <div className={`text-base font-mono font-bold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
+              </div>
+            ))}
+          </div>
+          <PriceHistory itemId={item.id} item={item} />
+          {!editing && item.notes && (
+            <div className="text-xs bg-muted/40 rounded-lg px-3 py-2 border border-border/50">
+              <span className="text-muted-foreground font-medium">Notes: </span>
+              <span className="italic text-foreground/80">{item.notes}</span>
+            </div>
+          )}
+          {editing ? (
+            <InlineEditPanel item={item} onDone={() => setEditing(false)} />
+          ) : (
+            <>
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5 flex-1 rounded-xl" onClick={() => setEditing(true)}>
+                  <Pencil size={12} /> Edit item
+                </Button>
+                <Button variant="outline" size="sm" disabled={deleteMut.isPending}
+                  className="h-9 text-xs gap-1.5 rounded-xl border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+                  onClick={handleDelete}>
+                  <Trash2 size={12} /> {deleteMut.isPending ? "Deleting\u2026" : "Delete"}
+                </Button>
+              </div>
+              {item.tcgplayerUrl ? (
+                <a href={item.tcgplayerUrl} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 w-full rounded-xl border border-blue-500/40 px-3 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors">
+                  View on TCGplayer <ExternalLink size={14} />
+                </a>
+              ) : (
+                <div className="flex items-center justify-center gap-1.5 w-full rounded-xl border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+                  View on TCGplayer <ExternalLink size={14} />
+                </div>
+              )}
+            </>
+          )}
+          <div className="h-2" />
+        </div>
       </div>
     </div>
   );
@@ -143,11 +229,11 @@ export function InventoryDetailModal({ item, open, onClose }: { item: any; open:
         className="absolute inset-0 bg-black/70 backdrop-blur-md animate-in fade-in-0 duration-200"
         onClick={onClose}
       />
-      {/* Panel */}
+      {/* Panel — wider on desktop to show two-column layout without scrolling */}
       <div
         className="
           relative z-10
-          w-full sm:w-[520px]
+          w-full sm:w-[820px]
           flex flex-col
           rounded-t-[2rem] sm:rounded-[1.75rem]
           bg-card
@@ -158,7 +244,7 @@ export function InventoryDetailModal({ item, open, onClose }: { item: any; open:
           sm:mb-0
         "
         style={{
-          maxHeight: "min(86dvh, 720px)",
+          maxHeight: "min(88dvh, 680px)",
           marginBottom: "calc(72px + env(safe-area-inset-bottom, 0px))",
         }}
       >
