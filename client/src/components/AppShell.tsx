@@ -47,14 +47,12 @@ function isActive(href: string, location: string) {
 
 function Logo({ size = 28 }: { size?: number }) {
   return (
-    <svg viewBox="0 0 28 28" fill="none" style={{ width: size, height: size }} aria-label="CardVault">
-      <rect width="28" height="28" rx="6" fill="hsl(142 71% 45%)" />
-      <rect x="5" y="7" width="12" height="16" rx="2" fill="hsl(224 20% 8%)" />
-      <rect x="5" y="7" width="12" height="16" rx="2" stroke="hsl(142 71% 45% / 0.3)" strokeWidth="1" />
-      <rect x="10" y="5" width="12" height="16" rx="2" fill="hsl(0 0% 10%)" stroke="hsl(142 71% 45% / 0.5)" strokeWidth="1" />
-      <line x1="12" y1="10" x2="19" y2="10" stroke="hsl(142 71% 45%)" strokeWidth="1.5" strokeLinecap="round" />
-      <line x1="12" y1="13" x2="17" y2="13" stroke="hsl(142 71% 45% / 0.6)" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
+    <img
+      src="/favicon.png"
+      alt="CardVault"
+      style={{ width: size, height: size }}
+      className="object-contain rounded-md"
+    />
   );
 }
 
@@ -109,7 +107,6 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
   );
 }
 
-// AvatarMenu: reads its own theme from useUserPrefs, navigates via useLocation
 function AvatarMenu({
   user, isAdmin, avatarRef, onClose, onSignOut,
 }: {
@@ -237,7 +234,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { signOut, user, isAdmin } = useAuth();
   const { theme, setTheme } = useUserPrefs();
 
-  // Watch body.modal-open class to reactively hide bottom nav
   useEffect(() => {
     const observer = new MutationObserver(() => {
       setModalOpen(document.body.classList.contains("modal-open"));
@@ -336,8 +332,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           }}
         >
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="shrink-0 w-9 h-9 rounded-xl bg-primary/15 border border-primary/20 flex items-center justify-center">
-              <Logo size={22} />
+            <div className="shrink-0 w-9 h-9 rounded-xl bg-primary/15 border border-primary/20 flex items-center justify-center overflow-hidden">
+              <Logo size={24} />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[15px] font-bold tracking-tight text-foreground leading-tight truncate">

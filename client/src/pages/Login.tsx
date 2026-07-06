@@ -27,7 +27,7 @@ function PasswordInput({ id, value, onChange, placeholder, testId }: {
         id={id}
         data-testid={testId}
         type={show ? "text" : "password"}
-        placeholder={placeholder ?? "••••••••"}
+        placeholder={placeholder ?? "\u••••••••"}
         value={value}
         onChange={e => onChange(e.target.value)}
         className="h-9 text-sm pr-9"
@@ -102,9 +102,6 @@ export default function Login() {
     try {
       const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) throw error;
-      // /api/auth/use-invite requires the Bearer token and validates
-      // userId === token.sub, so it can only run when signUp returns a session
-      // (i.e. email confirmation is disabled). When a session exists, redeem now.
       if (data.user && data.session?.access_token) {
         await fetch(`${API_BASE}/api/auth/use-invite`, {
           method: "POST",
@@ -165,8 +162,6 @@ export default function Login() {
         return;
       }
 
-      // Pass the invite code in the redirectTo URL so it survives the OAuth
-      // full-page redirect. sessionStorage is wiped on redirect and cannot be used.
       const redirectUrl = new URL(window.location.origin);
       redirectUrl.searchParams.set("invite", inviteCode.trim().toUpperCase());
 
@@ -186,12 +181,12 @@ export default function Login() {
       <div className="w-full max-w-sm space-y-6">
 
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 mb-2">
-            <svg viewBox="0 0 24 24" fill="none" className="w-7 h-7 text-primary" stroke="currentColor" strokeWidth="1.5">
-              <rect x="3" y="4" width="12" height="16" rx="2" />
-              <path d="M7 8h4M7 11h4M7 14h2" strokeLinecap="round" />
-              <path d="M17 8l2 2-4 4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 mb-2 overflow-hidden">
+            <img
+              src="/favicon.png"
+              alt="CardVault"
+              className="w-12 h-12 object-contain"
+            />
           </div>
           <h1 className="text-xl font-bold text-foreground">CardVault</h1>
           <p className="text-xs text-muted-foreground">Trading card inventory management</p>
@@ -288,7 +283,7 @@ export default function Login() {
               disabled={inviteValidating || inviteCode.length < 6}
             >
               {inviteValidating ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
-              {inviteValidating ? "Validating…" : "Continue"}
+              {inviteValidating ? "Validating\u2026" : "Continue"}
             </Button>
           </form>
         )}
@@ -297,7 +292,7 @@ export default function Login() {
           <div className="space-y-4">
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary font-medium">
               <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-              Invite code accepted — <span className="font-mono">{inviteCode}</span>
+              Invite code accepted \u2014 <span className="font-mono">{inviteCode}</span>
             </div>
 
             <Button
