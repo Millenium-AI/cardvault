@@ -547,10 +547,15 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           .neq("label_status", "needs_label");
       }
 
-      // Fire-and-forget: fetch live JustTCG prices for newly inserted items
-      refreshInventoryPrices(userId, newItemIds, uploadLevelGame).catch(e =>
-        console.error("[approve] JustTCG enrichment failed:", e.message)
-      );
+      // Defer price fetch to next event-loop tick so the approve_upload RPC transaction
+      // is fully committed before we query source_product_id from inventory_items.
+      if (newItemIds.length > 0) {
+        setImmediate(() => {
+          refreshInventoryPrices(userId, newItemIds, uploadLevelGame).catch(e =>
+            console.error("[approve] JustTCG enrichment failed:", e.message)
+          );
+        });
+      }
 
       res.json({ success: true });
     } catch (e: any) {
