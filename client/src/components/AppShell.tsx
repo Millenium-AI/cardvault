@@ -1,4 +1,4 @@
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import {
   LayoutDashboard, Upload, Package,
   Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon,
@@ -69,7 +69,7 @@ function SideNavItem({ href, label, icon: Icon, collapsed }: {
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
-    <a
+    <Link
       href={href}
       data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
       className={cn(
@@ -82,7 +82,7 @@ function SideNavItem({ href, label, icon: Icon, collapsed }: {
     >
       <Icon size={18} className="shrink-0" />
       {!collapsed && <span>{label}</span>}
-    </a>
+    </Link>
   );
 }
 
@@ -90,7 +90,7 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
-    <a
+    <Link
       href={href}
       data-testid={`mobile-nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
       className="relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-1 group"
@@ -110,7 +110,7 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
       )}>
         {label}
       </span>
-    </a>
+    </Link>
   );
 }
 
