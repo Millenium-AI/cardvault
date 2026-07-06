@@ -1,4 +1,4 @@
-import { useLocation, useHashLocation } from "wouter";
+import { useLocation } from "wouter";
 import {
   LayoutDashboard, Upload, Package,
   Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon,
@@ -114,7 +114,7 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
   );
 }
 
-// AvatarMenu: reads its own theme from useUserPrefs, navigates via useHashLocation
+// AvatarMenu: reads its own theme from useUserPrefs, navigates via useLocation
 function AvatarMenu({
   user, isAdmin, avatarRef, onClose, onSignOut,
 }: {
@@ -122,7 +122,7 @@ function AvatarMenu({
   onClose: () => void; onSignOut: () => void;
 }) {
   const [pos, setPos] = useState({ top: 0, right: 0 });
-  const [navigate] = useHashLocation();
+  const [, navigate] = useLocation();
   const { theme, setTheme } = useUserPrefs();
 
   useEffect(() => {
