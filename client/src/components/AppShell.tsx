@@ -247,10 +247,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const userInitial  = user?.email?.[0]?.toUpperCase() ?? "U";
 
   return (
-    <div
-      className="flex h-dvh overflow-hidden bg-background"
-      style={{ paddingTop: "env(safe-area-inset-top)" }}
-    >
+    <div className="flex h-dvh overflow-hidden bg-background">
       {/* ── Desktop sidebar ───────────────────────────────────────────── */}
       <aside className={cn(
         "hidden md:flex flex-col shrink-0 transition-all duration-200 border-r",
@@ -320,14 +317,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Main column ────────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
-        {/* Mobile header */}
+        {/* Mobile header — owns the safe-area-inset-top padding so it fills behind the status bar */}
         <header
           className="md:hidden shrink-0 flex items-center px-4 gap-3 border-b border-white/[0.06]"
           style={{
-            background: "hsl(var(--sidebar-bg) / 0.85)",
-            backdropFilter: "blur(20px) saturate(160%)",
-            WebkitBackdropFilter: "blur(20px) saturate(160%)",
-            paddingTop:    "12px",
+            background: "hsl(var(--sidebar-bg))",
+            paddingTop:    "calc(env(safe-area-inset-top) + 12px)",
             paddingBottom: "12px",
           }}
         >
@@ -387,7 +382,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
-        {/* Bottom nav — flush to screen bottom, hidden while any modal is open */}
+        {/* Bottom nav — fully opaque so no black seam shows through in the home indicator zone */}
         <nav
           className={cn(
             "md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-stretch",
@@ -396,9 +391,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             modalOpen ? "opacity-0 translate-y-full pointer-events-none" : "opacity-100 translate-y-0"
           )}
           style={{
-            background: "hsl(var(--sidebar-bg) / 0.92)",
-            backdropFilter: "blur(24px) saturate(180%)",
-            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            background: "hsl(var(--sidebar-bg))",
             paddingBottom: "env(safe-area-inset-bottom)",
             height: "calc(62px + env(safe-area-inset-bottom))",
           }}

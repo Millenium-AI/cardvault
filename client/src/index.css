@@ -77,8 +77,22 @@
   }
 }
 
-/* Force all scrolling to inner containers — required for Chrome iOS toolbar auto-hide */
-html, body, #root {
+/*
+  Force html/body to fill the full screen including the safe-area zones.
+  background-color on html matches --sidebar-bg so the status bar zone
+  (top) and home indicator zone (bottom) are never a raw black strip.
+*/
+html {
+  height: 100dvh;
+  overflow: hidden;
+  background-color: hsl(0 0% 3%); /* matches --sidebar-bg dark default */
+}
+
+html.light {
+  background-color: hsl(0 0% 96%); /* matches --sidebar-bg light */
+}
+
+body, #root {
   height: 100dvh;
   overflow: hidden;
 }
