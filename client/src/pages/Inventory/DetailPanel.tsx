@@ -19,11 +19,20 @@ const WINDOWS = [
 ] as const;
 type HistoryWindow = typeof WINDOWS[number]["key"];
 
+// Normalize stats keys to lowercase so "7D"/"30D" from JustTCG always resolve
+function normalizeStats(stats: any): any {
+  if (!stats || typeof stats !== "object") return stats;
+  return Object.fromEntries(
+    Object.entries(stats).map(([k, v]) => [k.toLowerCase(), v])
+  );
+}
+
 // Resolve the % change decimal for a given window from the response data
 function resolveChange(w: HistoryWindow, data: any): number | null {
   if (w === "180d") return data.priceChange180d ?? null;
   if (w === "1y")   return data.priceChange1y   ?? null;
-  return data.stats?.[w]?.change ?? null;
+  const stats = normalizeStats(data.stats);
+  return stats?.[w]?.change ?? null;
 }
 
 function StatPill({ label, value }: { label: string; value: number | null | undefined }) {
@@ -58,10 +67,13 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
     staleTime: 30 * 60 * 1000,
   });
 
+  // Normalize stats keys once for all downstream uses
+  const normalizedStats = normalizeStats(data?.stats);
+
   // Pick best available stats to feed Hi/Lo lines on chart
-  const chartStats = data?.stats?.[activeWindow as string]
-    ?? data?.stats?.["30d"]
-    ?? data?.stats?.["7d"]
+  const chartStats = normalizedStats?.[activeWindow as string]
+    ?? normalizedStats?.["30d"]
+    ?? normalizedStats?.["7d"]
     ?? null;
 
   return (
@@ -130,19 +142,20 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
                 <span className="text-base font-mono font-bold text-primary tabular-nums">${data.current.toFixed(2)}</span>
               </div>
             )}
-            <StatPill label="7d" value={data.priceChange7d != null ? data.priceChange7d * 100 : null} />
+            {/* Bug 1 fix: priceChange7d is already a whole percent (e.g. -3.03), not a decimal */}
+            <StatPill label="7d" value={data.priceChange7d ?? null} />
           </div>
 
-          {data.stats && Object.keys(data.stats).length > 0 && (
+          {normalizedStats && Object.keys(normalizedStats).length > 0 && (
             <div>
               <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Statistics</div>
               <div className="flex flex-wrap gap-1.5">
-                {["7d", "30d", "90d", "allTime"].map(key => {
-                  const stat = data.stats[key];
+                {["7d", "30d", "90d", "alltime"].map(key => {
+                  const stat = normalizedStats[key];
                   if (!stat) return null;
                   return (
                     <div key={key} className="rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 min-w-[80px] space-y-0.5">
-                      <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{key === "allTime" ? "All Time" : key}</div>
+                      <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{key === "alltime" ? "All Time" : key}</div>
                       {stat.high != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">H</span><span className="text-[10px] font-mono font-semibold text-emerald-400 tabular-nums">${stat.high.toFixed(2)}</span></div>}
                       {stat.low  != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">L</span><span className="text-[10px] font-mono font-semibold text-red-400 tabular-nums">${stat.low.toFixed(2)}</span></div>}
                       {stat.avg  != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">Avg</span><span className="text-[10px] font-mono font-semibold text-foreground/80 tabular-nums">${stat.avg.toFixed(2)}</span></div>}
