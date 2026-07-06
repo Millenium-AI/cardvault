@@ -41,11 +41,6 @@ const PAGE_SUBTITLES: Record<string, string> = {
   "/admin":     "Admin controls",
 };
 
-const isStandalone =
-  typeof window !== "undefined" &&
-  (window.matchMedia("(display-mode: standalone)").matches ||
-    (window.navigator as any).standalone === true);
-
 function isActive(href: string, location: string) {
   return href === "/" ? location === "/" : location.startsWith(href);
 }
@@ -258,7 +253,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="flex h-dvh overflow-hidden bg-background"
-      style={{ paddingTop: isStandalone ? "env(safe-area-inset-top)" : "0px" }}
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
       {/* ── Desktop sidebar ───────────────────────────────────────────── */}
       <aside className={cn(
@@ -336,7 +331,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             background: "hsl(var(--sidebar-bg) / 0.85)",
             backdropFilter: "blur(20px) saturate(160%)",
             WebkitBackdropFilter: "blur(20px) saturate(160%)",
-            paddingTop:    isStandalone ? "10px" : "max(env(safe-area-inset-top), 14px)",
+            paddingTop:    "max(env(safe-area-inset-top), 14px)",
             paddingBottom: "14px",
           }}
         >
@@ -403,7 +398,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             "transition-all duration-300",
             modalOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"
           )}
-          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 10px)" }}
+          style={{ paddingBottom: "calc(max(env(safe-area-inset-bottom), 8px) + 10px)" }}
         >
           <nav
             className="pointer-events-auto flex items-stretch gap-1 px-3 rounded-2xl border border-white/[0.08] shadow-2xl shadow-black/50"
