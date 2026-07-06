@@ -327,8 +327,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             background: "hsl(var(--sidebar-bg) / 0.85)",
             backdropFilter: "blur(20px) saturate(160%)",
             WebkitBackdropFilter: "blur(20px) saturate(160%)",
-            paddingTop:    "max(env(safe-area-inset-top), 14px)",
-            paddingBottom: "14px",
+            paddingTop:    "12px",
+            paddingBottom: "12px",
           }}
         >
           <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -379,7 +379,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="flex-1 overflow-y-auto"
           style={{
             WebkitOverflowScrolling: "touch",
-            paddingBottom: "calc(76px + env(safe-area-inset-bottom))",
+            paddingBottom: "calc(62px + env(safe-area-inset-bottom))",
           }}
         >
           <div className="p-4 md:p-6 max-w-screen-2xl mx-auto md:pb-0">
@@ -387,29 +387,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
-        {/* Floating bottom nav — hidden while any modal is open */}
-        <div
+        {/* Bottom nav — flush to screen bottom, hidden while any modal is open */}
+        <nav
           className={cn(
-            "md:hidden fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none",
+            "md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-stretch",
+            "border-t border-white/[0.08]",
             "transition-all duration-300",
-            modalOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"
+            modalOpen ? "opacity-0 translate-y-full pointer-events-none" : "opacity-100 translate-y-0"
           )}
-          style={{ paddingBottom: "calc(max(env(safe-area-inset-bottom), 8px) + 10px)" }}
+          style={{
+            background: "hsl(var(--sidebar-bg) / 0.92)",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+            height: "calc(62px + env(safe-area-inset-bottom))",
+          }}
         >
-          <nav
-            className="pointer-events-auto flex items-stretch gap-1 px-3 rounded-2xl border border-white/[0.08] shadow-2xl shadow-black/50"
-            style={{
-              background: "hsl(var(--sidebar-bg) / 0.88)",
-              backdropFilter: "blur(24px) saturate(180%)",
-              WebkitBackdropFilter: "blur(24px) saturate(180%)",
-              height: 62,
-            }}
-          >
-            {bottomNav.map(item => (
-              <BottomNavItem key={item.href} {...item} />
-            ))}
-          </nav>
-        </div>
+          {bottomNav.map(item => (
+            <BottomNavItem key={item.href} {...item} />
+          ))}
+        </nav>
 
       </div>
     </div>
