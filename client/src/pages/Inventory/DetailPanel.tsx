@@ -19,6 +19,13 @@ const WINDOWS = [
 ] as const;
 type HistoryWindow = typeof WINDOWS[number]["key"];
 
+// Resolve the % change decimal for a given window from the response data
+function resolveChange(w: HistoryWindow, data: any): number | null {
+  if (w === "180d") return data.priceChange180d ?? null;
+  if (w === "1y")   return data.priceChange1y   ?? null;
+  return data.stats?.[w]?.change ?? null;
+}
+
 function StatPill({ label, value }: { label: string; value: number | null | undefined }) {
   if (value == null) return null;
   const up = value >= 0;
@@ -34,7 +41,7 @@ function StatPill({ label, value }: { label: string; value: number | null | unde
 
 // ── PriceHistory ── accepts either `item` object OR `itemId` string ───────────
 export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?: string }) {
-  const [activeWindow, setActiveWindow] = useState<HistoryWindow | null>(null);
+  const [activeWindow, setActiveWindow] = useState<HistoryWindow>("30d");
 
   const resolvedItem = item ?? null;
   const resolvedId   = itemIdProp ?? item?.id ?? null;
@@ -47,11 +54,11 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
-    enabled: !!activeWindow && !!resolvedId,
+    enabled: !!resolvedId && hasIdentifier,
     staleTime: 30 * 60 * 1000,
   });
 
-  // Pick best available stats to feed Hi/Lo lines
+  // Pick best available stats to feed Hi/Lo lines on chart
   const chartStats = data?.stats?.[activeWindow as string]
     ?? data?.stats?.["30d"]
     ?? data?.stats?.["7d"]
@@ -60,31 +67,48 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
   return (
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Price History</div>
+
+      {/* Window selector tiles — show % change badge when data available */}
       <div className="flex items-center gap-1 mb-3">
-        {WINDOWS.map(w => (
-          <button key={w.key} onClick={() => setActiveWindow(w.key)}
-            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors ${
-              activeWindow === w.key
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
-            }`}>{w.label}</button>
-        ))}
+        {WINDOWS.map(w => {
+          const chg = data ? resolveChange(w.key, data) : null;
+          return (
+            <button
+              key={w.key}
+              onClick={() => setActiveWindow(w.key)}
+              className={`flex flex-col items-center px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                activeWindow === w.key
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              <span>{w.label}</span>
+              {chg != null && (
+                <span className={`text-[9px] font-mono tabular-nums leading-none mt-0.5 ${
+                  activeWindow === w.key
+                    ? "text-primary-foreground/80"
+                    : chg >= 0 ? "text-emerald-400" : "text-red-400"
+                }`}>
+                  {chg >= 0 ? "+" : ""}{(chg * 100).toFixed(1)}%
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {!activeWindow && <p className="text-xs text-muted-foreground">Select a time window to load history.</p>}
-
-      {activeWindow && isFetching && (
+      {isFetching && (
         <div className="flex items-center gap-2 py-2">
           <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           <span className="text-xs text-muted-foreground">Loading…</span>
         </div>
       )}
 
-      {activeWindow && isError && !isFetching && (
+      {isError && !isFetching && (
         <p className="text-xs text-red-400">Failed to load history. Try again.</p>
       )}
 
-      {activeWindow && data && !isFetching && (
+      {data && !isFetching && (
         <div className="space-y-3">
           {data.history?.length >= 2 ? (
             <div className="rounded-lg border border-border bg-muted/20 px-2 pt-2 pb-1">
@@ -106,8 +130,7 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
                 <span className="text-base font-mono font-bold text-primary tabular-nums">${data.current.toFixed(2)}</span>
               </div>
             )}
-            <StatPill label="24h" value={data.priceChange24hr != null ? data.priceChange24hr * 100 : null} />
-            <StatPill label="7d"  value={data.priceChange7d  != null ? data.priceChange7d  * 100 : null} />
+            <StatPill label="7d" value={data.priceChange7d != null ? data.priceChange7d * 100 : null} />
           </div>
 
           {data.stats && Object.keys(data.stats).length > 0 && (

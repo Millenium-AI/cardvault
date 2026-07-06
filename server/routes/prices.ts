@@ -19,16 +19,24 @@ const HISTORY_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const VALID_WINDOWS = ["7d", "30d", "90d", "180d", "1y"] as const;
 type HistoryWindow = typeof VALID_WINDOWS[number];
 
+// Derive % change from first → last point of a history array.
+// Returns a decimal (e.g. 0.043 = +4.3%) or null if not enough data.
+function calcChange(history: { t: number; p: number }[]): number | null {
+  if (!history || history.length < 2) return null;
+  const first = history[0].p;
+  const last  = history[history.length - 1].p;
+  return first > 0 ? (last - first) / first : null;
+}
+
 export function registerPricesRoutes(app: Express) {
-  // ── GET /api/inventory/:id/price-history?window=7d ───────────────────────
-  // Called lazily — only when the user opens expanded view and clicks a window.
-  // Uses variantId (fastest path) for JustTCG lookup.
-  // Returns: { history: [{t, p}], stats: {7d,30d,90d,allTime}, current: number }
+  // ── GET /api/inventory/:id/price-history?window=30d ──────────────────────
+  // Defaults to 30d. Called on panel open (not just on tile click).
+  // Returns: { history, stats, current, priceChange7d, priceChange180d, priceChange1y }
   app.get("/api/inventory/:id/price-history", async (req: any, res) => {
     try {
       const userId = req.user.id;
       const { id } = req.params;
-      const window = (req.query.window as string) || "7d";
+      const window = (req.query.window as string) || "30d";
 
       if (!VALID_WINDOWS.includes(window as HistoryWindow)) {
         return res.status(400).json({ error: `Invalid window. Must be one of: ${VALID_WINDOWS.join(", ")}` });
@@ -72,7 +80,6 @@ export function registerPricesRoutes(app: Express) {
         params.set("tcgplayerSkuId", item.source_tcgplayer_sku_id);
       } else {
         params.set("tcgplayerId", item.source_product_id);
-        // Also apply condition filter when looking up by productId
         const metadata = (() => { try { return JSON.parse(item.match_metadata_json || "{}"); } catch { return {}; } })();
         const condition = item.condition ?? "Near Mint";
         params.set("condition", condition);
@@ -100,7 +107,6 @@ export function registerPricesRoutes(app: Express) {
         : variants[0];
 
       if (!variant) {
-        // Fallback: match by condition
         const metadata = (() => { try { return JSON.parse(item.match_metadata_json || "{}"); } catch { return {}; } })();
         variant = variants.find((v: any) => v.condition === (item.condition ?? "Near Mint") && v.printing === (metadata.sourcePrinting ?? "Normal"))
           ?? variants.find((v: any) => v.condition === (item.condition ?? "Near Mint"))
@@ -109,19 +115,26 @@ export function registerPricesRoutes(app: Express) {
 
       if (!variant) return res.status(404).json({ error: "No matching variant found" });
 
+      const history = (variant.priceHistory ?? []).map((pt: any) => ({ t: pt.t, p: pt.p }));
+
+      // Derive change % for windows JustTCG doesn't include in statistics block
+      const priceChange180d = window === "180d" ? calcChange(history) : null;
+      const priceChange1y   = window === "1y"   ? calcChange(history) : null;
+
       const responseData = {
-        cardName:  card.name,
-        cardGame:  card.game,
-        setName:   card.set_name,
-        condition: variant.condition,
-        printing:  variant.printing,
-        current:   variant.price ?? null,
-        priceChange24hr: variant.priceChange24hr ?? null,
+        cardName:        card.name,
+        cardGame:        card.game,
+        setName:         card.set_name,
+        condition:       variant.condition,
+        printing:        variant.printing,
+        current:         variant.price          ?? null,
         priceChange7d:   variant.priceChange7d   ?? null,
-        lastUpdated:     variant.lastUpdated      ?? null,
-        history:   (variant.priceHistory ?? []).map((pt: any) => ({ t: pt.t, p: pt.p })),
-        stats:     variant.statistics ?? null,
-        variantUuid: variant.uuid ?? null,
+        priceChange180d,
+        priceChange1y,
+        lastUpdated:     variant.lastUpdated     ?? null,
+        history,
+        stats:           variant.statistics      ?? null,
+        variantUuid:     variant.uuid            ?? null,
       };
 
       // Store variant UUID on item if we didn't have it
