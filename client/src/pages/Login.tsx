@@ -27,7 +27,7 @@ function PasswordInput({ id, value, onChange, placeholder, testId }: {
         id={id}
         data-testid={testId}
         type={show ? "text" : "password"}
-        placeholder={placeholder ?? "\u••••••••"}
+        placeholder={placeholder ?? "••••••••"}
         value={value}
         onChange={e => onChange(e.target.value)}
         className="h-9 text-sm pr-9"
@@ -177,8 +177,17 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-sm space-y-6">
+    // h-dvh + overflow-hidden = exactly viewport height, no page scroll ever
+    // safe-area padding clears notch (top) and home indicator (bottom)
+    <div
+      className="h-dvh overflow-hidden bg-background flex items-center justify-center px-4"
+      style={{
+        paddingTop: "max(env(safe-area-inset-top), 16px)",
+        paddingBottom: "max(env(safe-area-inset-bottom), 16px)",
+      }}
+    >
+      {/* Inner card: fixed width, scrollable only if viewport is very short */}
+      <div className="w-full max-w-sm flex flex-col gap-6 overflow-y-auto max-h-full py-2">
 
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 mb-2 overflow-hidden">
@@ -283,7 +292,7 @@ export default function Login() {
               disabled={inviteValidating || inviteCode.length < 6}
             >
               {inviteValidating ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
-              {inviteValidating ? "Validating\u2026" : "Continue"}
+              {inviteValidating ? "Validating…" : "Continue"}
             </Button>
           </form>
         )}
@@ -292,7 +301,7 @@ export default function Login() {
           <div className="space-y-4">
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-xs text-primary font-medium">
               <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-              Invite code accepted \u2014 <span className="font-mono">{inviteCode}</span>
+              Invite code accepted — <span className="font-mono">{inviteCode}</span>
             </div>
 
             <Button
