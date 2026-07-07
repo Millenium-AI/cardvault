@@ -1,14 +1,19 @@
 {
+  "id": "/",
   "name": "CardVault",
   "short_name": "CardVault",
   "description": "Trading card inventory and valuation tracker",
   "start_url": "/#/",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "window-controls-overlay"],
+  "display_override": ["tabbed", "window-controls-overlay", "standalone", "minimal-ui"],
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",
   "orientation": "portrait-primary",
+  "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
   "icons": [
     {
       "src": "/apple-touch-icon.png",
@@ -41,6 +46,81 @@
       "purpose": "maskable"
     }
   ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View your CardVault overview and analytics",
+      "url": "/#/",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Upload Cards",
+      "short_name": "Uploads",
+      "description": "Import and scan new card data",
+      "url": "/#/uploads",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "My Inventory",
+      "short_name": "Inventory",
+      "description": "Browse and manage your card collection",
+      "url": "/#/inventory",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Card Shows",
+      "short_name": "Shows",
+      "description": "Track upcoming card show events",
+      "url": "/#/shows",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "share_target": {
+    "action": "/#/uploads",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "card_image",
+          "accept": ["image/png", "image/jpeg", "image/webp"]
+        }
+      ]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "/#/uploads",
+      "accept": {
+        "text/csv": [".csv"]
+      }
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "web+cardvault",
+      "url": "/#/inventory?id=%s"
+    }
+  ],
   "categories": ["finance", "utilities"],
-  "screenshots": []
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "CardVault mobile inventory view"
+    },
+    {
+      "src": "/screenshot-desktop.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "CardVault desktop dashboard"
+    }
+  ]
 }
