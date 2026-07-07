@@ -164,11 +164,12 @@ export function registerPricesRoutes(app: Express) {
     }
   });
 
-  // ── POST /api/prices/refresh ─────────────────────────────────────────────
+  // ── POST /api/prices/refresh ───────────────────────────────────────────────
   app.post("/api/prices/refresh", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { ids } = req.body as { ids?: string[] };
+      // Guard against body parser not running or empty body
+      const { ids } = (req.body ?? {}) as { ids?: string[] };
 
       const allItems = await storage.listInventoryItems(userId);
 
