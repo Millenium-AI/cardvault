@@ -317,7 +317,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Main column ────────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
-        {/* Mobile header — owns the safe-area-inset-top padding so it fills behind the status bar */}
+        {/* Mobile header */}
         <header
           className="md:hidden shrink-0 flex items-center px-4 gap-3 border-b border-white/[0.06]"
           style={{
@@ -369,31 +369,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
         )}
 
-        {/* Scrollable page content */}
+        {/* Scrollable page content — no bottom padding needed since nav is a flex sibling */}
         <main
           className="flex-1 overflow-y-auto"
-          style={{
-            WebkitOverflowScrolling: "touch",
-            paddingBottom: "calc(62px + env(safe-area-inset-bottom))",
-          }}
+          style={{ WebkitOverflowScrolling: "touch" }}
         >
-          <div className="p-4 md:p-6 max-w-screen-2xl mx-auto md:pb-0">
+          <div className="p-4 md:p-6 max-w-screen-2xl mx-auto">
             {children}
           </div>
         </main>
 
-        {/* Bottom nav — fully opaque so no black seam shows through in the home indicator zone */}
+        {/* Bottom nav — flex child, NOT fixed. Stays pinned at bottom via flex column layout.
+            Safe-area padding pushes content above the iOS home indicator. */}
         <nav
           className={cn(
-            "md:hidden fixed bottom-0 left-0 right-0 z-50 flex items-stretch",
+            "md:hidden shrink-0 flex items-stretch",
             "border-t border-white/[0.08]",
             "transition-all duration-300",
-            modalOpen ? "opacity-0 translate-y-full pointer-events-none" : "opacity-100 translate-y-0"
+            modalOpen ? "opacity-0 pointer-events-none" : "opacity-100"
           )}
           style={{
             background: "hsl(var(--sidebar-bg))",
             paddingBottom: "env(safe-area-inset-bottom)",
-            height: "calc(62px + env(safe-area-inset-bottom))",
+            minHeight: "calc(62px + env(safe-area-inset-bottom))",
           }}
         >
           {bottomNav.map(item => (
