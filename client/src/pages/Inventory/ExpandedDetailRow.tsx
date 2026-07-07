@@ -45,16 +45,16 @@ export function ExpandedDetail({
           </div>
         )}
 
-        {/* Body: chart left, actions right */}
-        <div className="flex items-stretch">
+        {/* Body: stacks vertically on mobile, side-by-side on sm+ */}
+        <div className="flex flex-col sm:flex-row items-stretch">
 
-          {/* Chart column */}
-          <div className="flex-1 min-w-0 px-5 py-4 border-r border-border/30">
+          {/* Chart column — full width on mobile, flex-1 on desktop */}
+          <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30">
             <PriceHistory item={item} />
           </div>
 
-          {/* Actions sidebar */}
-          <div className="w-[200px] shrink-0 flex flex-col gap-3 px-4 py-4 bg-muted/20">
+          {/* Actions sidebar — full width on mobile with top border, fixed 200px on desktop */}
+          <div className="w-full sm:w-[200px] shrink-0 flex flex-col gap-3 px-4 py-4 bg-muted/20 border-t sm:border-t-0 border-border/30">
             {!editing && item.notes && (
               <div className="text-xs bg-muted/50 rounded-lg px-3 py-2 border border-border/50">
                 <span className="text-muted-foreground font-medium">Notes: </span>
@@ -65,7 +65,7 @@ export function ExpandedDetail({
             {editing ? (
               <InlineEditPanel item={item} onDone={() => setEditing(false)} />
             ) : (
-              <div className="flex flex-col gap-2 mt-auto">
+              <div className="flex flex-col gap-2 sm:mt-auto">
                 <Button
                   data-testid="button-edit-item"
                   variant="outline" size="sm"
@@ -79,7 +79,7 @@ export function ExpandedDetail({
                   disabled={deleteMut.isPending}
                   className="h-8 w-full text-xs gap-1.5 justify-start border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
                   onClick={handleDelete}>
-                  <Trash2 size={12} /> {deleteMut.isPending ? "Deleting…" : "Delete"}
+                  <Trash2 size={12} /> {deleteMut.isPending ? "Deleting\u2026" : "Delete"}
                 </Button>
                 <div className="border-t border-border/30 pt-2 mt-1">
                   {item.tcgplayerUrl ? (

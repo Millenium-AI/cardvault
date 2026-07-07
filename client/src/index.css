@@ -137,10 +137,27 @@ body {
   }
 }
 
-/* Body scroll lock when modal open */
+/*
+  Body scroll lock when modal is open.
+  NOTE: We intentionally do NOT set touch-action:none here — doing so blocks
+  scroll inside the modal panel on iOS PWA (touch events can't reach the
+  inner overflow container). Instead we use .modal-scroll-area on the inner
+  scrollable div to enable scoped iOS momentum scroll with overscroll
+  containment, which prevents the background from being dragged.
+*/
 body.modal-open {
   overflow: hidden !important;
-  touch-action: none;
+}
+
+/*
+  Applied to the scrollable inner div of modals.
+  overscroll-behavior:contain stops scroll chaining to the body behind the
+  modal. -webkit-overflow-scrolling:touch restores iOS momentum scroll inside
+  the panel (which touch-action:none would have killed).
+*/
+.modal-scroll-area {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 @layer base {

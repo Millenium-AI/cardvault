@@ -32,7 +32,7 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
   }
 
   return (
-    <div className="overflow-y-auto flex-1">
+    <div className="modal-scroll-area overflow-y-auto flex-1">
       {/* ── Desktop: two-column layout ── */}
       <div className="hidden sm:flex gap-0 h-full">
         {/* Left col: image + meta + stats */}
@@ -92,7 +92,7 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
                   <Button variant="outline" size="sm" disabled={deleteMut.isPending}
                     className="h-8 text-xs gap-1.5 rounded-lg border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
                     onClick={handleDelete}>
-                    <Trash2 size={11} /> {deleteMut.isPending ? "…" : "Delete"}
+                    <Trash2 size={11} /> {deleteMut.isPending ? "\u2026" : "Delete"}
                   </Button>
                 </div>
                 {item.tcgplayerUrl ? (
@@ -229,7 +229,7 @@ export function InventoryDetailModal({ item, open, onClose }: { item: any; open:
         className="absolute inset-0 bg-black/70 backdrop-blur-md animate-in fade-in-0 duration-200"
         onClick={onClose}
       />
-      {/* Panel — wider on desktop to show two-column layout without scrolling */}
+      {/* Panel */}
       <div
         className="
           relative z-10
@@ -239,24 +239,32 @@ export function InventoryDetailModal({ item, open, onClose }: { item: any; open:
           bg-card
           border border-border/40
           shadow-[0_32px_80px_rgba(0,0,0,0.8)]
-          animate-in slide-in-from-bottom-8 sm:zoom-in-95 duration-250
+          animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-300 ease-out
           overflow-hidden
           sm:mb-0
         "
         style={{
-          maxHeight: "min(88dvh, 680px)",
-          marginBottom: "calc(72px + env(safe-area-inset-bottom, 0px))",
+          maxHeight: "min(82dvh, 640px)",
+          marginBottom: "calc(64px + env(safe-area-inset-bottom, 0px))",
         }}
       >
-        {/* Mobile drag handle */}
-        <div className="sm:hidden flex flex-col items-center pt-3 pb-1 shrink-0">
+        {/* Mobile: drag handle + close button in one row */}
+        <div className="sm:hidden flex items-center justify-between px-4 pt-3 pb-1 shrink-0">
+          <div className="w-11" />
           <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
-        </div>
-        {/* Close button */}
-        <div className="flex items-center justify-end px-5 pt-3 pb-0 shrink-0">
           <button
             onClick={onClose}
-            className="flex items-center justify-center h-8 w-8 rounded-full bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground transition-all">
+            aria-label="Close"
+            className="flex items-center justify-center h-11 w-11 rounded-full bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground transition-all active:scale-95">
+            <X size={18} />
+          </button>
+        </div>
+        {/* Desktop: close button top-right only */}
+        <div className="hidden sm:flex items-center justify-end px-5 pt-3 pb-0 shrink-0">
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="flex items-center justify-center h-9 w-9 rounded-full bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground transition-all">
             <X size={15} />
           </button>
         </div>
