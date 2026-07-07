@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Upload, Package,
   Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon,
 } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/AuthContext";
 import { useUserPrefs } from "@/lib/useUserPrefs";
@@ -114,38 +114,47 @@ function AvatarMenu({
   onClose: () => void; onSignOut: () => void;
 }) {
   const [pos, setPos] = useState({ top: 0, right: 0 });
+  const menuRef = useRef<HTMLDivElement>(null);
   const [, navigate] = useLocation();
   const { theme, setTheme } = useUserPrefs();
 
-  useEffect(() => {
+  // Recalculate position every time the menu opens and on resize
+  const recalcPos = useCallback(() => {
     if (!avatarRef.current) return;
     const r = avatarRef.current.getBoundingClientRect();
     setPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
   }, [avatarRef]);
 
   useEffect(() => {
-    function handler(e: MouseEvent) {
+    recalcPos();
+    window.addEventListener("resize", recalcPos);
+    return () => window.removeEventListener("resize", recalcPos);
+  }, [recalcPos]);
+
+  // Use pointerdown instead of mousedown — works on iOS touch + desktop
+  useEffect(() => {
+    function handler(e: PointerEvent) {
       if (avatarRef.current?.contains(e.target as Node)) return;
+      if (menuRef.current?.contains(e.target as Node)) return;
       onClose();
     }
-    const t = setTimeout(() => document.addEventListener("mousedown", handler), 10);
-    return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
+    // Small delay so the opening tap doesn't immediately trigger close
+    const t = setTimeout(() => document.addEventListener("pointerdown", handler), 50);
+    return () => { clearTimeout(t); document.removeEventListener("pointerdown", handler); };
   }, [avatarRef, onClose]);
 
-  function goSettings(e: React.MouseEvent) {
-    e.preventDefault();
+  // Navigate then close — no preventDefault so iOS touch chain is unbroken
+  function goSettings() {
     onClose();
     navigate("/settings");
   }
 
-  function goAdmin(e: React.MouseEvent) {
-    e.preventDefault();
+  function goAdmin() {
     onClose();
     navigate("/admin");
   }
 
-  function toggleTheme(e: React.MouseEvent) {
-    e.preventDefault();
+  function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     onClose();
@@ -153,6 +162,7 @@ function AvatarMenu({
 
   return (
     <div
+      ref={menuRef}
       className="fixed z-[200] w-60 rounded-2xl border border-border/50 bg-card/95 backdrop-blur-2xl shadow-2xl shadow-black/50 overflow-hidden animate-in fade-in-0 slide-in-from-top-2 duration-150"
       style={{ top: pos.top, right: pos.right }}
     >
@@ -247,8 +257,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const userInitial  = user?.email?.[0]?.toUpperCase() ?? "U";
 
   return (
-    // h-app uses -webkit-fill-available + var(--app-height) set by main.tsx
-    // This is the fix for iOS PWA phantom address-bar gap at the bottom
     <div className="flex h-app overflow-hidden bg-background">
       {/* ── Desktop sidebar ───────────────────────────────────────────── */}
       <aside className={cn(
@@ -360,7 +368,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </header>
 
-        {/* Avatar dropdown portal */}
+        {/* Avatar dropdown — rendered inside the flex column so z-index stacks correctly */}
         {avatarOpen && (
           <AvatarMenu
             user={user}
@@ -381,8 +389,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
-        {/* Bottom nav — flex child, NOT fixed. Stays pinned at bottom via flex column.
-            Safe-area padding pushes content above the iOS home indicator. */}
+        {/* Bottom nav */}
         <nav
           className={cn(
             "md:hidden shrink-0 flex items-stretch",
