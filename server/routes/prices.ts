@@ -28,6 +28,16 @@ function calcChange(history: { t: number; p: number }[]): number | null {
   return first > 0 ? (last - first) / first : null;
 }
 
+/**
+ * Safely parse match_metadata_json whether stored as a jsonb object
+ * (Supabase returns it already parsed) or as a legacy JSON string.
+ */
+function parseMetadata(raw: any): Record<string, any> {
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
 export function registerPricesRoutes(app: Express) {
   // ── GET /api/inventory/:id/price-history?window=30d ──────────────────────
   // Defaults to 30d. Called on panel open (not just on tile click).
@@ -74,13 +84,14 @@ export function registerPricesRoutes(app: Express) {
         include_statistics: "7d,30d,90d,allTime",
       });
 
+      const metadata = parseMetadata(item.match_metadata_json);
+
       if (variantUuid) {
         params.set("variantId", variantUuid);
       } else if (item.source_tcgplayer_sku_id) {
         params.set("tcgplayerSkuId", item.source_tcgplayer_sku_id);
       } else {
         params.set("tcgplayerId", item.source_product_id);
-        const metadata = (() => { try { return JSON.parse(item.match_metadata_json || "{}"); } catch { return {}; } })();
         const condition = item.condition ?? "Near Mint";
         params.set("condition", condition);
         if (metadata.sourcePrinting) params.set("printing", metadata.sourcePrinting);
@@ -107,7 +118,6 @@ export function registerPricesRoutes(app: Express) {
         : variants[0];
 
       if (!variant) {
-        const metadata = (() => { try { return JSON.parse(item.match_metadata_json || "{}"); } catch { return {}; } })();
         variant = variants.find((v: any) => v.condition === (item.condition ?? "Near Mint") && v.printing === (metadata.sourcePrinting ?? "Normal"))
           ?? variants.find((v: any) => v.condition === (item.condition ?? "Near Mint"))
           ?? variants[0];
@@ -181,14 +191,11 @@ export function registerPricesRoutes(app: Express) {
 
         const priceMap = await batchFetchPrices(
           chunk.map(item => {
-            const metadata = (() => {
-              try { return JSON.parse(item.matchMetadataJson || "{}"); }
-              catch { return {}; }
-            })();
+            const metadata = parseMetadata(item.matchMetadataJson);
             return {
               id: item.id,
               tcgplayerId: item.sourceProductId!,
-              tcgplayerSkuId: metadata.sourceTcgplayerSkuId ?? null,
+              tcgplayerSkuId: item.sourceTcgplayerSkuId ?? metadata.sourceTcgplayerSkuId ?? null,
               condition: item.condition ?? "Near Mint",
               printing: metadata.sourcePrinting ?? null,
             };
@@ -230,7 +237,7 @@ export function registerPricesRoutes(app: Express) {
         }
 
         if (i + BATCH < toRefresh.length) {
-          await new Promise(r => setTimeout(r, 6000));
+          await new Promise(r => setTimeout(r, 1000));
         }
       }
 
