@@ -96,17 +96,15 @@ export default function Inventory() {
   async function handleRefreshPrices() {
     if (refreshing) return;
 
-    // Calculate estimated duration: batches of 20, 1s between each
     const totalItems = items.length;
     const batchCount = Math.max(1, Math.ceil(totalItems / 20));
-    const estimatedMs = batchCount * 1000 + 2000; // +2s for network overhead
+    const estimatedMs = batchCount * 1000 + 2000;
 
     setRefreshing(true);
     setRefreshProgress(0);
     setRefreshLabel("Refreshing prices…");
     setShowProgressBar(true);
 
-    // Advance progress smoothly over estimated duration, stopping at 90%
     const startTime = Date.now();
     progressTimerRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
@@ -115,10 +113,10 @@ export default function Inventory() {
     }, 100);
 
     try {
-      const result = await apiRequest("POST", "/api/prices/refresh") as any;
-      const data = result?.updated !== undefined ? result : await result?.json?.();
+      // Pass {} so apiRequest sets Content-Type: application/json and auth header is always included
+      const res = await apiRequest("POST", "/api/prices/refresh", {});
+      const data = await res.json();
 
-      // Jump to 100%
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
       setRefreshProgress(100);
 
@@ -134,7 +132,6 @@ export default function Inventory() {
 
       await queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
 
-      // Show completed state briefly then dismiss
       setTimeout(() => {
         setShowProgressBar(false);
         setTimeout(() => setRefreshProgress(0), 300);
@@ -146,17 +143,16 @@ export default function Inventory() {
           ? "All prices were updated within the last 6 hours."
           : `${updated} updated · ${fresh} already fresh`,
       });
-    } catch {
+    } catch (err: any) {
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
       setRefreshProgress(0);
       setShowProgressBar(false);
-      toast({ title: "Refresh failed", description: "Could not refresh prices.", variant: "destructive" });
+      toast({ title: "Refresh failed", description: err?.message ?? "Could not refresh prices.", variant: "destructive" });
     } finally {
       setRefreshing(false);
     }
   }
 
-  // Clean up timer on unmount
   useEffect(() => () => {
     if (progressTimerRef.current) clearInterval(progressTimerRef.current);
   }, []);
@@ -222,7 +218,6 @@ export default function Inventory() {
 
   const isGridMode = viewMode === "grid-sm" || viewMode === "grid-lg";
 
-  // Label filter options — used by both mobile pills and desktop pills
   const labelOptions = [
     { key: "all",             label: "All Items",       count: items.length,                 cls: undefined as string | undefined },
     { key: "needs_label",     label: "Needs Label",     count: labelCounts.needs_label,     cls: "text-amber-400" },
@@ -232,7 +227,6 @@ export default function Inventory() {
 
   return (
     <div>
-      {/* Page header */}
       <div className="flex flex-col gap-1 mb-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-lg font-semibold text-foreground">Inventory</h1>
         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
@@ -248,7 +242,6 @@ export default function Inventory() {
 
       {/* ── MOBILE FILTER BAR ─────────────────────────────────────────────── */}
       <div className="md:hidden space-y-2 mb-3">
-        {/* Row 1: search + action buttons */}
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -280,7 +273,6 @@ export default function Inventory() {
           </Button>
         </div>
 
-        {/* Row 2: expandable filter grid — game / condition / sort only (label has its own always-visible pill row) */}
         {filterOpen && (
           <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
             <Select value={game} onValueChange={setSelectedGame}>
@@ -320,7 +312,6 @@ export default function Inventory() {
           </div>
         )}
 
-        {/* Row 3: always-visible label filter pills (horizontal scroll) */}
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
           {labelOptions.map(({ key, label, count, cls }) => (
             <button
