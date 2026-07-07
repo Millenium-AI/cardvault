@@ -19,6 +19,42 @@ import { MobileInventoryCard } from "./MobileCard";
 import { InventoryDetailSheet, InventoryDetailModal } from "./DetailSheet";
 import { BulkActionBar } from "./BulkActionsBar";
 
+// ── Refresh Progress Bar ─────────────────────────────────────────────────────
+function RefreshProgressBar({
+  progress,
+  label,
+  visible,
+}: {
+  progress: number; // 0–100
+  label: string;
+  visible: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[min(420px,90vw)] transition-all duration-300",
+        visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
+      )}
+    >
+      <div className="rounded-xl border border-border bg-card shadow-xl px-4 py-3 space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <RefreshCw size={13} className="text-primary animate-spin" />
+            <span className="text-xs font-medium text-foreground">{label}</span>
+          </div>
+          <span className="text-xs font-mono text-muted-foreground">{Math.round(progress)}%</span>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Inventory() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -30,6 +66,10 @@ export default function Inventory() {
   const [exportOpen, setExportOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshProgress, setRefreshProgress] = useState(0);
+  const [refreshLabel, setRefreshLabel] = useState("Refreshing prices…");
+  const [showProgressBar, setShowProgressBar] = useState(false);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -55,17 +95,71 @@ export default function Inventory() {
 
   async function handleRefreshPrices() {
     if (refreshing) return;
+
+    // Calculate estimated duration: batches of 20, 1s between each
+    const totalItems = items.length;
+    const batchCount = Math.max(1, Math.ceil(totalItems / 20));
+    const estimatedMs = batchCount * 1000 + 2000; // +2s for network overhead
+
     setRefreshing(true);
+    setRefreshProgress(0);
+    setRefreshLabel("Refreshing prices…");
+    setShowProgressBar(true);
+
+    // Advance progress smoothly over estimated duration, stopping at 90%
+    const startTime = Date.now();
+    progressTimerRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(90, (elapsed / estimatedMs) * 100);
+      setRefreshProgress(pct);
+    }, 100);
+
     try {
-      await apiRequest("POST", "/api/prices/refresh");
+      const result = await apiRequest("POST", "/api/prices/refresh") as any;
+      const data = result?.updated !== undefined ? result : await result?.json?.();
+
+      // Jump to 100%
+      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+      setRefreshProgress(100);
+
+      const updated = data?.updated ?? 0;
+      const total   = data?.total   ?? 0;
+      const fresh   = total > 0 ? total - updated : 0;
+
+      if (total === 0) {
+        setRefreshLabel("All prices are already fresh");
+      } else {
+        setRefreshLabel(`Updated ${updated} of ${total} prices`);
+      }
+
       await queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      toast({ title: "Prices refreshed", description: "Market prices updated." });
+
+      // Show completed state briefly then dismiss
+      setTimeout(() => {
+        setShowProgressBar(false);
+        setTimeout(() => setRefreshProgress(0), 300);
+      }, 2500);
+
+      toast({
+        title: total === 0 ? "Prices are fresh" : "Prices refreshed",
+        description: total === 0
+          ? "All prices were updated within the last 6 hours."
+          : `${updated} updated · ${fresh} already fresh`,
+      });
     } catch {
+      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+      setRefreshProgress(0);
+      setShowProgressBar(false);
       toast({ title: "Refresh failed", description: "Could not refresh prices.", variant: "destructive" });
     } finally {
       setRefreshing(false);
     }
   }
+
+  // Clean up timer on unmount
+  useEffect(() => () => {
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+  }, []);
 
   function handleViewMode(v: ViewMode) {
     setViewMode(v);
@@ -452,6 +546,13 @@ export default function Inventory() {
         <BulkActionBar selectedIds={selectedIds} allCount={sorted.length}
           onSelectAll={selectAll} onDeselectAll={deselectAll} onCancel={exitSelectMode} />
       )}
+
+      {/* ── Refresh Progress Bar ───────────────────────────────────────────── */}
+      <RefreshProgressBar
+        progress={refreshProgress}
+        label={refreshLabel}
+        visible={showProgressBar}
+      />
     </div>
   );
 }
