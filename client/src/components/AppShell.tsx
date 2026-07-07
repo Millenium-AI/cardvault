@@ -247,7 +247,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const userInitial  = user?.email?.[0]?.toUpperCase() ?? "U";
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
+    // h-app uses -webkit-fill-available + var(--app-height) set by main.tsx
+    // This is the fix for iOS PWA phantom address-bar gap at the bottom
+    <div className="flex h-app overflow-hidden bg-background">
       {/* ── Desktop sidebar ───────────────────────────────────────────── */}
       <aside className={cn(
         "hidden md:flex flex-col shrink-0 transition-all duration-200 border-r",
@@ -369,7 +371,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
         )}
 
-        {/* Scrollable page content — no bottom padding needed since nav is a flex sibling */}
+        {/* Scrollable page content */}
         <main
           className="flex-1 overflow-y-auto"
           style={{ WebkitOverflowScrolling: "touch" }}
@@ -379,7 +381,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </main>
 
-        {/* Bottom nav — flex child, NOT fixed. Stays pinned at bottom via flex column layout.
+        {/* Bottom nav — flex child, NOT fixed. Stays pinned at bottom via flex column.
             Safe-area padding pushes content above the iOS home indicator. */}
         <nav
           className={cn(

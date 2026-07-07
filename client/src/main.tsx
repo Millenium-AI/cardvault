@@ -2,24 +2,29 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import { initThemeFromStorage } from "@/lib/useUserPrefs";
 
-// Apply saved theme before first paint — prevents dark/light flash
-initThemeFromStorage();
+/**
+ * iOS PWA viewport height fix.
+ * window.innerHeight gives the true visible height in standalone mode,
+ * unlike 100dvh which can still include the phantom address-bar gap.
+ * We write it to --app-height and re-measure on resize/orientation change.
+ */
+function setAppHeight() {
+  document.documentElement.style.setProperty(
+    "--app-height",
+    `${window.innerHeight}px`
+  );
+}
+
+setAppHeight();
+window.addEventListener("resize", setAppHeight);
+window.addEventListener("orientationchange", () => {
+  // Small delay lets iOS finish the rotation animation before re-measuring
+  setTimeout(setAppHeight, 150);
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
   </StrictMode>
 );
-
-// Service Worker Registration
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker
-      .register("/sw.js", { scope: "/" })
-      .catch(() => {
-        // SW registration failed — app continues without offline support
-      });
-  });
-}

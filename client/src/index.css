@@ -47,6 +47,9 @@
     --badge-moderately-played-color: #facc15;
     --badge-heavily-played-color:    #f87171;
     --badge-damaged-color:           #ef4444;
+
+    /* Full-screen height var — set by JS on mount for iOS PWA accuracy */
+    --app-height: 100%;
   }
 
   /* Light theme overrides */
@@ -78,11 +81,14 @@
 }
 
 /*
-  Force html/body to fill the full screen including the safe-area zones.
-  background-color on html matches --sidebar-bg so the status bar zone
-  (top) and home indicator zone (bottom) are never a raw black strip.
+  iOS PWA full-screen fix:
+  1. -webkit-fill-available fills the REAL viewport including safe areas.
+  2. 100dvh is the modern fallback for non-WebKit browsers.
+  3. JS in main.tsx sets --app-height to window.innerHeight px for
+     maximum precision on older iOS versions that ignore fill-available.
 */
 html {
+  height: -webkit-fill-available;
   height: 100dvh;
   overflow: hidden;
   background-color: hsl(0 0% 3%); /* matches --sidebar-bg dark default */
@@ -92,8 +98,17 @@ html.light {
   background-color: hsl(0 0% 96%); /* matches --sidebar-bg light */
 }
 
-body, #root {
+body {
+  min-height: -webkit-fill-available;
+  min-height: 100dvh;
+  height: var(--app-height);
+  overflow: hidden;
+}
+
+#root {
+  height: -webkit-fill-available;
   height: 100dvh;
+  height: var(--app-height);
   overflow: hidden;
 }
 
@@ -152,4 +167,11 @@ body.modal-open {
   /* Hide scrollbar but keep scrolling */
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* iOS PWA full-height utility — use instead of h-dvh on the root shell */
+  .h-app {
+    height: -webkit-fill-available;
+    height: 100dvh;
+    height: var(--app-height);
+  }
 }
