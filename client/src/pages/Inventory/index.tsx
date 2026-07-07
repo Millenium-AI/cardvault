@@ -32,7 +32,10 @@ function RefreshProgressBar({
   return (
     <div
       className={cn(
-        "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[min(420px,90vw)] transition-all duration-300",
+        // On mobile: sit above the bottom nav (62px) + safe-area + a little gap.
+        // On desktop (md+): default bottom-6 is fine since there's no bottom nav.
+        "fixed left-1/2 -translate-x-1/2 z-50 w-[min(420px,90vw)] transition-all duration-300",
+        "bottom-[calc(62px+env(safe-area-inset-bottom)+12px)] md:bottom-6",
         visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
       )}
     >
