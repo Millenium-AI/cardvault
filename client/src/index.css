@@ -47,9 +47,6 @@
     --badge-moderately-played-color: #facc15;
     --badge-heavily-played-color:    #f87171;
     --badge-damaged-color:           #ef4444;
-
-    /* Full-screen height var — set by JS on mount for iOS PWA accuracy */
-    --app-height: 100%;
   }
 
   /* Light theme overrides */
@@ -81,41 +78,63 @@
 }
 
 /*
-  iOS PWA full-screen fix:
-  1. -webkit-fill-available fills the REAL viewport including safe areas.
-  2. 100dvh is the modern fallback for non-WebKit browsers.
-  3. JS in main.tsx sets --app-height to window.innerHeight px for
-     maximum precision on older iOS versions that ignore fill-available.
+  ─────────────────────────────────────────────────────────────────────────────
+  iOS PWA full-screen height strategy (WebKit Bug #237961 workaround)
+  ─────────────────────────────────────────────────────────────────────────────
+  THE BUG: In iOS standalone PWA mode, ALL of these report wrong heights that
+  exclude safe area zones, leaving a phantom gap at the bottom:
+    - 100dvh / 100svh / 100lvh
+    - -webkit-fill-available
+    - window.innerHeight (also broken per WebKit Bug #210009)
+
+  THE FIX (confirmed by webkit.org bug reports + community):
+    - Do NOT set overflow:hidden on <html> or <body> — triggers a separate
+      WebKit crop bug that clips the bottom of the viewport.
+    - Use a @media (display-mode: standalone) query to switch to plain 100vh,
+      which is the ONLY unit that correctly includes safe areas in PWA mode.
+    - Keep overflow:hidden only on #root so the app shell still clips.
+    - Rely on env(safe-area-inset-bottom) on the nav bar (already in AppShell)
+      to push content above the home indicator.
+  ─────────────────────────────────────────────────────────────────────────────
 */
+
+/* Default: normal browser context */
 html {
-  height: -webkit-fill-available;
-  height: 100dvh;
-  overflow: hidden;
-  background-color: hsl(0 0% 3%); /* matches --sidebar-bg dark default */
+  height: 100%;
+  background-color: hsl(0 0% 3%);
 }
 
 html.light {
-  background-color: hsl(0 0% 96%); /* matches --sidebar-bg light */
+  background-color: hsl(0 0% 96%);
 }
 
 body {
-  min-height: -webkit-fill-available;
-  min-height: 100dvh;
-  height: var(--app-height);
-  overflow: hidden;
-}
-
-#root {
-  height: -webkit-fill-available;
-  height: 100dvh;
-  height: var(--app-height);
-  overflow: hidden;
-}
-
-body {
+  height: 100%;
   overscroll-behavior: none;
   -webkit-overflow-scrolling: auto;
   touch-action: manipulation;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ─── PWA standalone mode ───────────────────────────────────────────────────
+   In standalone mode, plain 100vh is the only reliable full-screen unit on
+   iOS WebKit. dvh/svh/-webkit-fill-available all exclude safe-area insets,
+   creating the phantom address-bar gap. Do NOT add overflow:hidden to html
+   or body here — it triggers a separate WebKit crop that clips the viewport.
+   ─────────────────────────────────────────────────────────────────────────── */
+@media all and (display-mode: standalone) {
+  html, body {
+    height: 100vh;
+  }
+
+  #root {
+    height: 100vh;
+    overflow: hidden;
+  }
 }
 
 /* Body scroll lock when modal open */
@@ -155,7 +174,7 @@ body.modal-open {
   .page-title {
     @apply text-xl font-semibold text-foreground;
   }
-  /* Condition badges — now driven by CSS custom properties set via useUserPrefs */
+  /* Condition badges — driven by CSS custom properties set via useUserPrefs */
   .badge-nm { background: color-mix(in srgb, var(--badge-near-mint-color) 15%, transparent); color: var(--badge-near-mint-color); border: 1px solid color-mix(in srgb, var(--badge-near-mint-color) 30%, transparent); }
   .badge-lp { background: color-mix(in srgb, var(--badge-lightly-played-color) 15%, transparent); color: var(--badge-lightly-played-color); border: 1px solid color-mix(in srgb, var(--badge-lightly-played-color) 30%, transparent); }
   .badge-mp { background: color-mix(in srgb, var(--badge-moderately-played-color) 15%, transparent); color: var(--badge-moderately-played-color); border: 1px solid color-mix(in srgb, var(--badge-moderately-played-color) 30%, transparent); }
@@ -168,10 +187,18 @@ body.modal-open {
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-  /* iOS PWA full-height utility — use instead of h-dvh on the root shell */
+  /*
+    .h-app — use on the root AppShell div instead of h-screen or h-dvh.
+    In standalone PWA mode the @media query above makes 100vh correct.
+    Outside PWA mode 100% inherits properly from html/body.
+  */
   .h-app {
-    height: -webkit-fill-available;
-    height: 100dvh;
-    height: var(--app-height);
+    height: 100%;
+  }
+
+  @media all and (display-mode: standalone) {
+    .h-app {
+      height: 100vh;
+    }
   }
 }
