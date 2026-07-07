@@ -48,8 +48,8 @@ export function ExpandedDetail({
         {/* Body: stacks vertically on mobile, side-by-side on sm+ */}
         <div className="flex flex-col sm:flex-row items-stretch">
 
-          {/* Chart column — full width on mobile, flex-1 on desktop */}
-          <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30">
+          {/* Chart column — capped height on desktop so the row stays compact */}
+          <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30 sm:max-h-[280px] sm:overflow-y-auto">
             <PriceHistory item={item} />
           </div>
 
