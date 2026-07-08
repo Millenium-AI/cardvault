@@ -134,6 +134,7 @@ export function MobileDetailDrawer({
 }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
+  const [snap, setSnap] = useState<number | string | null>(0.6);
 
   const meta = (() => {
     try {
@@ -173,7 +174,8 @@ export function MobileDetailDrawer({
       open={open}
       onOpenChange={(v) => !v && onClose()}
       snapPoints={[0.6, 0.92]}
-      activeSnapPoint={0.6}
+      activeSnapPoint={snap}
+      setActiveSnapPoint={setSnap}
     >
       <Drawer.Portal>
         {/* Backdrop */}
