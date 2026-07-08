@@ -35,7 +35,8 @@ function resolveChange(w: HistoryWindow, data: any): number | null {
   return stats?.[w]?.change ?? null;
 }
 
-function StatPill({ label, value }: { label: string; value: number | null | undefined }) {
+// ── StatPill — exported so ItemDetailModal can reuse it ─────────────────────
+export function StatPill({ label, value }: { label: string; value: number | null | undefined }) {
   if (value == null) return null;
   const up = value >= 0;
   return (
@@ -48,7 +49,138 @@ function StatPill({ label, value }: { label: string; value: number | null | unde
   );
 }
 
-// ── PriceHistory ── accepts either `item` object OR `itemId` string ───────────
+// ── PriceChangeTiles ─────────────────────────────────────────────────────────
+// Displays all 5 time windows as static read-only % change tiles simultaneously.
+// Each tile shows the label + coloured % change — always visible at a glance.
+// Props accept pre-resolved change values; pass null to show a skeleton state.
+export interface PriceChangeTileValues {
+  "7d":   number | null;
+  "30d":  number | null;
+  "90d":  number | null;
+  "180d": number | null;
+  "1y":   number | null;
+}
+
+export function PriceChangeTiles({
+  values,
+  loading = false,
+}: {
+  values?: PriceChangeTileValues;
+  loading?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {WINDOWS.map(w => {
+        const chg = values?.[w.key] ?? null;
+        const up  = chg != null && chg >= 0;
+
+        return (
+          <div
+            key={w.key}
+            className="flex flex-col items-center rounded-lg border border-border bg-muted/30 px-3 py-1.5 min-w-[52px]"
+          >
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {w.label}
+            </span>
+            {loading || chg == null ? (
+              <span className="text-[10px] font-mono text-muted-foreground/40 mt-0.5">—</span>
+            ) : (
+              <span className={`text-[11px] font-mono font-semibold tabular-nums mt-0.5 ${
+                up ? "text-emerald-400" : "text-red-400"
+              }`}>
+                {up ? "+" : ""}{chg.toFixed(1)}%
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── PriceChartWithSelector ───────────────────────────────────────────────────
+// Renders window-selector BUTTONS (for chart navigation only) + the Recharts
+// line chart below. Accepts pre-fetched data + loading/error state as props
+// so the parent controls the query. Data wiring happens in a later step.
+export function PriceChartWithSelector({
+  data,
+  isFetching = false,
+  isError = false,
+  activeWindow,
+  onWindowChange,
+  height = 150,
+}: {
+  data?: any;
+  isFetching?: boolean;
+  isError?: boolean;
+  activeWindow: HistoryWindow;
+  onWindowChange: (w: HistoryWindow) => void;
+  height?: number;
+}) {
+  const normalizedStats = normalizeStats(data?.stats);
+  const chartStats = normalizedStats?.[activeWindow]
+    ?? normalizedStats?.["30d"]
+    ?? normalizedStats?.["7d"]
+    ?? null;
+
+  return (
+    <div>
+      {/* Chart-view selector buttons */}
+      <div className="flex items-center gap-1 mb-3">
+        {WINDOWS.map(w => (
+          <button
+            key={w.key}
+            onClick={() => onWindowChange(w.key)}
+            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              activeWindow === w.key
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            {w.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Loading */}
+      {isFetching && (
+        <div className="flex items-center gap-2 py-2">
+          <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          <span className="text-xs text-muted-foreground">Loading…</span>
+        </div>
+      )}
+
+      {/* Error */}
+      {isError && !isFetching && (
+        <p className="text-xs text-red-400">Failed to load history. Try again.</p>
+      )}
+
+      {/* Chart */}
+      {!isFetching && !isError && (
+        <>
+          {data?.history?.length >= 2 ? (
+            <div className="rounded-lg border border-border bg-muted/20 px-2 pt-2 pb-1">
+              <Chart
+                points={data.history}
+                stats={chartStats}
+                showStats={false}
+                height={height}
+              />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-6 text-center">
+              <p className="text-xs text-muted-foreground">
+                {data ? "Not enough data points for this window." : "Select a window to load chart data."}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── PriceHistory (original — unchanged, keeps all existing usages working) ───
 export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?: string }) {
   const [activeWindow, setActiveWindow] = useState<HistoryWindow>("30d");
 
@@ -67,10 +199,7 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
     staleTime: 30 * 60 * 1000,
   });
 
-  // Normalize stats keys once for all downstream uses
   const normalizedStats = normalizeStats(data?.stats);
-
-  // Pick best available stats to feed Hi/Lo lines on chart
   const chartStats = normalizedStats?.[activeWindow as string]
     ?? normalizedStats?.["30d"]
     ?? normalizedStats?.["7d"]
@@ -80,7 +209,6 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Price History</div>
 
-      {/* Window selector tiles — show % change badge when data available */}
       <div className="flex items-center gap-1 mb-3">
         {WINDOWS.map(w => {
           const chg = data ? resolveChange(w.key, data) : null;
@@ -142,7 +270,6 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
                 <span className="text-base font-mono font-bold text-primary tabular-nums">${data.current.toFixed(2)}</span>
               </div>
             )}
-            {/* Bug 1 fix: priceChange7d is already a whole percent (e.g. -3.03), not a decimal */}
             <StatPill label="7d" value={data.priceChange7d ?? null} />
           </div>
 
