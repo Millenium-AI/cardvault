@@ -1,26 +1,35 @@
-import { useState } from "react";
-import { ChevronDown, CheckSquare, Square } from "lucide-react";
+import { ChevronRight, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { LabelStatusBadge } from "./DetailPanel";
-import { ExpandedDetail } from "./ExpandedDetailRow";
 
 export function MobileInventoryCard({
-  item, selected, onSelect, selectMode,
+  item,
+  selected,
+  onSelect,
+  selectMode,
+  onOpen,
 }: {
-  item: any; selected: boolean;
+  item: any;
+  selected: boolean;
   onSelect: (id: string, checked: boolean) => void;
   selectMode: boolean;
+  onOpen: (item: any) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
+  const meta = (() => {
+    try {
+      return JSON.parse(item.matchMetadataJson || "{}");
+    } catch {
+      return {};
+    }
+  })();
 
-  function toggle() {
-    if (selectMode) { onSelect(item.id, !selected); return; }
-    const next = !expanded;
-    setExpanded(next);
-    if (!next) setEditing(false);
+  function tap() {
+    if (selectMode) {
+      onSelect(item.id, !selected);
+      return;
+    }
+    onOpen(item);
   }
 
   return (
@@ -31,32 +40,43 @@ export function MobileInventoryCard({
         selected ? "bg-primary/8" : "bg-transparent",
       )}
     >
-      <div className="flex items-center gap-3 px-3 py-3 cursor-pointer active:bg-accent/40" onClick={toggle}>
+      <div
+        className="flex items-center gap-3 px-3 py-3 cursor-pointer active:bg-accent/40"
+        onClick={tap}
+      >
+        {/* Left: select checkbox or chevron */}
         <div className="shrink-0">
           {selectMode ? (
-            <button onClick={e => { e.stopPropagation(); onSelect(item.id, !selected); }}
-              className="text-muted-foreground hover:text-primary transition-colors">
-              {selected
-                ? <CheckSquare size={16} className="text-primary" />
-                : <Square size={16} className="text-muted-foreground" />}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(item.id, !selected);
+              }}
+              className="text-muted-foreground hover:text-primary transition-colors"
+            >
+              {selected ? (
+                <CheckSquare size={16} className="text-primary" />
+              ) : (
+                <Square size={16} className="text-muted-foreground" />
+              )}
             </button>
           ) : (
-            <div className={cn(
-              "transition-transform duration-200 text-muted-foreground",
-              expanded ? "rotate-0" : "-rotate-90"
-            )}>
-              <ChevronDown size={15} />
-            </div>
+            <ChevronRight size={15} className="text-muted-foreground/50" />
           )}
         </div>
 
+        {/* Thumbnail */}
         {item.photoUrl ? (
-          <img src={item.photoUrl} alt=""
-            className="w-9 h-[50px] rounded object-contain bg-muted shrink-0" />
+          <img
+            src={item.photoUrl}
+            alt=""
+            className="w-9 h-[50px] rounded object-contain bg-muted shrink-0"
+          />
         ) : (
           <div className="w-9 h-[50px] rounded bg-muted/60 shrink-0" />
         )}
 
+        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -64,25 +84,43 @@ export function MobileInventoryCard({
                 {meta.cleanName || item.productName}
               </div>
               <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                {item.number && <span className="text-[11px] text-muted-foreground">#{item.number}</span>}
-                {item.number && meta.sourceSetName && <span className="text-muted-foreground/50 text-[11px]">·</span>}
-                {meta.sourceSetName && <span className="text-[11px] text-muted-foreground truncate max-w-[130px]">{meta.sourceSetName}</span>}
+                {item.number && (
+                  <span className="text-[11px] text-muted-foreground">
+                    #{item.number}
+                  </span>
+                )}
+                {item.number && meta.sourceSetName && (
+                  <span className="text-muted-foreground/50 text-[11px]">·</span>
+                )}
+                {meta.sourceSetName && (
+                  <span className="text-[11px] text-muted-foreground truncate max-w-[130px]">
+                    {meta.sourceSetName}
+                  </span>
+                )}
               </div>
             </div>
             <ConditionBadge condition={item.condition} abbreviated />
           </div>
+
+          {/* Price row */}
           <div className="flex items-center gap-3 mt-1.5">
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Qty</span>
-              <span className="text-xs font-mono font-medium text-foreground">{item.currentQuantity}</span>
+              <span className="text-xs font-mono font-medium text-foreground">
+                {item.currentQuantity}
+              </span>
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Mkt</span>
-              <span className="text-xs font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}</span>
+              <span className="text-xs font-mono text-foreground">
+                ${item.currentRawMarketPrice?.toFixed(2) ?? "—"}
+              </span>
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Print</span>
-              <span className="text-xs font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "\u2014"}</span>
+              <span className="text-xs font-mono font-bold text-primary">
+                ${item.currentRoundedPrintPrice ?? "—"}
+              </span>
             </div>
             {item.labelStatus && item.labelStatus !== "label_created" && (
               <LabelStatusBadge status={item.labelStatus} />
@@ -90,14 +128,6 @@ export function MobileInventoryCard({
           </div>
         </div>
       </div>
-
-      {expanded && !selectMode && (
-        <div className="px-3 pb-3">
-          <ExpandedDetail item={item} meta={meta} editing={editing} setEditing={setEditing} stopProp />
-          {/* Spacer so the last expanded card isn’t hidden under the floating nav */}
-          <div className="h-[calc(72px+env(safe-area-inset-bottom,0px))] md:hidden" />
-        </div>
-      )}
     </div>
   );
 }

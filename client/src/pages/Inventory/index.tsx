@@ -16,7 +16,8 @@ import { ViewModeToggle } from "./ViewModeToggle";
 import { InventoryGridCard } from "./ItemGrid";
 import { InventoryRow } from "./ItemRow";
 import { MobileInventoryCard } from "./MobileCard";
-import { InventoryDetailSheet, InventoryDetailModal } from "./DetailSheet";
+import { MobileDetailDrawer } from "./MobileDetailDrawer";
+import { InventoryDetailSheet } from "./DetailSheet";
 import { BulkActionBar } from "./BulkActionsBar";
 
 // ── Refresh Progress Bar ─────────────────────────────────────────────────────
@@ -25,15 +26,13 @@ function RefreshProgressBar({
   label,
   visible,
 }: {
-  progress: number; // 0–100
+  progress: number;
   label: string;
   visible: boolean;
 }) {
   return (
     <div
       className={cn(
-        // On mobile: sit above the bottom nav (62px) + safe-area + a little gap.
-        // On desktop (md+): default bottom-6 is fine since there's no bottom nav.
         "fixed left-1/2 -translate-x-1/2 z-50 w-[min(420px,90vw)] transition-all duration-300",
         "bottom-[calc(62px+env(safe-area-inset-bottom)+12px)] md:bottom-6",
         visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
@@ -70,7 +69,7 @@ export default function Inventory() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState(0);
-  const [refreshLabel, setRefreshLabel] = useState("Refreshing prices…");
+  const [refreshLabel, setRefreshLabel] = useState("Refreshing prices\u2026");
   const [showProgressBar, setShowProgressBar] = useState(false);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
@@ -98,53 +97,42 @@ export default function Inventory() {
 
   async function handleRefreshPrices() {
     if (refreshing) return;
-
     const totalItems = items.length;
     const batchCount = Math.max(1, Math.ceil(totalItems / 20));
     const estimatedMs = batchCount * 1000 + 2000;
-
     setRefreshing(true);
     setRefreshProgress(0);
-    setRefreshLabel("Refreshing prices…");
+    setRefreshLabel("Refreshing prices\u2026");
     setShowProgressBar(true);
-
     const startTime = Date.now();
     progressTimerRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
       const pct = Math.min(90, (elapsed / estimatedMs) * 100);
       setRefreshProgress(pct);
     }, 100);
-
     try {
-      // Pass {} so apiRequest sets Content-Type: application/json and auth header is always included
       const res = await apiRequest("POST", "/api/prices/refresh", {});
       const data = await res.json();
-
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
       setRefreshProgress(100);
-
       const updated = data?.updated ?? 0;
       const total   = data?.total   ?? 0;
       const fresh   = total > 0 ? total - updated : 0;
-
       if (total === 0) {
         setRefreshLabel("All prices are already fresh");
       } else {
         setRefreshLabel(`Updated ${updated} of ${total} prices`);
       }
-
       await queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-
       setTimeout(() => {
         setShowProgressBar(false);
         setTimeout(() => setRefreshProgress(0), 300);
       }, 2500);
-
       toast({
         title: total === 0 ? "Prices are fresh" : "Prices refreshed",
         description: total === 0
           ? "All prices were updated within the last 6 hours."
-          : `${updated} updated · ${fresh} already fresh`,
+          : `${updated} updated \u00b7 ${fresh} already fresh`,
       });
     } catch (err: any) {
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
@@ -215,11 +203,10 @@ export default function Inventory() {
   const someSelected = selectedIds.size > 0;
 
   function openSheet(item: any) { setSheetItem(item); setSheetOpen(true); }
+  function closeSheet() { setSheetOpen(false); setSheetItem(null); }
   const liveSheetItem = sheetItem ? (items.find((i: any) => i.id === sheetItem.id) ?? sheetItem) : null;
-  const emptyMsg = "No inventory — upload a CSV to get started";
+  const emptyMsg = "No inventory \u2014 upload a CSV to get started";
   const activeFilterCount = [game !== "all", condition !== "all", sortBy !== "name"].filter(Boolean).length;
-
-  const isGridMode = viewMode === "grid-sm" || viewMode === "grid-lg";
 
   const labelOptions = [
     { key: "all",             label: "All Items",       count: items.length,                 cls: undefined as string | undefined },
@@ -234,9 +221,9 @@ export default function Inventory() {
         <h1 className="text-lg font-semibold text-foreground">Inventory</h1>
         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
           <span className="font-mono">{items.length.toLocaleString()} SKUs</span>
-          <span>·</span>
+          <span>\u00b7</span>
           <span className="font-mono">{totalUnits.toLocaleString()} units</span>
-          <span>·</span>
+          <span>\u00b7</span>
           <span className="font-mono text-primary font-medium">
             ${totalValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
@@ -248,7 +235,7 @@ export default function Inventory() {
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input data-testid="input-search" placeholder="Search cards…" value={search}
+            <Input data-testid="input-search" placeholder="Search cards\u2026" value={search}
               onChange={e => setSearch(e.target.value)} className="pl-7 h-9 text-sm w-full" />
           </div>
           <button onClick={() => setFilterOpen(o => !o)}
@@ -282,8 +269,8 @@ export default function Inventory() {
               <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Game" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Games</SelectItem>
-                <SelectItem value="pokemon">Pokémon</SelectItem>
-                <SelectItem value="pokemon-jp">Pokémon JP</SelectItem>
+                <SelectItem value="pokemon">Pok\u00e9mon</SelectItem>
+                <SelectItem value="pokemon-jp">Pok\u00e9mon JP</SelectItem>
                 <SelectItem value="one-piece">One Piece</SelectItem>
                 <SelectItem value="sorcery">Sorcery</SelectItem>
                 <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
@@ -347,15 +334,15 @@ export default function Inventory() {
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <div className="relative flex-1 min-w-[150px] max-w-[260px]">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input data-testid="input-search" placeholder="Search cards…" value={search}
+            <Input data-testid="input-search" placeholder="Search cards\u2026" value={search}
               onChange={e => setSearch(e.target.value)} className="pl-7 h-9 text-sm" />
           </div>
           <Select value={game} onValueChange={setSelectedGame}>
             <SelectTrigger data-testid="select-filter-game" className="w-[120px] h-9 text-xs"><SelectValue placeholder="Game" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Games</SelectItem>
-              <SelectItem value="pokemon">Pokémon</SelectItem>
-              <SelectItem value="pokemon-jp">Pokémon JP</SelectItem>
+              <SelectItem value="pokemon">Pok\u00e9mon</SelectItem>
+              <SelectItem value="pokemon-jp">Pok\u00e9mon JP</SelectItem>
               <SelectItem value="one-piece">One Piece</SelectItem>
               <SelectItem value="sorcery">Sorcery</SelectItem>
               <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
@@ -387,7 +374,7 @@ export default function Inventory() {
           <Button size="sm" variant="outline" className="h-9 px-3 text-xs gap-1.5"
             onClick={handleRefreshPrices} disabled={refreshing}>
             <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
-            {refreshing ? "Refreshing…" : "Refresh Prices"}
+            {refreshing ? "Refreshing\u2026" : "Refresh Prices"}
           </Button>
           <Button data-testid="button-bulk-edit" size="sm"
             variant={selectMode ? "default" : "outline"} className="h-9 px-3 text-xs gap-1.5"
@@ -412,7 +399,7 @@ export default function Inventory() {
               className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
               onClick={() => setExportOpen(prev => !prev)} disabled={exportMut.isPending}>
               <Download size={13} />
-              {exportMut.isPending ? "Exporting…" : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
+              {exportMut.isPending ? "Exporting\u2026" : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
               <ChevronDown size={12} className={`transition-transform ${exportOpen ? "rotate-180" : ""}`} />
             </Button>
             {exportOpen && (
@@ -437,6 +424,7 @@ export default function Inventory() {
       {/* LIST VIEW */}
       {viewMode === "list" && (
         <div className="rounded-lg border border-border/40 bg-card overflow-hidden shadow-sm">
+          {/* Mobile list */}
           <div className="md:hidden divide-y divide-border/50">
             {isLoading
               ? Array.from({ length: 6 }).map((_, i) => (
@@ -448,11 +436,18 @@ export default function Inventory() {
               : sorted.length === 0
               ? <div className="px-4 py-12 text-center text-muted-foreground text-sm">{emptyMsg}</div>
               : sorted.map((item: any) => (
-                  <MobileInventoryCard key={item.id} item={item}
-                    selected={selectedIds.has(item.id)} onSelect={handleSelect} selectMode={selectMode} />
+                  <MobileInventoryCard
+                    key={item.id}
+                    item={item}
+                    selected={selectedIds.has(item.id)}
+                    onSelect={handleSelect}
+                    selectMode={selectMode}
+                    onOpen={openSheet}
+                  />
                 ))
             }
           </div>
+          {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -527,21 +522,29 @@ export default function Inventory() {
             </div>
       )}
 
-      {/* Detail panel */}
-      {isGridMode ? (
-        <InventoryDetailModal item={liveSheetItem} open={sheetOpen}
-          onClose={() => { setSheetOpen(false); setSheetItem(null); }} />
-      ) : (
-        <InventoryDetailSheet item={liveSheetItem} open={sheetOpen}
-          onClose={() => { setSheetOpen(false); setSheetItem(null); }} />
-      )}
+      {/* ── Detail panels ─────────────────────────────────────────────────── */}
+      {/* Mobile: Vaul bottom drawer (all 3 view modes) */}
+      <div className="sm:hidden">
+        <MobileDetailDrawer
+          item={liveSheetItem}
+          open={sheetOpen}
+          onClose={closeSheet}
+        />
+      </div>
+      {/* Desktop: existing right sheet (untouched) */}
+      <div className="hidden sm:block">
+        <InventoryDetailSheet
+          item={liveSheetItem}
+          open={sheetOpen}
+          onClose={closeSheet}
+        />
+      </div>
 
       {selectMode && (
         <BulkActionBar selectedIds={selectedIds} allCount={sorted.length}
           onSelectAll={selectAll} onDeselectAll={deselectAll} onCancel={exitSelectMode} />
       )}
 
-      {/* ── Refresh Progress Bar ───────────────────────────────────────────── */}
       <RefreshProgressBar
         progress={refreshProgress}
         label={refreshLabel}
