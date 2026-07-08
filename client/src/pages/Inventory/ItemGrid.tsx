@@ -2,6 +2,7 @@ import { CheckSquare, Square } from "lucide-react";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { LabelStatusBadge } from "./DetailPanel";
+import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 
 export function InventoryGridCard({
   item, size, selected, onSelect, selectMode, onOpen,
@@ -29,9 +30,11 @@ export function InventoryGridCard({
           </div>
         )}
         <div className="flex justify-center mb-2">
-          {item.photoUrl
-            ? <img src={item.photoUrl} alt="" className="w-14 h-[78px] rounded object-contain bg-muted" />
-            : <div className="w-14 h-[78px] rounded bg-muted" />}
+          <CardImagePlaceholder
+            photoUrl={item.photoUrl}
+            size="sm"
+            className="w-14 h-[78px] rounded bg-muted"
+          />
         </div>
         <div className="text-xs font-medium text-foreground truncate leading-tight">{item.productName}</div>
         <div className="flex items-center gap-1 mt-1 flex-wrap">
@@ -58,9 +61,11 @@ export function InventoryGridCard({
       )}
       <div className="flex gap-3">
         <div className="shrink-0">
-          {item.photoUrl
-            ? <img src={item.photoUrl} alt="" className="w-[88px] h-[123px] rounded object-contain bg-muted" />
-            : <div className="w-[88px] h-[123px] rounded bg-muted" />}
+          <CardImagePlaceholder
+            photoUrl={item.photoUrl}
+            size="md"
+            className="w-[88px] h-[123px] rounded bg-muted"
+          />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium text-foreground line-clamp-2 leading-tight">{item.productName}</div>

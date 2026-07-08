@@ -2,6 +2,7 @@ import { ChevronRight, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { LabelStatusBadge } from "./DetailPanel";
+import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 
 export function MobileInventoryCard({
   item,
@@ -66,15 +67,11 @@ export function MobileInventoryCard({
         </div>
 
         {/* Thumbnail */}
-        {item.photoUrl ? (
-          <img
-            src={item.photoUrl}
-            alt=""
-            className="w-9 h-[50px] rounded object-contain bg-muted shrink-0"
-          />
-        ) : (
-          <div className="w-9 h-[50px] rounded bg-muted/60 shrink-0" />
-        )}
+        <CardImagePlaceholder
+          photoUrl={item.photoUrl}
+          size="xs"
+          className="w-9 h-[50px] rounded shrink-0"
+        />
 
         {/* Info */}
         <div className="flex-1 min-w-0">

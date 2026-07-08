@@ -4,6 +4,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { PriceHistory, InlineEditPanel, Chip } from "./DetailPanel";
+import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 
 export function ExpandedDetail({
   item, meta, editing, setEditing, stopProp = false,
@@ -33,7 +34,7 @@ export function ExpandedDetail({
   const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity;
 
   return (
-    <div className="mx-auto max-w-[860px] py-1" onClick={wrap}>
+    <div className="mx-auto max-w-[960px] py-1" onClick={wrap}>
       <div className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
 
         {/* Header strip — chips + divider */}
@@ -45,8 +46,17 @@ export function ExpandedDetail({
           </div>
         )}
 
-        {/* Body: stacks vertically on mobile, side-by-side on sm+ */}
+        {/* Body: stacks vertically on mobile, three-column on sm+ */}
         <div className="flex flex-col sm:flex-row items-stretch">
+
+          {/* Photo column — fixed width, left of chart, desktop only */}
+          <div className="hidden sm:flex w-[130px] shrink-0 border-r border-border/30 items-center justify-center p-3">
+            <CardImagePlaceholder
+              photoUrl={item.photoUrl}
+              size="md"
+              className="w-full h-[150px] rounded-lg"
+            />
+          </div>
 
           {/* Chart column — capped height on desktop so the row stays compact */}
           <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30 sm:max-h-[280px] sm:overflow-y-auto">
