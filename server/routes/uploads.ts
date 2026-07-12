@@ -4,7 +4,7 @@ import * as XLSX from "xlsx";
 import { storage, type InventoryItem } from "../storage";
 import { supabaseAdmin } from "../supabase";
 import { batchFetchPrices } from "../justtcg";
-import { parseCSV, mapCsvRow, checkRepricingThreshold } from "./csvHelpers";
+import { parseCSV, mapCsvRow, checkRepricingThreshold, upgradeTcgPlayerImageUrl } from "./csvHelpers";
 import { pendingJobs, sendProgress } from "./helpers";
 
 const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
@@ -447,7 +447,9 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         let photoUrl: string | null = null;
         try {
           const src = JSON.parse(parsed?.sourcePayload || "{}");
-          photoUrl = src._photoUrl || src["Photo URL"] || null;
+          const rawUrl = src._photoUrl || src["Photo URL"] || null;
+          // Upgrade any TCGPlayer URL to max resolution (1000x1000)
+          photoUrl = upgradeTcgPlayerImageUrl(rawUrl);
         } catch {}
 
         const finalCondition = (overrides[row.id] as any)?.condition || row.condition;

@@ -14,9 +14,9 @@ function normalizeName(name: string): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/['']/g, "'")
-    .replace(/[""]/g, '"');
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"');
 }
 
 function normalizeNumber(n: string): string {
@@ -46,7 +46,7 @@ function ceilPrice(price: number | null | undefined): number {
 }
 
 function normalizeHeader(h: string): string {
-  return h.replace(/^﻿/, "").replace(/^"|"$/g, "").trim();
+  return h.replace(/^\uFEFF/, "").replace(/^"|"$/g, "").trim();
 }
 
 function parseCsvLine(line: string): string[] {
@@ -69,8 +69,38 @@ function parseCsvLine(line: string): string[] {
   return result;
 }
 
+/**
+ * Rewrites any TCGPlayer CDN image URL to the maximum 1000x1000 resolution.
+ * Handles formats like:
+ *   https://product-images.tcgplayer.com/200w/226943.jpg
+ *   https://product-images.tcgplayer.com/fit-in/400x400/226943.jpg
+ *   https://tcgplayer-cdn.tcgplayer.com/product/226943_200w.jpg
+ * Non-TCGPlayer URLs are returned unchanged.
+ */
+export function upgradeTcgPlayerImageUrl(url: string | null): string | null {
+  if (!url) return null;
+
+  // Pattern 1: product-images.tcgplayer.com/.../<id>.jpg
+  const match1 = url.match(
+    /^https:\/\/product-images\.tcgplayer\.com\/(?:[\w\-\/]+\/)?([0-9]+)\.jpg/i
+  );
+  if (match1) {
+    return `https://product-images.tcgplayer.com/fit-in/1000x1000/${match1[1]}.jpg`;
+  }
+
+  // Pattern 2: tcgplayer-cdn.tcgplayer.com/product/<id>_*.jpg
+  const match2 = url.match(
+    /^https:\/\/tcgplayer-cdn\.tcgplayer\.com\/product\/([0-9]+)[_\-][^/]*\.jpg/i
+  );
+  if (match2) {
+    return `https://product-images.tcgplayer.com/fit-in/1000x1000/${match2[1]}.jpg`;
+  }
+
+  return url; // non-TCGPlayer URLs pass through unchanged
+}
+
 export function parseCSV(content: string): Record<string, string>[] {
-  const lines = content.replace(/^﻿/, "").split(/\r?\n/);
+  const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/);
   const nonEmpty = lines.filter(l => l.trim().length > 0);
   if (nonEmpty.length < 2) throw new Error("The CSV is empty or contains only a header row with no data.");
 
@@ -104,7 +134,7 @@ export function parseCSV(content: string): Record<string, string>[] {
 function detectGameFromProductLine(productLine: string | null, fallback: string): string {
   if (!productLine) return fallback;
   const pl = productLine.toLowerCase();
-  if (pl.includes("pokemon") || pl.includes("pokémon")) {
+  if (pl.includes("pokemon") || pl.includes("pok\u00e9mon")) {
     if (pl.includes("japan") || pl.includes(" jp") || pl.includes("(jp)")) return "pokemon-jp";
     return "pokemon";
   }
@@ -141,7 +171,8 @@ export function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: n
   const sourceSetName       = k("Set Name", "set_name", "Set", "Expansion") || null;
   const sourcePrinting      = k("Printing", "printing", "Foil", "Edition") || null;
   const sourceRarity        = k("Rarity", "rarity") || null;
-  const photoUrl            = k("Photo URL", "photo_url", "Image URL") || null;
+  const rawPhotoUrl         = k("Photo URL", "photo_url", "Image URL") || null;
+  const photoUrl            = upgradeTcgPlayerImageUrl(rawPhotoUrl);
 
   const flags: string[] = [];
   if (!productName) flags.push("missing_product_name");
