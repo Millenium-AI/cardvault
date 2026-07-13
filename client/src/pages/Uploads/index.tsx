@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeader } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { UploadForm } from "./UploadForm";
+import { UploadForm, mergeFilesToCsv } from "./UploadForm";
 import { UploadList } from "./UploadList";
 import { UploadReviewPanel } from "./UploadReviewPanel";
 
@@ -43,9 +43,16 @@ export default function Uploads() {
   });
 
   const uploadMut = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (files: File[]) => {
       const authHeader = await getAuthHeader();
       const API_BASE = ("__PORT_5000__" as string).startsWith("__") ? "" : "__PORT_5000__";
+
+      // Merge all files into one combined CSV + detect envelope game
+      setUploadProgress({ label: "Merging files…", pct: 5 });
+      const { csv: mergedCsv, game: detectedGame } = await mergeFilesToCsv(files);
+
+      // Use detected game as the envelope; per-row detection handles mixed games
+      const envelopeGame = detectedGame || game;
 
       const tokenRes = await fetch(`${API_BASE}/api/uploads/progress-token`, {
         method: "POST",
@@ -56,7 +63,7 @@ export default function Uploads() {
       sseRef.current?.close();
       const sse = new EventSource(`${API_BASE}/api/uploads/progress/${token}`);
       sseRef.current = sse;
-      setUploadProgress({ label: "Starting…", pct: 0 });
+      setUploadProgress({ label: "Starting…", pct: 10 });
 
       sse.onmessage = (e) => {
         const msg = JSON.parse(e.data);
@@ -65,9 +72,17 @@ export default function Uploads() {
         else if (typeof msg.pct === "number") { setUploadProgress({ label: msg.label, pct: msg.pct }); }
       };
 
+      // Build a single File from the merged CSV string
+      const mergedBlob = new Blob([mergedCsv], { type: "text/csv" });
+      const mergedFile = new File(
+        [mergedBlob],
+        files.length === 1 ? files[0].name : `combined_${files.length}_files.csv`,
+        { type: "text/csv" }
+      );
+
       const form = new FormData();
-      form.append("file", file);
-      form.append("game", game);
+      form.append("file", mergedFile);
+      form.append("game", envelopeGame);
       form.append("sourceType", "tcgplayer");
       form.append("progressToken", token);
 
@@ -113,19 +128,17 @@ export default function Uploads() {
 
         {/* Left column */}
         <div className="space-y-4">
-          {/* Upload form */}
           <UploadForm
             game={game}
             uploadProgress={uploadProgress}
             isDragging={isDragging}
             isPending={uploadMut.isPending}
-            onFile={(file) => uploadMut.mutate(file)}
+            onFiles={(files) => uploadMut.mutate(files)}
             onGameChange={setGame}
             onDragOver={() => setIsDragging(true)}
             onDragLeave={() => setIsDragging(false)}
           />
 
-          {/* Upload history */}
           <UploadList
             uploads={uploads}
             isLoading={isLoading}
