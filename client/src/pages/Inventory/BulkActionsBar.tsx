@@ -1,4 +1,4 @@
-import { CheckSquare, Square, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
@@ -6,38 +6,45 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { useBulkPatchMutation, useBulkDeleteMutation } from "./hooks/useInventoryMutations";
 
-export function BulkActionBar({
-  selectedIds, allCount, onSelectAll, onDeselectAll, onCancel,
+export function BulkActionsBar({
+  selectedIds, game, onDone,
 }: {
-  selectedIds: Set<string>; allCount: number;
-  onSelectAll: () => void; onDeselectAll: () => void; onCancel: () => void;
+  selectedIds: string[];
+  game: string;
+  onDone: () => void;
 }) {
   const { toast } = useToast();
   const [pendingCondition, setPendingCondition] = useState("");
   const [pendingQty, setPendingQty] = useState("");
-  const ids = Array.from(selectedIds);
-  const someSelected = selectedIds.size > 0;
-  const allSelected = allCount > 0 && selectedIds.size === allCount;
+  const someSelected = selectedIds.length > 0;
 
   const bulkPatchMut = useBulkPatchMutation();
   const bulkDeleteMut = useBulkDeleteMutation();
 
   function applyCondition(cond: string) {
     if (!cond || !someSelected) return;
-    bulkPatchMut.mutate({ ids, patch: { condition: cond } });
+    bulkPatchMut.mutate(
+      { ids: selectedIds, patch: { condition: cond } },
+      { onSuccess: () => toast({ title: `Condition updated for ${selectedIds.length} item(s).` }) }
+    );
     setPendingCondition("");
   }
 
   function applyQty() {
     const qty = parseInt(pendingQty, 10);
     if (isNaN(qty) || qty < 0 || !someSelected) return;
-    bulkPatchMut.mutate({ ids, patch: { currentQuantity: qty } });
+    bulkPatchMut.mutate(
+      { ids: selectedIds, patch: { currentQuantity: qty } },
+      { onSuccess: () => toast({ title: `Quantity updated for ${selectedIds.length} item(s).` }) }
+    );
     setPendingQty("");
   }
 
   function handleDelete() {
     if (!someSelected) return;
-    if (confirm(`Delete ${ids.length} item${ids.length !== 1 ? "s" : ""}? This cannot be undone.`)) bulkDeleteMut.mutate(ids);
+    if (confirm(`Delete ${selectedIds.length} item${selectedIds.length !== 1 ? "s" : ""}? This cannot be undone.`)) {
+      bulkDeleteMut.mutate(selectedIds, { onSuccess: onDone });
+    }
   }
 
   return (
@@ -46,18 +53,10 @@ export function BulkActionBar({
       style={{ bottom: "calc(56px + env(safe-area-inset-bottom) + 8px)" }}
     >
       <div className="rounded-2xl border border-border/80 bg-card/95 backdrop-blur-md shadow-2xl shadow-black/40 ring-1 ring-white/5 px-3 py-2.5">
-        {/* Row 1: select toggle + count + delete + close */}
+        {/* Row 1: count + delete + close */}
         <div className="flex items-center gap-2 mb-2">
-          <button
-            onClick={allSelected ? onDeselectAll : onSelectAll}
-            className="flex items-center gap-1.5 text-muted-foreground hover:text-primary transition-colors shrink-0"
-            title={allSelected ? "Deselect all" : "Select all"}>
-            {allSelected
-              ? <CheckSquare size={16} className="text-primary" />
-              : <Square size={16} />}
-          </button>
           <span className="text-sm font-semibold text-foreground tabular-nums flex-1">
-            {selectedIds.size} selected
+            {selectedIds.length} selected
           </span>
           <Button
             size="sm" variant="ghost"
@@ -66,7 +65,7 @@ export function BulkActionBar({
             <Trash2 size={13} />{bulkDeleteMut.isPending ? "Deleting…" : "Delete"}
           </Button>
           <button
-            onClick={onCancel}
+            onClick={onDone}
             className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors shrink-0"
             title="Exit bulk mode">
             <X size={15} />
