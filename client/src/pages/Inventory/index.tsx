@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Search, ChevronDown, CheckSquare, Square, Download, SlidersHorizontal, RefreshCw } from "lucide-react";
+import { Search, ChevronDown, CheckSquare, Download, SlidersHorizontal, RefreshCw } from "lucide-react";
 import { useGameParam } from "@/lib/useGameParam";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,8 @@ import { useInventory } from "./hooks/useInventory";
 import { useInventoryColumns } from "./hooks/useInventoryColumns";
 import { useInventoryPersist } from "./hooks/useInventoryPersist";
 import { useBulkSelect } from "./hooks/useBulkSelect";
-import { ItemRow } from "./ItemRow";
-import { ColumnHeader } from "./ColumnHeader";
+import { InventoryRow } from "./ItemRow";
+import { DraggableColHeader } from "./ColumnHeader";
 import { DetailPanel } from "./DetailPanel";
 import { DetailSheet } from "./DetailSheet";
 import { BulkActionsBar } from "./BulkActionsBar";
@@ -20,8 +20,8 @@ import { MobileDetailDrawer } from "./MobileDetailDrawer";
 import { InventoryGridCard } from "./ItemGrid";
 import { ViewModeToggle } from "./ViewModeToggle";
 import type { InventoryItem } from "@shared/schema";
-import type { SortField, SortDir, LabelFilter } from "./constants";
-import { LABEL_FILTER_OPTIONS } from "./constants";
+import type { LabelFilter } from "./constants";
+import { LABEL_FILTER_OPTIONS, COLUMN_LABELS } from "./constants";
 
 export default function Inventory() {
   const game = useGameParam();
@@ -30,8 +30,8 @@ export default function Inventory() {
   /* ── search / filter / sort ──────────────────────────────────────────────── */
   const [search, setSearch] = useState("");
   const [labelFilter, setLabelFilter] = useState<LabelFilter>("all");
-  const [sortField, setSortField] = useState<SortField>("updatedAt");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortField, setSortField] = useState("updatedAt");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
 
   /* ── view mode ───────────────────────────────────────────────────────────── */
@@ -60,7 +60,7 @@ export default function Inventory() {
   }));
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
-  function handleSort(field: SortField) {
+  function handleSort(field: string) {
     if (sortField === field) setSortDir(d => (d === "asc" ? "desc" : "asc"));
     else { setSortField(field); setSortDir("asc"); }
   }
@@ -79,7 +79,6 @@ export default function Inventory() {
     setSelectedItem(null);
   }
 
-  // Mobile: open detail drawer
   function openMobileDrawer(item: InventoryItem) {
     setMobileDrawerItem(item);
   }
@@ -274,16 +273,17 @@ export default function Inventory() {
                     <tr className="border-b border-border/50 bg-muted/30">
                       {selectMode && <th className="w-8 px-3 py-2" />}
                       {columnOrder.map((col, i) => (
-                        <ColumnHeader
+                        <DraggableColHeader
                           key={col}
-                          col={col}
-                          index={i}
-                          sortField={sortField}
-                          sortDir={sortDir}
-                          onSort={handleSort}
-                          onMove={moveColumn}
-                          total={columnOrder.length}
-                        />
+                          id={col}
+                          onMove={(dragged, target) => {
+                            const fromIdx = columnOrder.indexOf(dragged);
+                            const toIdx = columnOrder.indexOf(target);
+                            if (fromIdx >= 0 && toIdx >= 0) moveColumn(fromIdx, toIdx);
+                          }}
+                        >
+                          {COLUMN_LABELS[col]}
+                        </DraggableColHeader>
                       ))}
                     </tr>
                   </thead>
@@ -291,27 +291,14 @@ export default function Inventory() {
                     {items.length === 0
                       ? <tr><td colSpan={columnOrder.length} className="px-3 py-12 text-center text-muted-foreground text-sm">{emptyMsg}</td></tr>
                       : items.map(item => (
-                        <>
-                          <ItemRow
-                            key={item.id}
-                            item={item}
-                            columnOrder={columnOrder}
-                            selectMode={selectMode}
-                            selected={selected.has(item.id)}
-                            onSelect={toggleOne}
-                            onOpen={() => openDetail(item)}
-                            onToggleExpand={() => toggleRow(item.id)}
-                            isExpanded={expandedRowId === item.id}
-                          />
-                          {expandedRowId === item.id && (
-                            <ExpandedDetailRow
-                              key={`expand-${item.id}`}
-                              item={item}
-                              colSpan={columnOrder.length + (selectMode ? 1 : 0)}
-                              onClose={() => setExpandedRowId(null)}
-                            />
-                          )}
-                        </>
+                        <InventoryRow
+                          key={item.id}
+                          item={item}
+                          columnOrder={columnOrder}
+                          selectMode={selectMode}
+                          selected={selected.has(item.id)}
+                          onSelect={(id, checked) => toggleOne(id)}
+                        />
                       ))}
                   </tbody>
                 </table>
