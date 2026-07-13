@@ -159,24 +159,24 @@ export function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: n
     return "";
   };
 
-  const productName     = k("Product Name", "Name", "Card Name", "product_name");
-  const number          = k("Number", "Card Number", "Collector Number", "number");
-  const condition       = normalizeCondition(k("Condition", "condition", "Cond"));
-  const rawMarketPrice  = parseFloat(k("TCG Market Price", "Market Price", "TCGplayer Market Price", "Price", "market_price").replace(/[^0-9.]/g, "")) || null;
-  const addToQuantity   = parseInt(k("Add to Quantity", "add_to_quantity")) || parseInt(k("Total Quantity", "total_quantity", "Quantity", "Qty", "quantity")) || 1;
-  const sourceProductId     = k("Product ID", "product_id") || null;
+  const productName          = k("Product Name", "Name", "Card Name", "product_name");
+  const number               = k("Number", "Card Number", "Collector Number", "number");
+  const condition            = normalizeCondition(k("Condition", "condition", "Cond"));
+  const addToQuantity        = parseInt(k("Add to Quantity", "add_to_quantity")) || parseInt(k("Total Quantity", "total_quantity", "Quantity", "Qty", "quantity")) || 1;
+  const sourceProductId      = k("Product ID", "product_id") || null;
   const sourceTcgplayerSkuId = k("TCGplayer Id", "tcgplayer_id") || null;
-  const sourceProductLine   = k("Product Line", "product_line") || null;
-  const resolvedGame        = detectGameFromProductLine(sourceProductLine, game);
-  const sourceSetName       = k("Set Name", "set_name", "Set", "Expansion") || null;
-  const sourcePrinting      = k("Printing", "printing", "Foil", "Edition") || null;
-  const sourceRarity        = k("Rarity", "rarity") || null;
-  const rawPhotoUrl         = k("Photo URL", "photo_url", "Image URL") || null;
-  const photoUrl            = upgradeTcgPlayerImageUrl(rawPhotoUrl);
+  const sourceProductLine    = k("Product Line", "product_line") || null;
+  const resolvedGame         = detectGameFromProductLine(sourceProductLine, game);
+  const sourceSetName        = k("Set Name", "set_name", "Set", "Expansion") || null;
+  const sourcePrinting       = k("Printing", "printing", "Foil", "Edition") || null;
+  const sourceRarity         = k("Rarity", "rarity") || null;
+  const rawPhotoUrl          = k("Photo URL", "photo_url", "Image URL") || null;
+  const photoUrl             = upgradeTcgPlayerImageUrl(rawPhotoUrl);
 
   const flags: string[] = [];
   if (!productName) flags.push("missing_product_name");
-  if (!rawMarketPrice) flags.push("price_pending_live_fetch");
+  // Price is always sourced from JustTCG API — never from CSV
+  flags.push("price_pending_live_fetch");
 
   return {
     id: crypto.randomUUID(),
@@ -186,8 +186,8 @@ export function mapCsvRow(raw: Record<string, string>, game: string, rowIndex: n
     productName: productName || "(unknown)",
     number: number || null,
     condition: condition || null,
-    rawMarketPrice,
-    roundedPrintPrice: ceilPrice(rawMarketPrice),
+    rawMarketPrice: null,
+    roundedPrintPrice: null,
     addToQuantity,
     normalizedMatchKey: buildMatchKey(productName, number, condition, sourcePrinting, sourceSetName, resolvedGame),
     sourceProductId,

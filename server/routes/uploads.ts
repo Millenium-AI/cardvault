@@ -317,11 +317,9 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
       const newItems: any[] = [];
       const matchedItems: any[] = [];
       const ambiguousItems: any[] = [];
-      const repricingCandidates: any[] = [];
 
-      const [lookupMaps, thr] = await Promise.all([
+      const [lookupMaps] = await Promise.all([
         storage.getInventoryLookupMaps(userId),
-        storage.getRepricingThresholds(userId),
       ]);
       const { byProductId, byTcgplayerId, byMatchKey } = lookupMaps;
 
@@ -351,32 +349,28 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
       const reviewPayload = JSON.stringify({
         newItems: newItems.map(r => ({
           id: r.id, game: r.game, productName: r.productName, number: r.number,
-          condition: r.condition, rawMarketPrice: r.rawMarketPrice,
-          roundedPrintPrice: r.roundedPrintPrice, addToQuantity: r.addToQuantity,
+          condition: r.condition,
+          rawMarketPrice: null,
+          roundedPrintPrice: null,
+          addToQuantity: r.addToQuantity,
         })),
         matchedItems: matchedItems.map(({ row, existingItem, qtyDelta, csvQty, existingQty }) => ({
           rowId: row.id, game: row.game, productName: row.productName, number: row.number,
-          condition: row.condition, rawMarketPrice: row.rawMarketPrice,
-          roundedPrintPrice: row.roundedPrintPrice, csvQty, existingQty, qtyDelta,
+          condition: row.condition,
+          rawMarketPrice: null,
+          roundedPrintPrice: null,
+          csvQty, existingQty, qtyDelta,
           existingId: existingItem.id, existingPrice: existingItem.currentRawMarketPrice,
         })),
         ambiguousItems,
-        repricingCandidates: repricingCandidates.map(({ row, existingItem, rule, csvQty, existingQty }) => ({
-          rowId: row.id, game: row.game, productName: row.productName,
-          priorPrice: existingItem.currentRawMarketPrice, newPrice: row.rawMarketPrice,
-          roundedPrintPrice: row.roundedPrintPrice,
-          percentChange: existingItem.currentRawMarketPrice
-            ? ((row.rawMarketPrice - existingItem.currentRawMarketPrice) / existingItem.currentRawMarketPrice * 100).toFixed(1)
-            : null,
-          rule, csvQty, existingQty,
-        })),
+        repricingCandidates: [],
       });
 
       const review = await storage.createMergeReview(userId, {
         uploadId, status: "pending",
         newItemCount: newItems.length,
         matchedItemCount: matchedItems.filter(m => m.qtyDelta !== 0).length,
-        repricingCandidateCount: repricingCandidates.length,
+        repricingCandidateCount: 0,
         duplicateWarningCount: ambiguousItems.length,
         reviewPayload, reviewedAt: null, reviewedBy: null,
       });
@@ -385,7 +379,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         newItems: newItems.length,
         matchedItems: matchedItems.length,
         matchedNoChangeCount,
-        repricingCandidates: repricingCandidates.length,
+        repricingCandidates: 0,
         ambiguousItems: ambiguousItems.length,
         totalParsed: validRows.length,
         totalRaw: rawRows.length,
@@ -453,7 +447,6 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         } catch {}
 
         const finalCondition = (overrides[row.id] as any)?.condition || row.condition;
-        const finalPrice = (overrides[row.id] as any)?.rawMarketPrice ?? row.rawMarketPrice;
         const rawName = (row.productName ?? "").trim();
         const csvNumber = (row.number ?? "").trim();
         const { cleanName, displaySuffix } = parseProductName(rawName, resolvedGame, csvNumber);
@@ -468,7 +461,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           addToQuantity: row.addToQuantity ?? 1,
           rawMarketPrice: null,
           roundedPrintPrice: null,
-          csvMarketPrice: finalPrice ?? null,
+          csvMarketPrice: null,
           priceSource: "pending",
           normalizedMatchKey: parsed?.normalizedMatchKey ?? null,
           matchMetadataJson: JSON.stringify({
@@ -495,24 +488,10 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           existingId:     match.existingId,
           game:           resolvedGame,
           newQty:         overrides[match.rowId]?.csvQty ?? match.csvQty ?? match.existingQty ?? 0,
-          csvMarketPrice: match.rawMarketPrice ?? null,
-          priceSource:    "csv",
+          csvMarketPrice: null,
+          priceSource:    "pending",
         };
       });
-
-      const rpcRepricing = (payload.repricingCandidates || [])
-        .map((candidate: any) => {
-          const matched = (payload.matchedItems || []).find((m: any) => m.rowId === candidate.rowId);
-          return {
-            existingId:        matched?.existingId ?? null,
-            priorPrice:        candidate.priorPrice ?? null,
-            newPrice:          candidate.newPrice ?? null,
-            roundedPrintPrice: candidate.roundedPrintPrice ?? null,
-            percentChange:     parseFloat(candidate.percentChange) || null,
-            rule:              candidate.rule ?? null,
-          };
-        })
-        .filter((r: any) => r.existingId !== null);
 
       const { error: rpcError } = await supabaseAdmin.rpc("approve_upload", {
         p_user_id:      userId,
@@ -520,7 +499,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         p_review_id:    review.id,
         p_new_items:    rpcNewItems,
         p_matched_items: rpcMatchedItems,
-        p_repricing:    rpcRepricing,
+        p_repricing:    [],
         p_now:          now,
       });
 
@@ -539,21 +518,13 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           .in("id", newItemIds);
       }
 
-      const repricingIds = rpcRepricing.map((r: any) => r.existingId).filter(Boolean);
-      if (repricingIds.length > 0) {
-        await supabaseAdmin
-          .from("inventory_items")
-          .update({ label_status: "needs_repricing" })
-          .eq("user_id", userId)
-          .in("id", repricingIds)
-          .neq("label_status", "needs_label");
-      }
+      // Fetch live JustTCG prices for all touched items (new + matched)
+      const matchedItemIds = rpcMatchedItems.map((i: any) => i.existingId).filter(Boolean);
+      const allToPrice = [...newItemIds, ...matchedItemIds];
 
-      // Defer price fetch to next event-loop tick so the approve_upload RPC transaction
-      // is fully committed before we query source_product_id from inventory_items.
-      if (newItemIds.length > 0) {
+      if (allToPrice.length > 0) {
         setImmediate(() => {
-          refreshInventoryPrices(userId, newItemIds, uploadLevelGame).catch(e =>
+          refreshInventoryPrices(userId, allToPrice, uploadLevelGame).catch(e =>
             console.error("[approve] JustTCG enrichment failed:", e.message)
           );
         });
