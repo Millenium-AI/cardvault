@@ -10,7 +10,7 @@ import { ConditionBadge } from "@/components/ConditionBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 
-// ── Stat tile ────────────────────────────────────────────────────────────────
+// ── Stat tile ───────────────────────────────────────────────────────────────────────────
 function StatTile({
   label,
   value,
@@ -34,7 +34,7 @@ function StatTile({
   );
 }
 
-// ── Overview tab ─────────────────────────────────────────────────────────────
+// ── Overview tab ───────────────────────────────────────────────────────────────────────────────
 function OverviewTab({
   item,
   meta,
@@ -122,14 +122,12 @@ function OverviewTab({
   );
 }
 
-// ── Main drawer ──────────────────────────────────────────────────────────────
+// ── Main drawer ──────────────────────────────────────────────────────────────────────────────
 export function MobileDetailDrawer({
   item,
-  open,
   onClose,
 }: {
   item: any;
-  open: boolean;
   onClose: () => void;
 }) {
   const { toast } = useToast();
@@ -171,7 +169,7 @@ export function MobileDetailDrawer({
 
   return (
     <Drawer.Root
-      open={open}
+      open={!!item}
       onOpenChange={(v) => !v && onClose()}
       snapPoints={[0.6, 0.92]}
       activeSnapPoint={snap}

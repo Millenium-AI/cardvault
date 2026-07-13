@@ -4,7 +4,7 @@ import { ConditionBadge } from "@/components/ConditionBadge";
 import { LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 
-export function MobileInventoryCard({
+export function MobileCard({
   item,
   selected,
   onSelect,
