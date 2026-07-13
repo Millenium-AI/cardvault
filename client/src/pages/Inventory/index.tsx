@@ -17,7 +17,7 @@ import { useInventoryColumns } from "./hooks/useInventoryColumns";
 import { useInventoryPersist } from "./hooks/useInventoryPersist";
 import { useBulkSelect } from "./hooks/useBulkSelect";
 import InventoryRow from "./ItemRow";
-import DraggableColHeader from "./ColumnHeader";
+import { DraggableColHeader } from "./ColumnHeader";
 import DetailPanel from "./DetailPanel";
 import { DetailSheet } from "./DetailSheet";
 import { BulkActionsBar } from "./BulkActionsBar";
