@@ -26,11 +26,11 @@ import { MobileDetailDrawer } from "./MobileDetailDrawer";
 import { InventoryGridCard } from "./ItemGrid";
 import { ViewModeToggle } from "./ViewModeToggle";
 import type { InventoryItem } from "@shared/schema";
-import type { LabelFilter, SortField, SortDir } from "./constants";
-import { LABEL_FILTER_OPTIONS, COLUMN_LABELS } from "./constants";
+import type { LabelFilter, SortField, SortDir, ViewMode } from "./constants";
+import { LABEL_FILTER_OPTIONS, COLUMN_LABELS, COLUMN_SORT_FIELD } from "./constants";
 
 export default function Inventory() {
-  const game = useGameParam();
+  const [game] = useGameParam();
   const queryClient = useQueryClient();
 
   /* ── search / filter / sort ──────────────────────────────────────────────── */
@@ -41,7 +41,7 @@ export default function Inventory() {
   const [showFilters, setShowFilters] = useState(false);
 
   /* ── view mode ───────────────────────────────────────────────────────────── */
-  const [viewMode, setViewMode] = useInventoryPersist<"table" | "grid-sm" | "grid-lg">(
+  const [viewMode, setViewMode] = useInventoryPersist<ViewMode>(
     "inventoryViewMode",
     "table"
   );
@@ -356,7 +356,7 @@ export default function Inventory() {
                           const toIdx = columnOrder.indexOf(target);
                           if (fromIdx >= 0 && toIdx >= 0) moveColumn(fromIdx, toIdx);
                         }}
-                        onSort={() => handleSort(col as SortField)}
+                        onSort={COLUMN_SORT_FIELD[col] ? () => handleSort(COLUMN_SORT_FIELD[col]!) : undefined}
                         sortField={sortField}
                         sortDir={sortDir}
                       >

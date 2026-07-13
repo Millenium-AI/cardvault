@@ -10,7 +10,7 @@ export function BulkActionsBar({
   selectedIds, game, onDone,
 }: {
   selectedIds: string[];
-  game: string;
+  game: string | null;
   onDone: () => void;
 }) {
   const { toast } = useToast();

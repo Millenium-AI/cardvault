@@ -51,6 +51,7 @@ export type ParsedRow = typeof parsedRows.$inferSelect;
 // ─── inventory_items ─────────────────────────────────────────────────────────
 export const inventoryItems = pgTable("inventory_items", {
   id: text("id").primaryKey(),
+  userId: text("user_id"),
   game: text("game").notNull().default("pokemon"),
   productName: text("product_name").notNull(),
   number: text("number"),
@@ -63,10 +64,24 @@ export const inventoryItems = pgTable("inventory_items", {
   latestUploadId: text("latest_upload_id"),
   normalizedMatchKey: text("normalized_match_key"),
   matchMetadataJson: text("match_metadata_json"), // JSON: productId, tcgplayerId, setName, printing, etc.
+  sourceProductId: text("source_product_id"),
+  /** Legacy TCGplayer product-level ID column */
+  sourceTcgplayerId: text("source_tcgplayer_id"),
+  /** Preferred: SKU-level ID column */
+  sourceTcgplayerSkuId: text("source_tcgplayer_sku_id"),
   photoUrl: text("photo_url"),
   firstSeenAt: text("first_seen_at").notNull(),
   lastSeenAt: text("last_seen_at").notNull(),
+  updatedAt: text("updated_at"),
   status: text("status").notNull().default("active"), // active|archived
+  labelStatus: text("label_status"), // needs_label|needs_repricing|label_created
+  labelCreatedAt: text("label_created_at"),
+  priceLastFetchedAt: text("price_last_fetched_at"),
+  priceChange24hr: doublePrecision("price_change_24hr"),
+  priceChange7d: doublePrecision("price_change_7d"),
+  notes: text("notes"),
+  justtcgCardUuid: text("justtcg_card_uuid"),
+  justtcgVariantUuid: text("justtcg_variant_uuid"),
 });
 
 export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({});

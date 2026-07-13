@@ -1,4 +1,5 @@
-import type { Express, Server } from "express";
+import type { Express } from "express";
+import type { Server } from "node:http";
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { storage, type InventoryItem } from "../storage";

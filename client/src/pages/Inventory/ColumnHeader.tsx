@@ -1,13 +1,18 @@
+import { ChevronUp, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ColumnKey, COLUMN_ALIGN } from "./constants";
+import { ColumnKey, COLUMN_ALIGN, COLUMN_SORT_FIELD, SortField, SortDir } from "./constants";
 
 export function DraggableColHeader({
-  id, children, onMove,
+  id, children, onMove, onSort, sortField, sortDir,
 }: {
   id: ColumnKey;
   children: React.ReactNode;
   onMove: (dragged: ColumnKey, target: ColumnKey) => void;
+  onSort?: () => void;
+  sortField?: SortField;
+  sortDir?: SortDir;
 }) {
+  const isSorted = !!onSort && sortField === COLUMN_SORT_FIELD[id];
   return (
     <th
       draggable
@@ -31,7 +36,17 @@ export function DraggableColHeader({
           <div className="flex gap-[3px]"><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /></div>
           <div className="flex gap-[3px]"><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /><div className="w-[2.5px] h-[2.5px] rounded-full bg-current" /></div>
         </div>
-        <span>{children}</span>
+        <span
+          className={cn(onSort && "cursor-pointer hover:text-foreground/80 transition-colors")}
+          onClick={onSort ? (e) => { e.stopPropagation(); onSort(); } : undefined}
+        >
+          {children}
+        </span>
+        {isSorted && (
+          sortDir === "asc"
+            ? <ChevronUp size={11} className="text-foreground/70 shrink-0" />
+            : <ChevronDown size={11} className="text-foreground/70 shrink-0" />
+        )}
       </div>
     </th>
   );

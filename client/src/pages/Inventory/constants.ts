@@ -1,7 +1,7 @@
 import type React from "react";
 
 export type LabelFilter = "all" | "needs_label" | "needs_repricing" | "label_created";
-export type ViewMode = "list" | "grid-sm" | "grid-lg";
+export type ViewMode = "table" | "grid-sm" | "grid-lg";
 export type SortField = "name" | "game" | "condition" | "quantity" | "marketPrice" | "printedPrice" | "labelStatus" | "updatedAt";
 export type SortDir = "asc" | "desc";
 
@@ -26,6 +26,18 @@ export const COLUMN_ALIGN: Record<ColumnKey, string> = {
   market:    "text-right",
   print:     "text-right",
   total:     "text-right",
+};
+
+// Maps table columns to their corresponding sort field (columns with no sensible
+// sort, like "total", map to null and render without a sort affordance).
+export const COLUMN_SORT_FIELD: Record<ColumnKey, SortField | null> = {
+  card:      "name",
+  condition: "condition",
+  game:      "game",
+  qty:       "quantity",
+  market:    "marketPrice",
+  print:     "printedPrice",
+  total:     null,
 };
 
 export const LABEL_STATUS_CONFIG: Record<string, { label: string; className: string; icon: React.ReactNode }> = {

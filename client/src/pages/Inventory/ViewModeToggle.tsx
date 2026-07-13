@@ -3,7 +3,7 @@ import { ViewMode } from "./constants";
 
 export function ViewModeToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMode) => void }) {
   const modes: { mode: ViewMode; icon: React.ReactNode; label: string }[] = [
-    { mode: "list",    icon: <LayoutList size={14} />, label: "List" },
+    { mode: "table",   icon: <LayoutList size={14} />, label: "List" },
     { mode: "grid-sm", icon: <LayoutGrid size={14} />, label: "Small Grid" },
     { mode: "grid-lg", icon: <Grid2X2 size={14} />,    label: "Large Grid" },
   ];

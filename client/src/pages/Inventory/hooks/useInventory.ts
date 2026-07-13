@@ -4,7 +4,7 @@ import type { InventoryItem } from "@shared/schema";
 import type { SortField, SortDir, LabelFilter } from "../constants";
 
 interface UseInventoryParams {
-  game: string;
+  game: string | null;
   search: string;
   labelFilter: LabelFilter;
   sortField: SortField;
