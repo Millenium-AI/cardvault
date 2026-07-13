@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, X } from "lucide-react";
+import { Check, X, ChevronLeft, ChevronRight, Pencil, Trash2, ExternalLink } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -8,6 +8,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Chart } from "@/components/Chart";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { ConditionBadge } from "@/components/ConditionBadge";
+import { gameLabel } from "@shared/gameLabels";
+import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 
 // ── Time window config ───────────────────────────────────────────────────────
 const WINDOWS = [
@@ -389,6 +393,157 @@ export function Chip({ children }: { children: React.ReactNode }) {
     <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground">
       {children}
     </span>
+  );
+}
+
+// ── Desktop popout modal — opened from grid tile click ───────────────────────
+export function DetailPanel({
+  item, onClose, onNavigate, hasPrev, hasNext,
+}: {
+  item: any;
+  onClose: () => void;
+  onNavigate: (dir: "prev" | "next") => void;
+  hasPrev: boolean;
+  hasNext: boolean;
+}) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const meta = (() => { try { return JSON.parse(item?.matchMetadataJson || "{}"); } catch { return {}; } })();
+  const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity;
+
+  const deleteMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/inventory/${item.id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      toast({ title: "Deleted", description: "Item removed from inventory." });
+      onClose();
+    },
+    onError: () => toast({ title: "Error", description: "Failed to delete item.", variant: "destructive" }),
+  });
+
+  function handleDelete() {
+    if (confirm(`Delete "${item?.productName}"? This cannot be undone.`)) deleteMut.mutate();
+  }
+
+  if (!item) return null;
+
+  return (
+    <Dialog open={!!item} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent
+        className="max-w-4xl w-[calc(100vw-2rem)] p-0 gap-0 overflow-hidden flex flex-col"
+        style={{ maxHeight: "88vh" }}
+      >
+        {/* Header: title + prev/next nav */}
+        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border/40 shrink-0">
+          <div className="min-w-0">
+            <div className="text-base font-semibold text-foreground leading-tight truncate pr-6">{item.productName}</div>
+            {item.number && <div className="text-xs text-muted-foreground mt-0.5">#{item.number}</div>}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="outline" size="icon"
+              className="h-7 w-7"
+              disabled={!hasPrev}
+              onClick={() => onNavigate("prev")}
+              aria-label="Previous item"
+            >
+              <ChevronLeft size={14} />
+            </Button>
+            <Button
+              variant="outline" size="icon"
+              className="h-7 w-7"
+              disabled={!hasNext}
+              onClick={() => onNavigate("next")}
+              aria-label="Next item"
+            >
+              <ChevronRight size={14} />
+            </Button>
+          </div>
+        </div>
+
+        {/* Body: two-column desktop layout */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex gap-0 min-h-full">
+            {/* Left col: image + meta + stats + actions */}
+            <div className="w-[240px] shrink-0 border-r border-border/40 flex flex-col">
+              <div className="w-full bg-muted/30 flex items-center justify-center py-5 px-4">
+                <CardImagePlaceholder
+                  photoUrl={item.photoUrl}
+                  size="lg"
+                  className="max-h-52 max-w-full rounded-xl shadow-lg"
+                />
+              </div>
+              <div className="px-4 pb-4 pt-3 space-y-3 flex-1">
+                {hasChips && (
+                  <div className="flex flex-wrap gap-1">
+                    {meta.sourceSetName  && <Chip>{meta.sourceSetName}</Chip>}
+                    {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
+                    {meta.sourceRarity   && <Chip>{meta.sourceRarity}</Chip>}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <ConditionBadge condition={item.condition} abbreviated />
+                  <span className="text-xs text-muted-foreground">{gameLabel(item.game)}</span>
+                  <LabelStatusBadge status={item.labelStatus} />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { label: "Qty",    value: String(item.currentQuantity),                             highlight: false },
+                    { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`, highlight: false },
+                    { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,           highlight: true  },
+                  ] as const).map(({ label, value, highlight }) => (
+                    <div key={label} className="rounded-lg border border-border bg-muted/30 px-2 py-2 text-center">
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{label}</div>
+                      <div className={`text-xs font-mono font-bold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+                {!editing && item.notes && (
+                  <div className="text-xs bg-muted/40 rounded-lg px-3 py-2 border border-border/50">
+                    <span className="text-muted-foreground font-medium">Notes: </span>
+                    <span className="italic text-foreground/80">{item.notes}</span>
+                  </div>
+                )}
+                {editing ? (
+                  <InlineEditPanel item={item} onDone={() => setEditing(false)} />
+                ) : (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 flex-1 rounded-lg" onClick={() => setEditing(true)}>
+                        <Pencil size={11} /> Edit
+                      </Button>
+                      <Button variant="outline" size="sm" disabled={deleteMut.isPending}
+                        className="h-8 text-xs gap-1.5 rounded-lg border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+                        onClick={handleDelete}>
+                        <Trash2 size={11} /> {deleteMut.isPending ? "…" : "Delete"}
+                      </Button>
+                    </div>
+                    {item.tcgplayerUrl ? (
+                      <a href={item.tcgplayerUrl} target="_blank" rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-blue-500/40 px-3 py-2 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors">
+                        TCGplayer <ExternalLink size={11} />
+                      </a>
+                    ) : (
+                      <div className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+                        TCGplayer <ExternalLink size={11} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right col: price chart fills remaining width */}
+            <div className="flex-1 min-w-0 px-5 py-4">
+              <PriceHistory item={item} />
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

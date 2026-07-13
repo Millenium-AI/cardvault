@@ -16,10 +16,10 @@ import { useInventory } from "./hooks/useInventory";
 import { useInventoryColumns } from "./hooks/useInventoryColumns";
 import { useInventoryPersist } from "./hooks/useInventoryPersist";
 import { useBulkSelect } from "./hooks/useBulkSelect";
-import InventoryRow from "./ItemRow";
+import { InventoryRow } from "./ItemRow";
 import { DraggableColHeader } from "./ColumnHeader";
-import DetailPanel from "./DetailPanel";
-import { DetailSheet } from "./DetailSheet";
+import { DetailPanel } from "./DetailPanel";
+import { InventoryDetailSheet } from "./DetailSheet";
 import { BulkActionsBar } from "./BulkActionsBar";
 import { MobileCard } from "./MobileCard";
 import { MobileDetailDrawer } from "./MobileDetailDrawer";
@@ -468,9 +468,11 @@ export default function Inventory() {
       </div>
 
       {/* ── DETAIL SHEET (mobile grid views) ───────────────────────────────── */}
-      {selectedItem && (viewMode === "grid-sm" || viewMode === "grid-lg") && (
-        <DetailSheet item={selectedItem} onClose={closeDetail} />
-      )}
+      <div className="sm:hidden">
+        {(viewMode === "grid-sm" || viewMode === "grid-lg") && (
+          <InventoryDetailSheet item={selectedItem} open={!!selectedItem} onClose={closeDetail} />
+        )}
+      </div>
 
       {/* ── MOBILE DETAIL DRAWER ───────────────────────────────────────────── */}
       {mobileDrawerItem && (
