@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { supabaseAdmin } from "../supabase";
-import { batchFetchPrices, fetchSinglePrice } from "../justtcg";
+import { batchFetchPrices, fetchSinglePrice, JUSTTCG_BATCH_SIZE } from "../justtcg";
 import { checkRepricingThreshold } from "./csvHelpers";
 
 const BASE_URL = "https://api.justtcg.com/v1";
@@ -20,7 +20,6 @@ const VALID_WINDOWS = ["7d", "30d", "90d", "180d", "1y"] as const;
 type HistoryWindow = typeof VALID_WINDOWS[number];
 
 // Derive % change from first → last point of a history array.
-// Returns a decimal (e.g. 0.043 = +4.3%) or null if not enough data.
 function calcChange(history: { t: number; p: number }[]): number | null {
   if (!history || history.length < 2) return null;
   const first = history[0].p;
@@ -40,8 +39,6 @@ function parseMetadata(raw: any): Record<string, any> {
 
 export function registerPricesRoutes(app: Express) {
   // ── GET /api/inventory/:id/price-history?window=30d ──────────────────────
-  // Defaults to 30d. Called on panel open (not just on tile click).
-  // Returns: { history, stats, current, priceChange7d, priceChange180d, priceChange1y }
   app.get("/api/inventory/:id/price-history", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -52,7 +49,6 @@ export function registerPricesRoutes(app: Express) {
         return res.status(400).json({ error: `Invalid window. Must be one of: ${VALID_WINDOWS.join(", ")}` });
       }
 
-      // Load item — verify ownership and get variant UUID
       const { data: item, error: itemErr } = await supabaseAdmin
         .from("inventory_items")
         .select("id, justtcg_variant_uuid, source_product_id, source_tcgplayer_sku_id, condition, match_metadata_json, current_raw_market_price")
@@ -70,14 +66,12 @@ export function registerPricesRoutes(app: Express) {
         return res.status(422).json({ error: "Item has no JustTCG identifier — price history unavailable" });
       }
 
-      // Check in-memory cache
       const cacheKey = `${variantUuid ?? item.source_product_id}|${window}`;
       const cached = historyCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
         return res.json(cached.data);
       }
 
-      // Build GET request to JustTCG
       const params = new URLSearchParams({
         include_price_history: "true",
         priceHistoryDuration: window,
@@ -111,7 +105,6 @@ export function registerPricesRoutes(app: Express) {
       const card = json?.data?.[0];
       if (!card) return res.status(404).json({ error: "Card not found in JustTCG" });
 
-      // Pick the right variant
       const variants: any[] = card.variants ?? [];
       let variant = variantUuid
         ? variants.find((v: any) => v.uuid === variantUuid)
@@ -127,7 +120,6 @@ export function registerPricesRoutes(app: Express) {
 
       const history = (variant.priceHistory ?? []).map((pt: any) => ({ t: pt.t, p: pt.p }));
 
-      // Derive change % for windows JustTCG doesn't include in statistics block
       const priceChange180d = window === "180d" ? calcChange(history) : null;
       const priceChange1y   = window === "1y"   ? calcChange(history) : null;
 
@@ -147,7 +139,6 @@ export function registerPricesRoutes(app: Express) {
         variantUuid:     variant.uuid            ?? null,
       };
 
-      // Store variant UUID on item if we didn't have it
       if (!variantUuid && variant.uuid) {
         await supabaseAdmin
           .from("inventory_items")
@@ -168,7 +159,6 @@ export function registerPricesRoutes(app: Express) {
   app.post("/api/prices/refresh", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      // Guard against body parser not running or empty body
       const { ids } = (req.body ?? {}) as { ids?: string[] };
 
       const allItems = await storage.listInventoryItems(userId);
@@ -184,21 +174,24 @@ export function registerPricesRoutes(app: Express) {
 
       if (!toRefresh.length) return res.json({ updated: 0, total: 0, message: "All prices are fresh" });
 
-      const BATCH = 20;
       let updated = 0;
 
-      for (let i = 0; i < toRefresh.length; i += BATCH) {
-        const chunk = toRefresh.slice(i, i + BATCH);
+      for (let i = 0; i < toRefresh.length; i += JUSTTCG_BATCH_SIZE) {
+        const chunk = toRefresh.slice(i, i + JUSTTCG_BATCH_SIZE);
 
         const priceMap = await batchFetchPrices(
           chunk.map(item => {
             const metadata = parseMetadata(item.matchMetadataJson);
             return {
-              id: item.id,
-              tcgplayerId: item.sourceProductId!,
+              id:             item.id,
+              tcgplayerId:    item.sourceProductId!,
               tcgplayerSkuId: item.sourceTcgplayerSkuId ?? metadata.sourceTcgplayerSkuId ?? null,
-              condition: item.condition ?? "Near Mint",
-              printing: metadata.sourcePrinting ?? null,
+              condition:      item.condition ?? "Near Mint",
+              printing:       metadata.sourcePrinting ?? null,
+              // Fallback routing fields — required for PokéWallet/BerryWallet
+              game:           item.game ?? null,
+              groupId:        item.sourceProductId ?? null,
+              cardNumber:     item.number ?? null,
             };
           })
         );
@@ -237,8 +230,9 @@ export function registerPricesRoutes(app: Express) {
           updated++;
         }
 
-        if (i + BATCH < toRefresh.length) {
-          await new Promise(r => setTimeout(r, 1000));
+        // Fix: was 1000ms (60 req/min) — corrected to 6000ms for Free tier (10 req/min)
+        if (i + JUSTTCG_BATCH_SIZE < toRefresh.length) {
+          await new Promise(r => setTimeout(r, 6000));
         }
       }
 
