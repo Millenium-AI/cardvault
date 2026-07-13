@@ -13,9 +13,9 @@ export function MobileCard({
 }: {
   item: any;
   selected: boolean;
-  onSelect: (id: string, checked: boolean) => void;
+  onSelect: (id: string) => void;
   selectMode: boolean;
-  onOpen: (item: any) => void;
+  onOpen: () => void;
 }) {
   const meta = (() => {
     try {
@@ -27,10 +27,10 @@ export function MobileCard({
 
   function tap() {
     if (selectMode) {
-      onSelect(item.id, !selected);
+      onSelect(item.id);
       return;
     }
-    onOpen(item);
+    onOpen();
   }
 
   return (
@@ -51,7 +51,7 @@ export function MobileCard({
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                onSelect(item.id, !selected);
+                onSelect(item.id);
               }}
               className="text-muted-foreground hover:text-primary transition-colors"
             >
