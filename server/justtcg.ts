@@ -16,13 +16,18 @@
  * Caching model: `price_cache` is shared across all users, keyed on
  * the best available identifier + condition + printing. SKU-keyed
  * entries use the skuId as the key prefix for maximum specificity.
+ *
+ * Fallback: when JustTCG returns a 429 (rate limited), remaining
+ * Pokémon and One Piece items are handed off to pokeWalletFallbackFetch.
+ * MTG items have no fallback and are skipped with a warning.
  */
 import { supabaseAdmin } from './supabase.js';
 
 const BASE_URL = 'https://api.justtcg.com/v1';
 
-// Free tier: 20 cards per batch request
-export const JUSTTCG_BATCH_SIZE = 20;
+// Free tier: 20 cards per batch request.
+// Set JUSTTCG_BATCH_SIZE env var to override when upgrading plans.
+export const JUSTTCG_BATCH_SIZE = parseInt(process.env.JUSTTCG_BATCH_SIZE ?? '20', 10);
 
 function apiKey(): string {
   const key = process.env.JUSTTCG_API_KEY;
@@ -62,7 +67,6 @@ function expiresAt(price: number): string {
 // JustTCG expects a POST with a JSON body containing an array of identifier
 // objects. tcgplayerSkuId is sent as the primary identifier when available
 // (higher precedence per docs), falling back to tcgplayerId.
-// Free tier limit: 20 cards per request.
 async function postBatchCards(
   requests: Array<{ tcgplayerId: string; tcgplayerSkuId?: string | null }>
 ): Promise<{ data: any[]; usage?: any }> {
@@ -80,6 +84,10 @@ async function postBatchCards(
     },
     body: JSON.stringify(body),
   });
+
+  if (res.status === 429) {
+    throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
@@ -104,7 +112,6 @@ const inFlightCardFetches = new Map<string, Promise<any[]>>();
 async function getCardsDeduped(
   requests: Array<{ tcgplayerId: string; tcgplayerSkuId?: string | null }>
 ): Promise<any[]> {
-  // Use SKU ID as dedup key when present — it's more specific
   const dedupeKey = (r: typeof requests[0]) =>
     r.tcgplayerSkuId ? `sku:${r.tcgplayerSkuId}` : `pid:${r.tcgplayerId}`;
 
@@ -143,9 +150,6 @@ async function getCardsDeduped(
 }
 
 // ── Extract the matching variant price from a card response ──────────────────
-// When the response came from a tcgplayerSkuId lookup, JustTCG returns
-// only the matching variant — variants[0] is the right one.
-// When from a tcgplayerId lookup, we need to match condition + printing.
 export function extractPrice(
   card: any,
   condition: string,
@@ -159,7 +163,6 @@ export function extractPrice(
     return null;
   }
 
-  // SKU lookup → API returns only the exact variant, just take it
   if (resolvedBySkuId) {
     const v = variants[0];
     if (!v?.price) return null;
@@ -172,7 +175,6 @@ export function extractPrice(
     };
   }
 
-  // productId lookup → match on condition + printing
   const jtCondition = condition || 'Near Mint';
   const jtPrinting  = printing ?? 'Normal';
 
@@ -180,7 +182,6 @@ export function extractPrice(
     (v: any) => v.condition === jtCondition && v.printing === jtPrinting
   );
 
-  // Fallback: match condition only if printing doesn't match
   if (!variant?.price) {
     variant = variants.find((v: any) => v.condition === jtCondition);
     if (variant?.price) {
@@ -220,14 +221,10 @@ async function cacheAllVariants(
   const rows = variants
     .filter(v => v?.price != null && v?.condition)
     .map(v => ({
-      // For SKU-resolved responses, also store a sku-keyed cache entry
-      // so future lookups by the same SKU are instant cache hits.
       cache_key:      buildPriceCacheKey(
         card.tcgplayerId ?? '',
         v.condition,
         v.printing,
-        // Only attach skuId to the first variant when resolved by SKU
-        // (subsequent variants for a productId lookup have no skuId)
         variants.indexOf(v) === 0 && requestedSkuId ? requestedSkuId : null,
       ),
       price:          v.price,
@@ -252,12 +249,15 @@ export async function batchFetchPrices(
     tcgplayerSkuId?:   string | null;
     condition:         string;
     printing?:         string | null;
+    game?:             string | null;       // used for fallback routing
+    groupId?:          string | null;       // TCGPlayer set group id (Pokémon fallback)
+    cardNumber?:       string | null;       // card number (Pokémon/OP fallback)
   }[]
 ): Promise<Map<string, PriceResult>> {
   const resultMap = new Map<string, PriceResult>();
   if (!items.length) return resultMap;
 
-  // 1. Check Supabase cache — prefer SKU-keyed cache entry when skuId present
+  // 1. Check Supabase cache
   const cacheKeys = items.map(item =>
     buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing, item.tcgplayerSkuId)
   );
@@ -290,9 +290,11 @@ export async function batchFetchPrices(
 
   if (!toFetch.length) return resultMap;
 
-  // 2. POST to JustTCG for cache misses, deduped by SKU or product ID
+  // 2. POST to JustTCG for cache misses
+  let justTcgHitRateLimit = false;
+  const stillNeedsPricing: typeof items = [];
+
   try {
-    // Build unique request list — prefer skuId over productId per identifier priority
     const requestMap = new Map<string, typeof toFetch[0]>();
     for (const item of toFetch) {
       const key = item.tcgplayerSkuId ? `sku:${item.tcgplayerSkuId}` : `pid:${item.tcgplayerId}`;
@@ -306,7 +308,6 @@ export async function batchFetchPrices(
       }))
     );
 
-    // 3. Cache all variants returned
     await Promise.all(
       cards.map((card, i) => {
         const req = Array.from(requestMap.values())[i];
@@ -314,9 +315,7 @@ export async function batchFetchPrices(
       })
     );
 
-    // 4. Map results back to requesting items
     for (const item of toFetch) {
-      // Match card by skuId first, then productId
       const card = item.tcgplayerSkuId
         ? cards.find((c: any) =>
             c.variants?.some((v: any) => String(v.tcgplayerSkuId) === String(item.tcgplayerSkuId))
@@ -325,17 +324,67 @@ export async function batchFetchPrices(
 
       if (!card) {
         console.warn(`[JustTCG] No card returned for item ${item.id} (skuId: ${item.tcgplayerSkuId}, productId: ${item.tcgplayerId})`);
+        stillNeedsPricing.push(item);
         continue;
       }
 
       const resolvedBySkuId = !!item.tcgplayerSkuId;
       const priceResult = extractPrice(card, item.condition, item.printing, resolvedBySkuId);
-      if (!priceResult) continue;
+      if (!priceResult) {
+        stillNeedsPricing.push(item);
+        continue;
+      }
 
       resultMap.set(item.id, priceResult);
     }
   } catch (err: any) {
-    console.error('[JustTCG] batchFetchPrices error:', err.message);
+    if (err?.status === 429) {
+      console.warn('[JustTCG] 429 rate limit — routing remaining items to PokéWallet fallback');
+      justTcgHitRateLimit = true;
+      for (const item of toFetch) {
+        if (!resultMap.has(item.id)) stillNeedsPricing.push(item);
+      }
+    } else {
+      console.error('[JustTCG] batchFetchPrices error:', err.message);
+    }
+  }
+
+  // 3. PokéWallet / BerryWallet fallback for Pokémon + One Piece
+  if (stillNeedsPricing.length > 0 && (justTcgHitRateLimit || stillNeedsPricing.length > 0)) {
+    const fallbackItems = stillNeedsPricing.filter(item => {
+      const game = (item.game ?? '').toLowerCase();
+      return game === 'pokemon' || game === 'one_piece' || game === 'onepiece';
+    });
+
+    if (fallbackItems.length > 0 && process.env.POKEWALLET_API_KEY) {
+      try {
+        const { pokeWalletFallbackFetch } = await import('./pokewallet.js');
+        const fallbackMap = await pokeWalletFallbackFetch(
+          fallbackItems.map(item => ({
+            id:          item.id,
+            tcgplayerId: item.tcgplayerId,
+            condition:   item.condition,
+            printing:    item.printing,
+            game:        item.game ?? '',
+            groupId:     item.groupId ?? null,
+            cardNumber:  item.cardNumber ?? null,
+          }))
+        );
+        for (const [id, result] of fallbackMap) resultMap.set(id, result);
+      } catch (fbErr: any) {
+        console.error('[JustTCG] PokéWallet fallback error:', fbErr.message);
+      }
+    }
+
+    // Log MTG misses (no fallback available)
+    for (const item of stillNeedsPricing) {
+      const game = (item.game ?? '').toLowerCase();
+      if (game !== 'pokemon' && game !== 'one_piece' && game !== 'onepiece') {
+        if (!resultMap.has(item.id)) {
+          console.warn(`[JustTCG] No fallback for game "${item.game}" — item ${item.id} unpriced`);
+        }
+      }
+    }
   }
 
   return resultMap;
