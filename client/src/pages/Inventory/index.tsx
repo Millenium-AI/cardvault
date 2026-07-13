@@ -8,6 +8,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useGameParam } from "@/lib/useGameParam";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,15 +28,18 @@ import { InventoryGridCard } from "./ItemGrid";
 import { ViewModeToggle } from "./ViewModeToggle";
 import type { InventoryItem } from "@shared/schema";
 import type { LabelFilter, SortField, SortDir, ViewMode } from "./constants";
-import { LABEL_FILTER_OPTIONS, COLUMN_LABELS, COLUMN_SORT_FIELD } from "./constants";
+import { LABEL_FILTER_OPTIONS, COLUMN_LABELS, COLUMN_SORT_FIELD, CONDITION_OPTIONS } from "./constants";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Inventory() {
   const [game] = useGameParam();
   const queryClient = useQueryClient();
+  const isDesktop = useBreakpoint("sm");
 
   /* ── search / filter / sort ──────────────────────────────────────────────── */
   const [search, setSearch] = useState("");
   const [labelFilter, setLabelFilter] = useState<LabelFilter>("all");
+  const [conditionFilter, setConditionFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("updatedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [showFilters, setShowFilters] = useState(false);
@@ -62,6 +66,7 @@ export default function Inventory() {
     game,
     search,
     labelFilter,
+    condition: conditionFilter,
     sortField,
     sortDir,
   });
@@ -178,20 +183,31 @@ export default function Inventory() {
         </div>
 
         {showFilters && (
-          <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
-            {LABEL_FILTER_OPTIONS.map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setLabelFilter(opt.key as LabelFilter)}
-                className={`text-left rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  labelFilter === opt.key
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background text-foreground border border-border hover:bg-accent/20"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+          <div className="flex flex-col gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+            <div className="grid grid-cols-2 gap-2">
+              {LABEL_FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setLabelFilter(opt.key as LabelFilter)}
+                  className={`text-left rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                    labelFilter === opt.key
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-foreground border border-border hover:bg-accent/20"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <Select value={conditionFilter} onValueChange={setConditionFilter}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All conditions" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All conditions</SelectItem>
+                {CONDITION_OPTIONS.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -228,6 +244,15 @@ export default function Inventory() {
               <RefreshCw size={15} />
             </Button>
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            <Button
+              variant={showFilters ? "secondary" : "ghost"}
+              size="icon"
+              className="h-8 w-8"
+              title="Filters"
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              <SlidersHorizontal size={15} />
+            </Button>
           </div>
         </div>
 
@@ -244,6 +269,17 @@ export default function Inventory() {
               className="pl-7 h-9 text-sm"
             />
           </div>
+          {showFilters && (
+            <Select value={conditionFilter} onValueChange={setConditionFilter}>
+              <SelectTrigger className="h-9 text-sm w-[170px]"><SelectValue placeholder="All conditions" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All conditions</SelectItem>
+                {CONDITION_OPTIONS.map((c) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 mb-4 flex-wrap">
@@ -450,29 +486,28 @@ export default function Inventory() {
           ))}
       </div>
 
-      {/* ── DETAIL PANEL (desktop) ─────────────────────────────────────────── */}
-      <div className="hidden sm:block">
-        {selectedItem && (
-          <DetailPanel
-            item={selectedItem}
-            onClose={closeDetail}
-            onNavigate={(dir: "prev" | "next") => {
-              const idx = items.findIndex((i) => i.id === selectedItem.id);
-              const next = dir === "prev" ? items[idx - 1] : items[idx + 1];
-              if (next) setSelectedItem(next);
-            }}
-            hasPrev={items.findIndex((i) => i.id === selectedItem.id) > 0}
-            hasNext={items.findIndex((i) => i.id === selectedItem.id) < items.length - 1}
-          />
-        )}
-      </div>
+      {/* ── DETAIL PANEL (desktop popout modal) ─────────────────────────── */}
+      {/* Gated on real viewport width (not CSS hidden classes) because Dialog
+          renders via a portal into document.body — a CSS-hidden wrapper div
+          around it does NOT stop the portaled content from showing. */}
+      {isDesktop && selectedItem && (
+        <DetailPanel
+          item={selectedItem}
+          onClose={closeDetail}
+          onNavigate={(dir: "prev" | "next") => {
+            const idx = items.findIndex((i) => i.id === selectedItem.id);
+            const next = dir === "prev" ? items[idx - 1] : items[idx + 1];
+            if (next) setSelectedItem(next);
+          }}
+          hasPrev={items.findIndex((i) => i.id === selectedItem.id) > 0}
+          hasNext={items.findIndex((i) => i.id === selectedItem.id) < items.length - 1}
+        />
+      )}
 
-      {/* ── DETAIL SHEET (mobile grid views) ───────────────────────────────── */}
-      <div className="sm:hidden">
-        {(viewMode === "grid-sm" || viewMode === "grid-lg") && (
-          <InventoryDetailSheet item={selectedItem} open={!!selectedItem} onClose={closeDetail} />
-        )}
-      </div>
+      {/* ── DETAIL SHEET (mobile grid views) ──────────────────────────── */}
+      {!isDesktop && (viewMode === "grid-sm" || viewMode === "grid-lg") && (
+        <InventoryDetailSheet item={selectedItem} open={!!selectedItem} onClose={closeDetail} />
+      )}
 
       {/* ── MOBILE DETAIL DRAWER ───────────────────────────────────────────── */}
       {mobileDrawerItem && (

@@ -1,6 +1,14 @@
 import type React from "react";
 
 export type LabelFilter = "all" | "needs_label" | "needs_repricing" | "label_created";
+
+export const CONDITION_OPTIONS = [
+  "Near Mint",
+  "Lightly Played",
+  "Moderately Played",
+  "Heavily Played",
+  "Damaged",
+] as const;
 export type ViewMode = "table" | "grid-sm" | "grid-lg";
 export type SortField = "name" | "game" | "condition" | "quantity" | "marketPrice" | "printedPrice" | "labelStatus" | "updatedAt";
 export type SortDir = "asc" | "desc";

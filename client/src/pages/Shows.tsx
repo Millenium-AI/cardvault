@@ -21,6 +21,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { format, parseISO } from "date-fns";
+import { useBreakpoint } from "@/hooks/use-breakpoint";
 
 /* ─────────────────────── helpers ─────────────────────── */
 
@@ -669,6 +670,7 @@ function ShowRow({ show, onEdit }: { show: any; onEdit: () => void }) {
 export default function Shows() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editShow, setEditShow] = useState<any>(null);
+  const isDesktop = useBreakpoint("sm");
 
   const { data: shows = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/shows"],
@@ -848,19 +850,22 @@ export default function Shows() {
       </div>
 
       {/* Mobile: Vaul bottom drawer (3-step) */}
-      <div className="sm:hidden">
+      {/* Gated on real viewport width (not CSS hidden classes) — Drawer/Dialog
+          render via a portal into document.body, so a CSS-hidden wrapper div
+          around them does NOT stop the portaled content from showing. */}
+      {!isDesktop && (
         <ShowDrawer show={editShow} open={modalOpen} onClose={closeModal} />
-      </div>
+      )}
 
       {/* Desktop: Dialog */}
-      <div className="hidden sm:block">
+      {isDesktop && (
         <Dialog
           open={modalOpen}
           onOpenChange={v => { if (!v) closeModal(); }}
         >
           {modalOpen && <ShowModal show={editShow} onClose={closeModal} />}
         </Dialog>
-      </div>
+      )}
     </div>
   );
 }
