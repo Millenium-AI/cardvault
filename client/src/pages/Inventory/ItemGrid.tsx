@@ -54,7 +54,7 @@ export function InventoryGridCard({
 
         {/* Info below image */}
         <div className="px-1.5 py-1.5 flex flex-col gap-0.5">
-          <div className="text-[8px] font-medium text-foreground truncate leading-tight">
+          <div className="text-[10px] font-medium text-foreground truncate leading-tight">
             {item.productName}
           </div>
           <div className="flex items-center gap-1">
@@ -62,10 +62,10 @@ export function InventoryGridCard({
             <LabelStatusBadge status={item.labelStatus} />
           </div>
           <div className="flex items-center justify-between mt-0.5">
-            <span className="text-[7px] text-muted-foreground font-mono">
+            <span className="text-[9px] text-muted-foreground font-mono">
               ${item.currentRawMarketPrice?.toFixed(2) ?? "—"}
             </span>
-            <span className="text-[7px] font-mono font-bold text-primary">
+            <span className="text-[9px] font-mono font-bold text-primary">
               ${item.currentRoundedPrintPrice ?? "—"}
             </span>
           </div>
@@ -104,13 +104,13 @@ export function InventoryGridCard({
       {/* Info below image */}
       <div className="px-2.5 py-2 flex flex-col gap-1">
         {/* Name */}
-        <div className="text-[10px] font-medium text-foreground line-clamp-2 leading-tight">
+        <div className="text-[13px] font-medium text-foreground line-clamp-2 leading-tight">
           {item.productName}
         </div>
 
         {/* Set name */}
         {meta.sourceSetName && (
-          <div className="text-[9px] text-muted-foreground truncate">
+          <div className="text-[11px] text-muted-foreground truncate">
             {meta.sourceSetName}
           </div>
         )}
@@ -118,7 +118,7 @@ export function InventoryGridCard({
         {/* Condition + game */}
         <div className="flex items-center gap-1 flex-wrap">
           <ConditionBadge condition={item.condition} abbreviated />
-          <span className="text-[9px] text-muted-foreground">{gameLabel(item.game)}</span>
+          <span className="text-[11px] text-muted-foreground">{gameLabel(item.game)}</span>
         </div>
 
         {/* Label status */}
@@ -126,15 +126,15 @@ export function InventoryGridCard({
 
         {/* Prices + qty */}
         <div className="mt-1 space-y-0.5">
-          <div className="flex justify-between text-[9px]">
+          <div className="flex justify-between text-[11px]">
             <span className="text-muted-foreground">Market</span>
             <span className="font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
+          <div className="flex justify-between text-[11px]">
             <span className="text-muted-foreground">Print</span>
             <span className="font-mono font-bold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
           </div>
-          <div className="flex justify-between text-[9px]">
+          <div className="flex justify-between text-[11px]">
             <span className="text-muted-foreground">Qty</span>
             <span className="font-mono text-foreground">{item.currentQuantity}</span>
           </div>
