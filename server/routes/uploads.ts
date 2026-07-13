@@ -171,6 +171,28 @@ export async function refreshInventoryPrices(
   }
 }
 
+// Retry helper: attempts fn up to maxAttempts times with delayMs between tries.
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxAttempts: number,
+  delayMs: number,
+  label: string,
+): Promise<T | undefined> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (attempt < maxAttempts) {
+        console.warn(`[approve] ${label} attempt ${attempt} failed (${e.message}), retrying in ${delayMs / 1000}s...`);
+        await new Promise(r => setTimeout(r, delayMs));
+      } else {
+        console.error(`[approve] ${label} failed after ${maxAttempts} attempts:`, e.message);
+      }
+    }
+  }
+  return undefined;
+}
+
 export function registerUploadsRoutes(_httpServer: Server, app: Express) {
   app.get("/api/uploads", async (req: any, res) => {
     try {
@@ -518,14 +540,19 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           .in("id", newItemIds);
       }
 
-      // Fetch live JustTCG prices for all touched items (new + matched)
+      // Fetch live JustTCG prices for all touched items (new + matched).
+      // Always use "all" so mixed-game uploads are never filtered out.
+      // Retry once after 30s if the first attempt hits a transient network error.
       const matchedItemIds = rpcMatchedItems.map((i: any) => i.existingId).filter(Boolean);
       const allToPrice = [...newItemIds, ...matchedItemIds];
 
       if (allToPrice.length > 0) {
         setImmediate(() => {
-          refreshInventoryPrices(userId, allToPrice, uploadLevelGame).catch(e =>
-            console.error("[approve] JustTCG enrichment failed:", e.message)
+          withRetry(
+            () => refreshInventoryPrices(userId, allToPrice, "all"),
+            2,
+            30_000,
+            "JustTCG post-approve price refresh",
           );
         });
       }
