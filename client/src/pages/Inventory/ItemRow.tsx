@@ -4,7 +4,7 @@ import { ConditionBadge } from "@/components/ConditionBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { cn } from "@/lib/utils";
 import { LabelStatusBadge } from "./DetailPanel";
-import { ColumnKey } from "./constants";
+import { ColumnKey, COLUMN_ALIGN } from "./constants";
 import { ExpandedDetail } from "./ExpandedDetailRow";
 
 export function InventoryRow({
@@ -28,7 +28,7 @@ export function InventoryRow({
   function renderCell(col: ColumnKey) {
     switch (col) {
       case "card": return (
-        <td key="card" className="px-4 py-3">
+        <td key="card" className={cn("px-4 py-3", COLUMN_ALIGN.card)}>
           <div className="flex items-center gap-2.5">
             {selectMode ? (
               <button onClick={e => { e.stopPropagation(); onSelect(item.id, !selected); }}
@@ -61,32 +61,32 @@ export function InventoryRow({
         </td>
       );
       case "condition": return (
-        <td key="condition" className="px-4 py-3 text-center whitespace-nowrap">
+        <td key="condition" className={cn("px-4 py-3 whitespace-nowrap", COLUMN_ALIGN.condition)}>
           <ConditionBadge condition={item.condition} abbreviated />
         </td>
       );
       case "game": return (
-        <td key="game" className="px-4 py-3 text-[11px] text-muted-foreground/40 whitespace-nowrap">
+        <td key="game" className={cn("px-4 py-3 text-[11px] text-muted-foreground/40 whitespace-nowrap", COLUMN_ALIGN.game)}>
           {gameLabel(item.game)}
         </td>
       );
       case "qty": return (
-        <td key="qty" className="px-4 py-3 text-right whitespace-nowrap">
+        <td key="qty" className={cn("px-4 py-3 whitespace-nowrap", COLUMN_ALIGN.qty)}>
           <span className="text-sm font-mono tabular-nums font-medium text-foreground">{item.currentQuantity}</span>
         </td>
       );
       case "market": return (
-        <td key="market" className="px-4 py-3 text-right whitespace-nowrap">
+        <td key="market" className={cn("px-4 py-3 whitespace-nowrap", COLUMN_ALIGN.market)}>
           <span className="text-sm font-mono tabular-nums text-muted-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
         </td>
       );
       case "print": return (
-        <td key="print" className="px-4 py-3 text-right whitespace-nowrap">
+        <td key="print" className={cn("px-4 py-3 whitespace-nowrap", COLUMN_ALIGN.print)}>
           <span className="text-sm font-mono tabular-nums font-semibold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
         </td>
       );
       case "total": return (
-        <td key="total" className="px-4 py-3 text-right whitespace-nowrap">
+        <td key="total" className={cn("px-4 py-3 whitespace-nowrap", COLUMN_ALIGN.total)}>
           <span className="text-xs font-mono tabular-nums text-muted-foreground/50">
             ${((item.currentRawMarketPrice || 0) * item.currentQuantity).toFixed(2)}
           </span>

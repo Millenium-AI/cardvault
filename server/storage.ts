@@ -274,11 +274,36 @@ class SupabaseStorage {
     return { byProductId, byTcgplayerId, byMatchKey };
   }
 
-  async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string; labelStatuses?: string[] }): Promise<InventoryItem[]> {
+  async listInventoryItems(userId: string, filters?: {
+    game?: string; condition?: string; status?: string; search?: string; labelStatuses?: string[];
+    sortField?: string; sortDir?: string;
+  }): Promise<InventoryItem[]> {
+    // Map client-facing sort keys to their real DB columns. Falls back to
+    // last_seen_at (most-recently-touched first) when no sort is requested
+    // or an unrecognized key is passed.
+    const SORT_COLUMN: Record<string, string> = {
+      name: 'product_name',
+      game: 'game',
+      condition: 'condition',
+      quantity: 'current_quantity',
+      marketPrice: 'current_raw_market_price',
+      printedPrice: 'current_rounded_print_price',
+      labelStatus: 'label_status',
+      updatedAt: 'last_seen_at',
+    };
+    const sortColumn = SORT_COLUMN[filters?.sortField || ''] || 'last_seen_at';
+    const ascending = filters?.sortDir === 'asc';
+
     let query = supabaseAdmin.from('inventory_items').select('*')
       .eq('user_id', userId)
       .eq('status', filters?.status || 'active')
-      .order('last_seen_at', { ascending: false });
+      .order(sortColumn, { ascending, nullsFirst: ascending });
+
+    // Secondary tiebreaker so rows with equal sort values still land in a
+    // stable, predictable order instead of shuffling between requests.
+    if (sortColumn !== 'last_seen_at') {
+      query = query.order('last_seen_at', { ascending: false });
+    }
 
     if (filters?.game) query = query.eq('game', filters.game);
     if (filters?.condition) query = query.eq('condition', filters.condition);

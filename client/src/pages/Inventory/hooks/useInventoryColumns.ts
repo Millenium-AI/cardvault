@@ -20,14 +20,25 @@ export function useInventoryColumns() {
       const next = [...prev];
       const [col] = next.splice(from, 1);
       next.splice(to, 0, col);
-      try {
-        sessionStorage.setItem("inventoryColumnOrder", JSON.stringify(next));
-      } catch {
-        // ignore
-      }
+      persist(next);
       return next;
     });
   }
 
-  return { columnOrder, moveColumn };
+  /** Replace the whole order directly — used by @dnd-kit's onDragEnd, which
+   *  already computes the reordered array via arrayMove(). */
+  function setOrder(next: ColumnKey[]) {
+    persist(next);
+    setColumnOrder(next);
+  }
+
+  function persist(order: ColumnKey[]) {
+    try {
+      sessionStorage.setItem("inventoryColumnOrder", JSON.stringify(order));
+    } catch {
+      // ignore
+    }
+  }
+
+  return { columnOrder, moveColumn, setOrder };
 }

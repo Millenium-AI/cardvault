@@ -6,8 +6,8 @@ import { buildLabelCsv } from "./csvHelpers";
 
 export function registerInventoryRoutes(app: Express) {
   app.get("/api/inventory", async (req: any, res) => {
-    const { game, condition, status, search } = req.query as Record<string, string>;
-    const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });
+    const { game, condition, status, search, sortField, sortDir } = req.query as Record<string, string>;
+    const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search, sortField, sortDir });
     res.json(items.map(item => ({ ...item, tcgplayerUrl: buildTcgplayerUrl(item) })));
   });
 

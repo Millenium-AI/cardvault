@@ -19,6 +19,13 @@ import { useInventoryPersist } from "./hooks/useInventoryPersist";
 import { useBulkSelect } from "./hooks/useBulkSelect";
 import { InventoryRow } from "./ItemRow";
 import { DraggableColHeader } from "./ColumnHeader";
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor,
+  useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, arrayMove, horizontalListSortingStrategy, sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
 import { DetailPanel } from "./DetailPanel";
 import { InventoryDetailSheet } from "./DetailSheet";
 import { BulkActionsBar } from "./BulkActionsBar";
@@ -55,7 +62,19 @@ export default function Inventory() {
   const [mobileDrawerItem, setMobileDrawerItem] = useState<InventoryItem | null>(null);
 
   /* ── column order ────────────────────────────────────────────────────────── */
-  const { columnOrder, moveColumn } = useInventoryColumns();
+  const { columnOrder, setOrder } = useInventoryColumns();
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  function handleColumnDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const from = columnOrder.indexOf(active.id as typeof columnOrder[number]);
+    const to = columnOrder.indexOf(over.id as typeof columnOrder[number]);
+    if (from < 0 || to < 0) return;
+    setOrder(arrayMove(columnOrder, from, to));
+  }
 
   /* ── bulk select ─────────────────────────────────────────────────────────── */
   const [selectMode, setSelectMode] = useState(false);
@@ -383,22 +402,25 @@ export default function Inventory() {
                 <thead>
                   <tr className="border-b border-border/50 bg-muted/30">
                     {selectMode && <th className="w-8 px-3 py-2" />}
-                    {columnOrder.map((col) => (
-                      <DraggableColHeader
-                        key={col}
-                        id={col}
-                        onMove={(dragged, target) => {
-                          const fromIdx = columnOrder.indexOf(dragged);
-                          const toIdx = columnOrder.indexOf(target);
-                          if (fromIdx >= 0 && toIdx >= 0) moveColumn(fromIdx, toIdx);
-                        }}
-                        onSort={COLUMN_SORT_FIELD[col] ? () => handleSort(COLUMN_SORT_FIELD[col]!) : undefined}
-                        sortField={sortField}
-                        sortDir={sortDir}
-                      >
-                        {COLUMN_LABELS[col]}
-                      </DraggableColHeader>
-                    ))}
+                    <DndContext
+                      sensors={dndSensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleColumnDragEnd}
+                    >
+                      <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
+                        {columnOrder.map((col) => (
+                          <DraggableColHeader
+                            key={col}
+                            id={col}
+                            onSort={COLUMN_SORT_FIELD[col] ? () => handleSort(COLUMN_SORT_FIELD[col]!) : undefined}
+                            sortField={sortField}
+                            sortDir={sortDir}
+                          >
+                            {COLUMN_LABELS[col]}
+                          </DraggableColHeader>
+                        ))}
+                      </SortableContext>
+                    </DndContext>
                   </tr>
                 </thead>
                 <tbody>
