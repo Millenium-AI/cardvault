@@ -14,13 +14,12 @@ import { DraggableColHeader } from "./ColumnHeader";
 import { DetailPanel } from "./DetailPanel";
 import { DetailSheet } from "./DetailSheet";
 import { BulkActionsBar } from "./BulkActionsBar";
-import { ExpandedDetailRow } from "./ExpandedDetailRow";
 import { MobileCard } from "./MobileCard";
 import { MobileDetailDrawer } from "./MobileDetailDrawer";
 import { InventoryGridCard } from "./ItemGrid";
 import { ViewModeToggle } from "./ViewModeToggle";
 import type { InventoryItem } from "@shared/schema";
-import type { LabelFilter } from "./constants";
+import type { LabelFilter, SortField, SortDir } from "./constants";
 import { LABEL_FILTER_OPTIONS, COLUMN_LABELS } from "./constants";
 
 export default function Inventory() {
@@ -30,8 +29,8 @@ export default function Inventory() {
   /* ── search / filter / sort ──────────────────────────────────────────────── */
   const [search, setSearch] = useState("");
   const [labelFilter, setLabelFilter] = useState<LabelFilter>("all");
-  const [sortField, setSortField] = useState("updatedAt");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sortField, setSortField] = useState<SortField>("updatedAt");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [showFilters, setShowFilters] = useState(false);
 
   /* ── view mode ───────────────────────────────────────────────────────────── */
@@ -60,7 +59,7 @@ export default function Inventory() {
   }));
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
-  function handleSort(field: string) {
+  function handleSort(field: SortField) {
     if (sortField === field) setSortDir(d => (d === "asc" ? "desc" : "asc"));
     else { setSortField(field); setSortDir("asc"); }
   }
@@ -272,7 +271,7 @@ export default function Inventory() {
                   <thead>
                     <tr className="border-b border-border/50 bg-muted/30">
                       {selectMode && <th className="w-8 px-3 py-2" />}
-                      {columnOrder.map((col, i) => (
+                      {columnOrder.map((col) => (
                         <DraggableColHeader
                           key={col}
                           id={col}
@@ -297,7 +296,7 @@ export default function Inventory() {
                           columnOrder={columnOrder}
                           selectMode={selectMode}
                           selected={selected.has(item.id)}
-                          onSelect={(id, checked) => toggleOne(id)}
+                          onSelect={(id, _checked) => toggleOne(id)}
                         />
                       ))}
                   </tbody>
