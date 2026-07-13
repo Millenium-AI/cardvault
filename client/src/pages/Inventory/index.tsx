@@ -323,10 +323,10 @@ export default function Inventory() {
       {/* ── GRID SM VIEW ────────────────────────────────────────────────────── */}
       {viewMode === "grid-sm" && (
         isLoading
-          ? <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-40 rounded-lg" />)}</div>
+          ? <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-40 rounded-lg" />)}</div>
           : items.length === 0
           ? <div className="py-12 text-center text-muted-foreground text-sm">{emptyMsg}</div>
-          : <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-2">
+          : <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
               {items.map(item =>
                 <InventoryGridCard key={item.id} item={item} size="sm"
                   selected={selected.has(item.id)} onSelect={toggleOne}
@@ -338,10 +338,10 @@ export default function Inventory() {
       {/* ── GRID LG VIEW ────────────────────────────────────────────────────── */}
       {viewMode === "grid-lg" && (
         isLoading
-          ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-lg" />)}</div>
+          ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-44 rounded-lg" />)}</div>
           : items.length === 0
           ? <div className="py-12 text-center text-muted-foreground text-sm">{emptyMsg}</div>
-          : <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
+          : <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               {items.map(item =>
                 <InventoryGridCard key={item.id} item={item} size="lg"
                   selected={selected.has(item.id)} onSelect={toggleOne}
