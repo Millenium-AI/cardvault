@@ -1,0 +1,9 @@
+# Suppress Docker lint warnings for Railway/Nixpacks auto-generated Dockerfiles.
+# Railway's Nixpacks builder injects secrets via ARG/ENV at build time — this is
+# Railway's intended pattern and cannot be changed from our side.
+ignore:
+  - DL3025
+
+# Secrets that are intentionally passed as build args by Railway (Nixpacks pattern)
+# and are NOT stored in the final image layer as user-accessible values.
+# Keys affected: JUSTTCG_API_KEY, POKEWALLET_API_KEY, SUPABASE_SERVICE_ROLE_KEY, VITE_SUPABASE_ANON_KEY
