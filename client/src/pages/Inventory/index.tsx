@@ -1,15 +1,16 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   Search,
   ChevronDown,
   CheckSquare,
   Download,
-  SlidersHorizontal,
   RefreshCw,
 } from "lucide-react";
 import { useGameParam } from "@/lib/useGameParam";
 import { useBreakpoint } from "@/hooks/use-breakpoint";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,23 +34,33 @@ import { MobileCard } from "./MobileCard";
 import { MobileDetailDrawer } from "./MobileDetailDrawer";
 import { InventoryGridCard } from "./ItemGrid";
 import { ViewModeToggle } from "./ViewModeToggle";
+import { FiltersPanel } from "./FiltersPanel";
+import { SortMenu } from "./SortMenu";
 import type { InventoryItem } from "@shared/schema";
-import type { LabelFilter, SortField, SortDir, ViewMode } from "./constants";
-import { LABEL_FILTER_OPTIONS, COLUMN_LABELS, COLUMN_SORT_FIELD, CONDITION_OPTIONS } from "./constants";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { SortField, SortDir, ViewMode, InventoryFilters } from "./constants";
+import {
+  COLUMN_LABELS, COLUMN_SORT_FIELD, EMPTY_FILTERS, SORT_OPTIONS,
+  matchesFilters, sortItems, parseMeta, countActiveFilters,
+} from "./constants";
 
 export default function Inventory() {
   const [game] = useGameParam();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const isDesktop = useBreakpoint("sm");
 
   /* ── search / filter / sort ──────────────────────────────────────────────── */
   const [search, setSearch] = useState("");
-  const [labelFilter, setLabelFilter] = useState<LabelFilter>("all");
-  const [conditionFilter, setConditionFilter] = useState<string>("all");
+  const [filters, setFilters] = useState<InventoryFilters>(EMPTY_FILTERS);
   const [sortField, setSortField] = useState<SortField>("updatedAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [showFilters, setShowFilters] = useState(false);
+
+  function updateFilters(patch: Partial<InventoryFilters>) {
+    setFilters((f) => ({ ...f, ...patch }));
+  }
+  function resetFilters() {
+    setFilters(EMPTY_FILTERS);
+  }
 
   /* ── view mode ───────────────────────────────────────────────────────────── */
   const [viewMode, setViewMode] = useInventoryPersist<ViewMode>(
@@ -81,25 +92,18 @@ export default function Inventory() {
   const { selected, toggleOne, toggleAll, clearSelection } = useBulkSelect();
 
   /* ── data ────────────────────────────────────────────────────────────────── */
-  const { data, isLoading, isError } = useInventory({
-    game,
-    search,
-    labelFilter,
-    condition: conditionFilter,
-    sortField,
-    sortDir,
-  });
-  const items: InventoryItem[] = data ?? [];
+  const { data, isLoading, isError } = useInventory({ game });
+  const rawItems: InventoryItem[] = data ?? [];
 
-  /* ── label options with counts ───────────────────────────────────────────── */
-  const activeFilterCount = (search ? 1 : 0) + (labelFilter !== "all" ? 1 : 0) + (conditionFilter !== "all" ? 1 : 0);
+  // All searching / filtering / sorting happens client-side so every dimension
+  // composes cleanly over a single fetch.
+  const items = useMemo(() => {
+    const filtered = rawItems.filter((i) => matchesFilters(i, parseMeta(i), filters, search));
+    return sortItems(filtered, sortField, sortDir);
+  }, [rawItems, filters, search, sortField, sortDir]);
+
+  const activeFilterCount = countActiveFilters(filters);
   const allSelected = items.length > 0 && items.every((i) => selected.has(i.id));
-
-  function clearAllFilters() {
-    setSearch("");
-    setLabelFilter("all");
-    setConditionFilter("all");
-  }
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
   function handleSort(field: SortField) {
@@ -109,6 +113,18 @@ export default function Inventory() {
       setSortField(field);
       setSortDir("asc");
     }
+  }
+
+  // From the Sort menu: numeric fields default to descending (biggest first),
+  // text/date fields to ascending. Re-picking the active field flips direction.
+  function handleSelectSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return;
+    }
+    const numeric = SORT_OPTIONS.find((o) => o.field === field)?.numeric;
+    setSortField(field);
+    setSortDir(numeric ? "desc" : "asc");
   }
 
   function openDetail(item: InventoryItem) {
@@ -164,89 +180,137 @@ export default function Inventory() {
     setExportMenuOpen(false);
   }
 
-  /* ── refresh ─────────────────────────────────────────────────────────────── */
-  function handleRefresh() {
-    queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+  /* ── price refresh ───────────────────────────────────────────────────────── */
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function handlePriceRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      const ids = selectMode && selected.size > 0 ? [...selected] : undefined;
+      const res = await apiRequest("POST", "/api/prices/refresh", ids ? { ids } : {});
+      const json = await res.json();
+      toast({
+        title: json.message ?? `Refreshed ${json.updated ?? 0} of ${json.total ?? 0} prices`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+    } catch (e: any) {
+      toast({ title: "Price refresh failed", description: e?.message, variant: "destructive" });
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   /* ── render ──────────────────────────────────────────────────────────────── */
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* ── MOBILE HEADER (< sm) ────────────────────────────────────────────── */}
-      <div className="sm:hidden px-3 pt-3 pb-2 flex flex-col gap-2">
-        <div className="flex items-center justify-between">
+      <div className="px-3 sm:px-4 pt-3 sm:pt-4 pb-3 flex flex-col gap-3">
+        {/* Title */}
+        <div className="flex items-center justify-between gap-2">
           <h1 className="text-lg font-semibold text-foreground">Inventory</h1>
-          <div className="flex items-center gap-1.5">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleRefresh}>
-              <RefreshCw size={15} />
-            </Button>
-            <ViewModeToggle value={viewMode} onChange={setViewMode} />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setShowFilters((v) => !v)}
-            >
-              <SlidersHorizontal size={15} />
-            </Button>
-          </div>
+          <span className="text-xs text-muted-foreground">
+            {isLoading ? "" : `${items.length} card${items.length === 1 ? "" : "s"}`}
+          </span>
         </div>
 
-        {/* Categories: search + bulk edit */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Categories</span>
-          <div className="relative flex-1 min-w-0">
+        {/* ── ROW 1: Search | Filters | Sort ──────────────────────────────── */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-[180px]">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search cards…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-7 h-9 text-sm w-full"
+              className="pl-7 h-8 text-sm w-full"
+              data-testid="input-search"
             />
           </div>
+
+          <FiltersPanel
+            filters={filters}
+            onChange={updateFilters}
+            onReset={resetFilters}
+            activeCount={activeFilterCount}
+            items={rawItems}
+          />
+
+          <SortMenu
+            sortField={sortField}
+            sortDir={sortDir}
+            onSelect={handleSelectSort}
+            onToggleDir={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+          />
         </div>
 
-        {showFilters && (
-          <div className="flex flex-col gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
-            <Select value={conditionFilter} onValueChange={setConditionFilter}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All conditions" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All conditions</SelectItem>
-                {CONDITION_OPTIONS.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={labelFilter} onValueChange={(v) => setLabelFilter(v as LabelFilter)}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All labels" /></SelectTrigger>
-              <SelectContent>
-                {LABEL_FILTER_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.key} value={opt.key}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {activeFilterCount > 0 && (
-              <Button variant="ghost" size="sm" className="h-8 text-xs self-start" onClick={clearAllFilters}>
-                Clear filters ({activeFilterCount})
-              </Button>
-            )}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
+        {/* ── ROW 2: Bulk Edit | Price Refresh | View Selection | Export Label ─ */}
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
-            variant="outline"
+            variant={selectMode ? "secondary" : "outline"}
             size="sm"
             className="h-8 px-3 text-xs gap-1.5"
             onClick={() => {
               setSelectMode((v) => !v);
               clearSelection();
             }}
+            data-testid="button-bulk-edit"
           >
             <CheckSquare size={14} />
             {selectMode ? "Cancel" : "Bulk Edit"}
           </Button>
-          {selectMode && (
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-3 text-xs gap-1.5"
+            onClick={handlePriceRefresh}
+            disabled={refreshing}
+            title={selectMode && selected.size > 0 ? "Refresh prices for selected" : "Refresh stale prices"}
+            data-testid="button-price-refresh"
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Refreshing…" : "Price Refresh"}
+          </Button>
+
+          {/* View Selection */}
+          <ViewModeToggle value={viewMode} onChange={setViewMode} />
+
+          {/* Export Label */}
+          <div className="relative ml-auto shrink-0" ref={exportMenuRef}>
+            <Button
+              data-testid="button-export-labels"
+              size="sm"
+              className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+              onClick={() => setExportMenuOpen((v) => !v)}
+            >
+              <Download size={13} />
+              Export Label
+              <ChevronDown size={11} className={`transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
+            </Button>
+
+            {exportMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
+                <button
+                  onClick={() => handleExport("pdf")}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent/30 transition-colors flex items-center gap-2"
+                >
+                  <Download size={13} />
+                  Export as PDF
+                </button>
+                <button
+                  onClick={() => handleExport("png")}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent/30 transition-colors flex items-center gap-2"
+                >
+                  <Download size={13} />
+                  Export as PNG
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── bulk selection sub-row (only when selecting) ────────────────── */}
+        {selectMode && (
+          <div className="flex items-center gap-3 flex-wrap">
             <Button
               variant="ghost"
               size="sm"
@@ -255,153 +319,11 @@ export default function Inventory() {
             >
               {allSelected ? "Select None" : "Select All"}
             </Button>
-          )}
-          {selectMode && selected.size > 0 && (
-            <span className="text-xs text-muted-foreground">{selected.size} selected</span>
-          )}
-        </div>
-      </div>
-
-      {/* ── DESKTOP HEADER (≥ sm) ───────────────────────────────────────────── */}
-      <div className="hidden sm:flex px-4 pt-4 pb-3 flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-lg font-semibold text-foreground">Inventory</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              title="Refresh"
-              onClick={handleRefresh}
-            >
-              <RefreshCw size={15} />
-            </Button>
-            <ViewModeToggle value={viewMode} onChange={setViewMode} />
-            <Button
-              variant={showFilters ? "secondary" : "ghost"}
-              size="icon"
-              className="h-8 w-8"
-              title="Filters"
-              onClick={() => setShowFilters((v) => !v)}
-            >
-              <SlidersHorizontal size={15} />
-            </Button>
-          </div>
-        </div>
-
-        {/* Categories row: filters + bulk edit on the left, export on the right */}
-        <div className="flex items-center gap-3 flex-wrap mb-2">
-          {/* Left: Categories label + filter controls + bulk edit */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Categories</span>
-
-            <div className="relative min-w-[160px] max-w-xs flex-1">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search cards…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-7 h-8 text-sm"
-              />
-            </div>
-
-            {showFilters && (
-              <>
-                <Select value={conditionFilter} onValueChange={setConditionFilter}>
-                  <SelectTrigger className="h-8 text-xs w-[150px]"><SelectValue placeholder="All conditions" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All conditions</SelectItem>
-                    {CONDITION_OPTIONS.map((c) => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                <Select value={labelFilter} onValueChange={(v) => setLabelFilter(v as LabelFilter)}>
-                  <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue placeholder="All labels" /></SelectTrigger>
-                  <SelectContent>
-                    {LABEL_FILTER_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.key} value={opt.key}>{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                {activeFilterCount > 0 && (
-                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearAllFilters}>
-                Clear filters ({activeFilterCount})
-                  </Button>
-                )}
-              </>
-            )}
-
-            <div className="w-px h-6 bg-border shrink-0" />
-
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-3 text-xs gap-1.5"
-              onClick={() => {
-                setSelectMode((v) => !v);
-                clearSelection();
-              }}
-            >
-              <CheckSquare size={14} />
-              {selectMode ? "Cancel" : "Bulk Edit"}
-            </Button>
-
-            {selectMode && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => toggleAll(items.map((i) => i.id))}
-              >
-                {allSelected ? "Select None" : "Select All"}
-              </Button>
-            )}
-
-            {selectMode && selected.size > 0 && (
+            {selected.size > 0 && (
               <span className="text-xs text-muted-foreground">{selected.size} selected</span>
             )}
           </div>
-
-          {/* Right: Export Labels */}
-          <div className="flex items-center gap-2 ml-auto shrink-0">
-            <div className="relative" ref={exportMenuRef}>
-              <Button
-                data-testid="button-export-labels"
-                size="sm"
-                className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-                onClick={() => setExportMenuOpen((v) => !v)}
-              >
-                <Download size={13} />
-                Export Labels
-                <ChevronDown size={11} className={`transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
-              </Button>
-
-              {exportMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
-                  <button
-                    onClick={() => handleExport("pdf")}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent/30 transition-colors flex items-center gap-2"
-                  >
-                    <Download size={13} />
-                    Export as PDF
-                  </button>
-                  <button
-                    onClick={() => handleExport("png")}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent/30 transition-colors flex items-center gap-2"
-                  >
-                    <Download size={13} />
-                    Export as PNG
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        )}
 
         {selectMode && selected.size > 0 && (
           <BulkActionsBar
