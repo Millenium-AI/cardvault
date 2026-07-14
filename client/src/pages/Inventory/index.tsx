@@ -78,7 +78,7 @@ export default function Inventory() {
 
   /* ── bulk select ─────────────────────────────────────────────────────────── */
   const [selectMode, setSelectMode] = useState(false);
-  const { selected, toggleOne, clearSelection } = useBulkSelect();
+  const { selected, toggleOne, toggleAll, clearSelection } = useBulkSelect();
 
   /* ── data ────────────────────────────────────────────────────────────────── */
   const { data, isLoading, isError } = useInventory({
@@ -92,10 +92,14 @@ export default function Inventory() {
   const items: InventoryItem[] = data ?? [];
 
   /* ── label options with counts ───────────────────────────────────────────── */
-  const labelOptions = LABEL_FILTER_OPTIONS.map((opt) => ({
-    ...opt,
-    count: opt.key === "all" ? items.length : items.filter((i) => i.labelStatus === opt.key).length,
-  }));
+  const activeFilterCount = (search ? 1 : 0) + (labelFilter !== "all" ? 1 : 0) + (conditionFilter !== "all" ? 1 : 0);
+  const allSelected = items.length > 0 && items.every((i) => selected.has(i.id));
+
+  function clearAllFilters() {
+    setSearch("");
+    setLabelFilter("all");
+    setConditionFilter("all");
+  }
 
   /* ── helpers ─────────────────────────────────────────────────────────────── */
   function handleSort(field: SortField) {
@@ -188,36 +192,22 @@ export default function Inventory() {
           </div>
         </div>
 
-        <div className="relative">
-          <Search
-            size={14}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            placeholder="Search cards…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-7 h-9 text-sm w-full"
-          />
+        {/* Categories: search + bulk edit */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Categories</span>
+          <div className="relative flex-1 min-w-0">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search cards…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-7 h-9 text-sm w-full"
+            />
+          </div>
         </div>
 
         {showFilters && (
           <div className="flex flex-col gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
-            <div className="grid grid-cols-2 gap-2">
-              {LABEL_FILTER_OPTIONS.map((opt) => (
-                <button
-                  key={opt.key}
-                  onClick={() => setLabelFilter(opt.key as LabelFilter)}
-                  className={`text-left rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    labelFilter === opt.key
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-background text-foreground border border-border hover:bg-accent/20"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
             <Select value={conditionFilter} onValueChange={setConditionFilter}>
               <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All conditions" /></SelectTrigger>
               <SelectContent>
@@ -227,10 +217,23 @@ export default function Inventory() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={labelFilter} onValueChange={(v) => setLabelFilter(v as LabelFilter)}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="All labels" /></SelectTrigger>
+              <SelectContent>
+                {LABEL_FILTER_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.key} value={opt.key}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs self-start" onClick={clearAllFilters}>
+                Clear filters ({activeFilterCount})
+              </Button>
+            )}
           </div>
         )}
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -243,6 +246,19 @@ export default function Inventory() {
             <CheckSquare size={14} />
             {selectMode ? "Cancel" : "Bulk Edit"}
           </Button>
+          {selectMode && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => toggleAll(items.map((i) => i.id))}
+            >
+              {allSelected ? "Select None" : "Select All"}
+            </Button>
+          )}
+          {selectMode && selected.size > 0 && (
+            <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+          )}
         </div>
       </div>
 
@@ -275,58 +291,53 @@ export default function Inventory() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
-            <Search
-              size={14}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              placeholder="Search cards…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-7 h-9 text-sm"
-            />
-          </div>
-          {showFilters && (
-            <Select value={conditionFilter} onValueChange={setConditionFilter}>
-              <SelectTrigger className="h-9 text-sm w-[170px]"><SelectValue placeholder="All conditions" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All conditions</SelectItem>
-                {CONDITION_OPTIONS.map((c) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+        {/* Categories row: filters + bulk edit on the left, export on the right */}
+        <div className="flex items-center gap-3 flex-wrap mb-2">
+          {/* Left: Categories label + filter controls + bulk edit */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Categories</span>
 
-        <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-          {labelOptions.map(({ key, label, count, cls }) => (
-            <button
-              key={key}
-              onClick={() => setLabelFilter(key as LabelFilter)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                labelFilter === key
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border bg-background text-muted-foreground hover:bg-accent/20"
-              }`}
-            >
-              <span className={cls} />
-              {label}
-              <span
-                className={`ml-0.5 tabular-nums ${
-                  labelFilter === key ? "text-primary" : "text-muted-foreground"
-                }`}
-              >
-                ({count})
-              </span>
-            </button>
-          ))}
-        </div>
+            <div className="relative min-w-[160px] max-w-xs flex-1">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search cards…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-7 h-8 text-sm"
+              />
+            </div>
 
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+            {showFilters && (
+              <>
+                <Select value={conditionFilter} onValueChange={setConditionFilter}>
+                  <SelectTrigger className="h-8 text-xs w-[150px]"><SelectValue placeholder="All conditions" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All conditions</SelectItem>
+                    {CONDITION_OPTIONS.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Select value={labelFilter} onValueChange={(v) => setLabelFilter(v as LabelFilter)}>
+                  <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue placeholder="All labels" /></SelectTrigger>
+                  <SelectContent>
+                    {LABEL_FILTER_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.key} value={opt.key}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {activeFilterCount > 0 && (
+                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearAllFilters}>
+                Clear filters ({activeFilterCount})
+                  </Button>
+                )}
+              </>
+            )}
+
+            <div className="w-px h-6 bg-border shrink-0" />
+
             <Button
               variant="outline"
               size="sm"
@@ -339,41 +350,56 @@ export default function Inventory() {
               <CheckSquare size={14} />
               {selectMode ? "Cancel" : "Bulk Edit"}
             </Button>
+
+            {selectMode && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => toggleAll(items.map((i) => i.id))}
+              >
+                {allSelected ? "Select None" : "Select All"}
+              </Button>
+            )}
+
             {selectMode && selected.size > 0 && (
               <span className="text-xs text-muted-foreground">{selected.size} selected</span>
             )}
           </div>
 
-          <div className="relative" ref={exportMenuRef}>
-            <Button
-              data-testid="button-export-labels"
-              size="sm"
-              className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-              onClick={() => setExportMenuOpen((v) => !v)}
-            >
-              <Download size={13} />
-              Export Labels
-              <ChevronDown size={11} className={`transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
-            </Button>
+          {/* Right: Export Labels */}
+          <div className="flex items-center gap-2 ml-auto shrink-0">
+            <div className="relative" ref={exportMenuRef}>
+              <Button
+                data-testid="button-export-labels"
+                size="sm"
+                className="h-8 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                onClick={() => setExportMenuOpen((v) => !v)}
+              >
+                <Download size={13} />
+                Export Labels
+                <ChevronDown size={11} className={`transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
+              </Button>
 
-            {exportMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
-                <button
-                  onClick={() => handleExport("pdf")}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent/30 transition-colors flex items-center gap-2"
-                >
-                  <Download size={13} />
-                  Export as PDF
-                </button>
-                <button
-                  onClick={() => handleExport("png")}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent/30 transition-colors flex items-center gap-2"
-                >
-                  <Download size={13} />
-                  Export as PNG
-                </button>
-              </div>
-            )}
+              {exportMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
+                  <button
+                    onClick={() => handleExport("pdf")}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent/30 transition-colors flex items-center gap-2"
+                  >
+                    <Download size={13} />
+                    Export as PDF
+                  </button>
+                  <button
+                    onClick={() => handleExport("png")}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent/30 transition-colors flex items-center gap-2"
+                  >
+                    <Download size={13} />
+                    Export as PNG
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
