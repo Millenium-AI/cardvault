@@ -121,7 +121,7 @@ export default function Uploads() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-semibold text-foreground">Uploads</h1>
+        <h1 className="hidden md:block text-xl font-semibold text-foreground">Uploads</h1>
       </div>
 
       <div className="flex flex-col lg:grid lg:grid-cols-3 gap-4">

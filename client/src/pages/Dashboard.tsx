@@ -62,7 +62,7 @@ export default function Dashboard() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
+        <h1 className="hidden md:block text-xl font-semibold text-foreground">Dashboard</h1>
         <div className="text-xs text-muted-foreground hidden sm:block">
           {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
         </div>

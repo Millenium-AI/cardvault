@@ -70,7 +70,7 @@ export default function Admin() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold text-foreground">Admin — Invite Codes</h1>
+      <h1 className="hidden md:block text-xl font-semibold text-foreground">Admin — Invite Codes</h1>
 
       <div className="stat-card p-4 space-y-3">
         <div className="text-sm font-medium text-foreground">Generate New Codes</div>
