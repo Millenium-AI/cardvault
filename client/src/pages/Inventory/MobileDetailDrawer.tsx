@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Drawer } from "vaul";
 import { X, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
@@ -52,11 +52,11 @@ function OverviewTab({
     <div className="space-y-4">
       {/* Card image */}
       {item.photoUrl && (
-        <div className="flex justify-center">
+        <div className="flex justify-center rounded-xl bg-muted/30 py-5">
           <img
             src={item.photoUrl}
             alt=""
-            className="max-h-48 max-w-full object-contain rounded-xl shadow-md"
+            className="max-h-64 max-w-[80%] object-contain rounded-lg shadow-md"
           />
         </div>
       )}
@@ -133,8 +133,8 @@ export function MobileDetailDrawer({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("overview");
-  const [snap, setSnap] = useState<number | string | null>(0.6);
+  const [activeTab, setActiveTab] = useState("price");
+  const [snap, setSnap] = useState<number | string | null>(0.92);
 
   const meta = (() => {
     try {
@@ -143,6 +143,15 @@ export function MobileDetailDrawer({
       return {};
     }
   })();
+
+  // Always re-open at the max snap point on the Price tab, even if a
+  // previous open was left dragged down or on a different tab.
+  useEffect(() => {
+    if (open) {
+      setSnap(0.92);
+      setActiveTab("price");
+    }
+  }, [open]);
 
   const deleteMut = useMutation({
     mutationFn: async () => {
@@ -183,7 +192,7 @@ export function MobileDetailDrawer({
 
         <Drawer.Content
           className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl bg-card border-t border-border focus:outline-none"
-          style={{ maxHeight: "92dvh" }}
+          style={{ height: "92dvh", maxHeight: "92dvh" }}
         >
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 shrink-0">
@@ -251,7 +260,9 @@ export function MobileDetailDrawer({
               </TabsContent>
 
               <TabsContent value="price" className="mt-0 px-4 pt-3 pb-2">
-                <PriceHistory item={item} />
+                <div className="rounded-xl border border-border/40 bg-muted/10 p-3 max-h-[420px] overflow-y-auto">
+                  <PriceHistory item={item} />
+                </div>
               </TabsContent>
 
               <TabsContent value="edit" className="mt-0 px-4 pt-3 pb-2">

@@ -3,11 +3,14 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import {
   Plus, Edit2, Trash2, ChevronDown, ChevronRight, X,
-  ArrowLeft, ArrowRight, Check,
+  ArrowLeft, ArrowRight, Check, Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Popover, PopoverContent, PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -21,6 +24,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { format, parseISO } from "date-fns";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 
 /* ─────────────────────── helpers ─────────────────────── */
 
@@ -58,11 +62,33 @@ function calcShow(show: any) {
 
 /* ─────────────────────── shared form fields ─────────────────────── */
 
+function InfoTip({ text }: { text: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          onClick={e => e.stopPropagation()}
+          className="text-muted-foreground/50 hover:text-foreground transition-colors shrink-0"
+          aria-label="More info"
+        >
+          <Info size={12} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" className="w-64 text-xs text-muted-foreground">
+        {text}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function NumInput({ label, hint, name, register, placeholder }: any) {
   return (
     <div>
-      <label className="text-xs text-muted-foreground block mb-0.5">{label}</label>
-      {hint && <p className="text-[11px] text-muted-foreground/70 mb-1">{hint}</p>}
+      <div className="flex items-center gap-1 mb-0.5">
+        <label className="text-xs text-muted-foreground">{label}</label>
+        {hint && <InfoTip text={hint} />}
+      </div>
       <Input
         type="number"
         step="0.01"
@@ -173,10 +199,10 @@ function StepInventory({ register }: any) {
         register={register}
       />
       <div>
-        <label className="text-xs text-muted-foreground block mb-0.5">Notes</label>
-        <p className="text-[11px] text-muted-foreground/70 mb-1">
-          What worked, key pickups, thoughts for next time
-        </p>
+        <div className="flex items-center gap-1 mb-0.5">
+          <label className="text-xs text-muted-foreground">Notes</label>
+          <InfoTip text="What worked, key pickups, thoughts for next time" />
+        </div>
         <Textarea className="text-sm resize-none" rows={3} {...register("notes")} />
       </div>
     </div>
@@ -189,9 +215,9 @@ const STEPS = ["Details", "Cash Flow", "Inventory"];
 
 function StepBar({ current }: { current: number }) {
   return (
-    <div className="flex items-center gap-1.5 px-4 py-2.5">
+    <div className="flex items-center justify-center gap-2 px-4 py-2.5">
       {STEPS.map((label, i) => (
-        <div key={i} className="flex items-center gap-1.5 flex-1">
+        <div key={i} className="flex items-center gap-2">
           <div className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold shrink-0 transition-colors ${
             i < current
               ? "bg-primary text-primary-foreground"
@@ -207,7 +233,7 @@ function StepBar({ current }: { current: number }) {
             {label}
           </span>
           {i < STEPS.length - 1 && (
-            <div className={`h-px flex-1 transition-colors ${i < current ? "bg-primary" : "bg-border"}`} />
+            <div className={`h-px w-6 sm:w-10 transition-colors ${i < current ? "bg-primary" : "bg-border"}`} />
           )}
         </div>
       ))}
@@ -354,19 +380,12 @@ function ShowDrawer({
 
 function ShowModal({ show, onClose }: { show?: any; onClose: () => void }) {
   const { register, handleSubmit, errors, saveMut, isEdit } = useShowForm(show, onClose);
+  const [notesOpen, setNotesOpen] = useState(!!show?.notes);
 
   return (
     <DialogContent className="w-[calc(100vw-1rem)] max-w-2xl max-h-[88dvh] overflow-y-auto bg-card border-border">
-      <DialogHeader className="flex flex-row items-center justify-between pr-2 space-y-0">
-        <DialogTitle className="text-foreground">{isEdit ? "Edit Show" : "New Show"}</DialogTitle>
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex items-center justify-center h-7 w-7 rounded-full bg-muted/60 text-muted-foreground hover:text-foreground transition-colors"
-          aria-label="Close"
-        >
-          <X size={14} />
-        </button>
+      <DialogHeader>
+        <DialogTitle className="text-foreground pr-6">{isEdit ? "Edit Show" : "New Show"}</DialogTitle>
       </DialogHeader>
 
       <form onSubmit={handleSubmit(d => saveMut.mutate(d))} className="space-y-4">
@@ -422,10 +441,35 @@ function ShowModal({ show, onClose }: { show?: any; onClose: () => void }) {
           </div>
         </div>
 
-        <div>
-          <label className="text-xs text-muted-foreground block mb-0.5">Notes</label>
-          <p className="text-[11px] text-muted-foreground/70 mb-1">What worked, what didn't, key pickups, thoughts for next time</p>
-          <Textarea className="text-sm resize-none" rows={2} {...register("notes")} />
+        <div className="border border-border rounded-lg overflow-hidden">
+          <div className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-muted/40 transition-colors">
+            <button
+              type="button"
+              onClick={() => setNotesOpen(o => !o)}
+              className="flex-1 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider"
+            >
+              Notes
+            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <InfoTip text="What worked, what didn't, key pickups, thoughts for next time" />
+              <button
+                type="button"
+                onClick={() => setNotesOpen(o => !o)}
+                aria-label="Toggle notes"
+                className="text-muted-foreground"
+              >
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform ${notesOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+            </div>
+          </div>
+          {notesOpen && (
+            <div className="px-3 pb-3">
+              <Textarea className="text-sm resize-none" rows={2} {...register("notes")} />
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3 justify-end pt-2 pb-2">
@@ -667,6 +711,7 @@ function ShowRow({ show, onEdit }: { show: any; onEdit: () => void }) {
 /* ─────────────────────── page ─────────────────────── */
 
 export default function Shows() {
+  const isDesktop = useIsDesktop();
   const [modalOpen, setModalOpen] = useState(false);
   const [editShow, setEditShow] = useState<any>(null);
 
@@ -847,20 +892,16 @@ export default function Shows() {
         </div>
       </div>
 
-      {/* Mobile: Vaul bottom drawer (3-step) */}
-      <div className="sm:hidden">
-        <ShowDrawer show={editShow} open={modalOpen} onClose={closeModal} />
-      </div>
-
-      {/* Desktop: Dialog */}
-      <div className="hidden sm:block">
+      {isDesktop ? (
         <Dialog
           open={modalOpen}
           onOpenChange={v => { if (!v) closeModal(); }}
         >
           {modalOpen && <ShowModal show={editShow} onClose={closeModal} />}
         </Dialog>
-      </div>
+      ) : (
+        <ShowDrawer show={editShow} open={modalOpen} onClose={closeModal} />
+      )}
     </div>
   );
 }

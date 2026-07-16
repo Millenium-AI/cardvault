@@ -42,8 +42,9 @@ import { InventoryGridCard } from "./ItemGrid";
 import { InventoryRow } from "./ItemRow";
 import { MobileInventoryCard } from "./MobileCard";
 import { MobileDetailDrawer } from "./MobileDetailDrawer";
-import { InventoryDetailSheet } from "./DetailSheet";
+import { InventoryDetailModal } from "./DetailSheet";
 import { BulkActionBar } from "./BulkActionsBar";
+import { useIsDesktop } from "@/hooks/use-is-desktop";
 
 function RefreshProgressBar({
   progress,
@@ -87,6 +88,7 @@ function RefreshProgressBar({
 
 export default function Inventory() {
   const { toast } = useToast();
+  const isDesktop = useIsDesktop();
   const [search, setSearch] = useState("");
   const [selectedGame, setSelectedGame] = useGameParam();
   const game = selectedGame ?? "all";
@@ -170,6 +172,9 @@ export default function Inventory() {
       }
 
       await queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/snapshots/history"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/snapshots/movers"] });
 
       setTimeout(() => {
         setShowProgressBar(false);
@@ -885,7 +890,7 @@ export default function Inventory() {
 
       {viewMode === "grid-sm" &&
         (isLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-7 gap-2">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="h-40 rounded-lg" />
             ))}
@@ -895,7 +900,7 @@ export default function Inventory() {
             {emptyMsg}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-7 gap-2">
             {sorted.map((item: any) => (
               <InventoryGridCard
                 key={item.id}
@@ -912,7 +917,7 @@ export default function Inventory() {
 
       {viewMode === "grid-lg" &&
         (isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-44 rounded-lg" />
             ))}
@@ -922,7 +927,7 @@ export default function Inventory() {
             {emptyMsg}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {sorted.map((item: any) => (
               <InventoryGridCard
                 key={item.id}
@@ -937,21 +942,19 @@ export default function Inventory() {
           </div>
         ))}
 
-      <div className="sm:hidden">
+      {isDesktop ? (
+        <InventoryDetailModal
+          item={liveSheetItem}
+          open={sheetOpen}
+          onClose={closeSheet}
+        />
+      ) : (
         <MobileDetailDrawer
           item={liveSheetItem}
           open={sheetOpen}
           onClose={closeSheet}
         />
-      </div>
-
-      <div className="hidden sm:block">
-        <InventoryDetailSheet
-          item={liveSheetItem}
-          open={sheetOpen}
-          onClose={closeSheet}
-        />
-      </div>
+      )}
 
       {selectMode && (
         <BulkActionBar
