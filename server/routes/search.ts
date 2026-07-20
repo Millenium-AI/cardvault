@@ -85,6 +85,67 @@ export function registerSearchRoutes(app: Express) {
     }
   });
 
+// ── Register search routes ───────────────────────────────────────────────────
+// Register the search routes with the Express app
+function cacheKey(query: string, game: string | null, set: string | null): string {
+  return `${query.trim().toLowerCase()}|${game ?? "all"}|${set ?? "any"}`;
+}
+
+export function registerSearchRoutes(app: Express) {
+  app.get("/api/search/cards", async (req: any, res) => {
+    try {
+      const { q, game, set, limit } = req.query as Record<string, string>;
+      const query = (q ?? "").trim();
+
+      if (!query) {
+        return res.status(400).json({ error: "q (search query) is required" });
+      }
+
+      const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 20, 20) : 20;
+      const gameFilter = game && game !== "all" ? game : null;
+      const setFilter = set?.trim() || null;
+      const key = cacheKey(query, gameFilter, setFilter);
+
+      const cached = searchCache.get(key);
+      if (cached && cached.expiresAt > Date.now()) {
+        return res.json({ results: cached.data, source: "cache" });
+      }
+
+      let results: SearchResultCard[] = [];
+      let source: "justtcg" | "pokewallet-fallback" = "justtcg";
+      let justTcgRateLimited = false;
+
+      try {
+        results = await searchCards({ query, game: gameFilter, set: setFilter, limit: parsedLimit });
+      } catch (err: any) {
+        if (err?.status === 429) {
+          justTcgRateLimited = true;
+          console.warn("[search] JustTCG 429 — trying PokéWallet/BerryWallet fallback");
+        } else {
+          throw err;
+        }
+      }
+
+      const shouldFallback =
+        (justTcgRateLimited || results.length === 0) &&
+        (gameFilter === "pokemon" || gameFilter === "one-piece");
+
+      if (shouldFallback) {
+        source = "pokewallet-fallback";
+        const fallbackResults = gameFilter === "pokemon"
+          ? await pokeWalletSearchCards(query, parsedLimit, setFilter)
+          : await berryWalletSearchCards(query, parsedLimit, setFilter);
+        if (fallbackResults.length) results = fallbackResults;
+      }
+
+      searchCache.set(key, { data: results, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
+      res.json({ results, source });
+    } catch (e: any) {
+      console.error("[search/cards]", e);
+      res.status(500).json({ error: e.message ?? "Search failed" });
+    }
+  });
+
   // ── POST /api/inventory/from-search — add a search result to inventory ────
   // Body: { card: SearchResultCard, variantIndex: number, game: string,
   //         quantity: number, condition?: string, notes?: string }
@@ -191,3 +252,4 @@ export function registerSearchRoutes(app: Express) {
     }
   });
 }
+

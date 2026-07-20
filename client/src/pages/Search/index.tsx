@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -11,18 +11,55 @@ import { SearchResultCard } from "./SearchResultCard";
 import { SearchDetailModal, SearchDetailDrawer } from "./SearchDetailView";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 
+// Minimal starter set lists per game — expand these as needed, or swap
+// for a live-fetched list from JustTCG if/when a /sets endpoint is wired in.
+const SETS_BY_GAME: Record<string, { value: string; label: string }[]> = {
+  pokemon: [
+    { value: "base-set-shadowless-pokemon", label: "Base Set (Shadowless)" },
+    { value: "base-set-pokemon", label: "Base Set" },
+    { value: "jungle-pokemon", label: "Jungle" },
+    { value: "fossil-pokemon", label: "Fossil" },
+    { value: "scarlet-violet-pokemon", label: "Scarlet & Violet" },
+  ],
+  "pokemon-jp": [
+    { value: "scarlet-violet-pokemon-japan", label: "Scarlet & Violet (JP)" },
+  ],
+  "one-piece": [
+    { value: "romance-dawn-one-piece-card-game", label: "Romance Dawn (OP01)" },
+    { value: "paramount-war-one-piece-card-game", label: "Paramount War (OP02)" },
+  ],
+  sorcery: [
+    { value: "alpha-sorcery-contested-realm", label: "Alpha" },
+    { value: "beta-sorcery-contested-realm", label: "Beta" },
+  ],
+  "dragon-ball": [
+    { value: "fusion-world-dragon-ball-super-fusion-world", label: "Fusion World" },
+  ],
+  mtg: [
+    { value: "alpha-magic-the-gathering", label: "Alpha" },
+    { value: "modern-horizons-magic-the-gathering", label: "Modern Horizons" },
+  ],
+  "star-wars": [
+    { value: "spark-of-rebellion-star-wars-unlimited", label: "Spark of Rebellion" },
+  ],
+};
+
 export default function SearchPage() {
   const isDesktop = useIsDesktop();
   const [query, setQuery] = useState("");
   const [game, setGame] = useState("all");
+  const [set, setSet] = useState("all");
   const [activeQuery, setActiveQuery] = useState("");
   const [selectedCard, setSelectedCard] = useState<any>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
+  const availableSets = useMemo(() => SETS_BY_GAME[game] ?? [], [game]);
+
   const { data, isFetching, isError } = useQuery({
-    queryKey: ["/api/search/cards", activeQuery, game],
+    queryKey: ["/api/search/cards", activeQuery, game, set],
     queryFn: async () => {
       const params = new URLSearchParams({ q: activeQuery, game });
+      if (set !== "all") params.set("set", set);
       const res = await apiRequest("GET", `/api/search/cards?${params.toString()}`);
       if (!res.ok) throw new Error("Search failed");
       return res.json();
@@ -33,6 +70,11 @@ export default function SearchPage() {
 
   function runSearch() {
     setActiveQuery(query.trim());
+  }
+
+  function handleGameChange(newGame: string) {
+    setGame(newGame);
+    setSet("all"); // reset set filter whenever game changes
   }
 
   function openCard(card: any) {
@@ -59,7 +101,7 @@ export default function SearchPage() {
           <SearchIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             data-testid="input-card-search"
-            placeholder="Search for any card by name…"
+            placeholder='e.g. "Pikachu 25/102" or "Luffy P-061"'
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") runSearch(); }}
@@ -67,7 +109,7 @@ export default function SearchPage() {
           />
         </div>
 
-        <Select value={game} onValueChange={setGame}>
+        <Select value={game} onValueChange={handleGameChange}>
           <SelectTrigger data-testid="select-search-game" className="w-full sm:w-[150px] h-10 text-xs">
             <SelectValue placeholder="Game" />
           </SelectTrigger>
@@ -82,6 +124,20 @@ export default function SearchPage() {
             <SelectItem value="star-wars">Star Wars</SelectItem>
           </SelectContent>
         </Select>
+
+        {availableSets.length > 0 && (
+          <Select value={set} onValueChange={setSet}>
+            <SelectTrigger data-testid="select-search-set" className="w-full sm:w-[170px] h-10 text-xs">
+              <SelectValue placeholder="Set" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sets</SelectItem>
+              {availableSets.map(s => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         <button
           data-testid="button-run-search"

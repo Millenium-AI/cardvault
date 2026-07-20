@@ -255,6 +255,41 @@ export function extractPrice(
   };
 }
 
+// ── Search Cards ───────────────────────────────────────────────────────────
+// Parameters for the searchCards function
+
+export interface SearchCardsParams {
+  query: string;
+  game?: string | null;   // internal slug, e.g. "pokemon" — mapped to JustTCG's game value
+  set?: string | null;    // JustTCG set slug, e.g. "base-set-shadowless-pokemon"
+  limit?: number;         // default 20, capped at 20 on Free tier
+}
+
+export async function searchCards(params: SearchCardsParams): Promise<SearchResultCard[]> {
+  const { query, game, set, limit = 20 } = params;
+  if (!query?.trim()) return [];
+
+  const search = new URLSearchParams({ q: query.trim(), limit: String(Math.min(limit, 20)) });
+  const justTcgGame = toJustTcgGame(game);
+  if (justTcgGame) search.set('game', justTcgGame);
+  if (set?.trim()) search.set('set', set.trim());
+
+  const res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
+    headers: { 'x-api-key': apiKey() },
+  });
+
+  if (res.status === 429) {
+    throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`JustTCG search API ${res.status}: ${text}`);
+  }
+
+  const json = await res.json();
+  const cards: any[] = json?.data ?? [];
+  return cards.map(mapJustTcgCardToSearchResult);
+}
 
 // ── Cache every variant on a card response ───────────────────────────────────
 // FIX #1: SKU cache key is assigned only to the variant whose

@@ -140,6 +140,47 @@ async function fetchOnePiecePrice(
   };
 }
 
+// ── Search cards using PokéWallet ───────────────────────────────────────────
+// Parameters for the pokeWalletSearchCards function
+
+export async function pokeWalletSearchCards(
+  query: string,
+  limit = 20,
+  set?: string | null,
+): Promise<SearchResultCard[]> {
+  if (!process.env.POKEWALLET_API_KEY || !hasPokeWalletQuota()) return [];
+  try {
+    const fullQuery = set?.trim() ? `${query} ${set.trim()}` : query;
+    const q = encodeURIComponent(fullQuery);
+    const { data } = await getJson(`${POKEWALLET_BASE}/search?q=${q}&limit=${limit}`);
+    const results: any[] = data?.results ?? [];
+    return results.map(mapPokemonResultToSearchCard);
+  } catch (err: any) {
+    console.error('[PokéWallet] searchCards error:', err.message);
+    return [];
+  }
+}
+
+export async function berryWalletSearchCards(
+  query: string,
+  limit = 20,
+  set?: string | null,
+): Promise<SearchResultCard[]> {
+  if (!process.env.POKEWALLET_API_KEY || !hasPokeWalletQuota()) return [];
+  try {
+    const fullQuery = set?.trim() ? `${query} ${set.trim()}` : query;
+    const q = encodeURIComponent(fullQuery);
+    const { data } = await getJson(`${BERRYWALLET_BASE}/search?q=${q}&limit=${limit}`);
+    const results: any[] = data?.data ?? [];
+    return results.map(mapOnePieceResultToSearchCard);
+  } catch (err: any) {
+    console.error('[BerryWallet] searchCards error:', err.message);
+    return [];
+  }
+}
+
+
+
 // ── Write a price hit to the shared price_cache ───────────────────────────────
 async function cachePokeWalletPrice(
   tcgplayerId: string,
