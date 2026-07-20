@@ -20,20 +20,33 @@
  * Fallback: when JustTCG returns a 429 (rate limited), remaining
  * Pokémon and One Piece items are handed off to pokeWalletFallbackFetch.
  * MTG items have no fallback and are skipped with a warning.
+ *
+ * FIXES (2026-07-20):
+ *   1. cacheAllVariants — SKU cache key now assigned to the variant whose
+ *      tcgplayerSkuId actually matches, not blindly to variants[0].
+ *   2. batchFetchPrices — card→request mapping now matched by ID/SKU,
+ *      not by array index (API response order is not guaranteed).
+ *   3. One Piece game string normalised to 'one-piece' before fallback
+ *      filter so DB value matches pokewallet.ts expectations.
+ *   4. Fallback condition simplified — removed redundant double-check.
  */
 import { supabaseAdmin } from './supabase.js';
 
+
 const BASE_URL = 'https://api.justtcg.com/v1';
+
 
 // Free tier: 20 cards per batch request.
 // Set JUSTTCG_BATCH_SIZE env var to override when upgrading plans.
 export const JUSTTCG_BATCH_SIZE = parseInt(process.env.JUSTTCG_BATCH_SIZE ?? '20', 10);
+
 
 function apiKey(): string {
   const key = process.env.JUSTTCG_API_KEY;
   if (!key) throw new Error('JUSTTCG_API_KEY env var is not set');
   return key;
 }
+
 
 export interface PriceResult {
   price:           number;
@@ -42,6 +55,7 @@ export interface PriceResult {
   variantUuid:     string | null;
   cardUuid:        string | null;
 }
+
 
 // ── Build a deterministic cache key ──────────────────────────────────────────
 // When we have a tcgplayerSkuId, use it as the key prefix — it already
@@ -57,16 +71,26 @@ export function buildPriceCacheKey(
   return [prefix, condition, printing ?? 'Normal'].join('|').toLowerCase();
 }
 
+
 // ── Dynamic TTL based on card value ──────────────────────────────────────────
 function expiresAt(price: number): string {
   const hours = price > 50 ? 6 : price > 10 ? 12 : 24;
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
+
+// ── Normalise game string to a consistent internal value ─────────────────────
+// DB stores 'one-piece'; pokewallet.ts uses 'one_piece'/'onepiece'.
+// We normalise everything to the DB canonical form here and convert
+// at the pokewallet call boundary only.
+function normaliseGame(game?: string | null): string {
+  const g = (game ?? '').toLowerCase().trim();
+  if (g === 'one_piece' || g === 'onepiece' || g === 'one-piece') return 'one-piece';
+  return g;
+}
+
+
 // ── Low-level POST /v1/cards (batch) ─────────────────────────────────────────
-// JustTCG expects a POST with a JSON body containing an array of identifier
-// objects. tcgplayerSkuId is sent as the primary identifier when available
-// (higher precedence per docs), falling back to tcgplayerId.
 async function postBatchCards(
   requests: Array<{ tcgplayerId: string; tcgplayerSkuId?: string | null }>
 ): Promise<{ data: any[]; usage?: any }> {
@@ -75,6 +99,7 @@ async function postBatchCards(
       ? { tcgplayerSkuId: req.tcgplayerSkuId }
       : { tcgplayerId: req.tcgplayerId }
   );
+
 
   const res = await fetch(`${BASE_URL}/cards`, {
     method: 'POST',
@@ -85,14 +110,17 @@ async function postBatchCards(
     body: JSON.stringify(body),
   });
 
+
   if (res.status === 429) {
     throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
   }
+
 
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`JustTCG API ${res.status}: ${text}`);
   }
+
 
   const json = await res.json();
   const remaining = json?.usage?.apiDailyRequestsRemaining;
@@ -103,11 +131,10 @@ async function postBatchCards(
   return json;
 }
 
+
 // ── In-flight request de-duplication ─────────────────────────────────────────
-// Deduplication key is skuId when available, otherwise productId.
-// This prevents concurrent uploads of the same card from burning
-// multiple API calls.
 const inFlightCardFetches = new Map<string, Promise<any[]>>();
+
 
 async function getCardsDeduped(
   requests: Array<{ tcgplayerId: string; tcgplayerSkuId?: string | null }>
@@ -115,10 +142,12 @@ async function getCardsDeduped(
   const dedupeKey = (r: typeof requests[0]) =>
     r.tcgplayerSkuId ? `sku:${r.tcgplayerSkuId}` : `pid:${r.tcgplayerId}`;
 
+
   const requestMap = new Map(requests.map(r => [dedupeKey(r), r]));
   const uniqueKeys = Array.from(requestMap.keys());
   const idsToFetch: typeof requests = [];
   const waiters: Promise<any[]>[] = [];
+
 
   for (const key of uniqueKeys) {
     const existing = inFlightCardFetches.get(key);
@@ -128,6 +157,7 @@ async function getCardsDeduped(
       idsToFetch.push(requestMap.get(key)!);
     }
   }
+
 
   let ownPromise: Promise<any[]> | null = null;
   if (idsToFetch.length) {
@@ -139,15 +169,18 @@ async function getCardsDeduped(
     for (const req of idsToFetch) inFlightCardFetches.set(dedupeKey(req), ownPromise);
   }
 
+
   const batches = await Promise.all([
     ...(ownPromise ? [ownPromise] : []),
     ...waiters,
   ]);
 
+
   const results: any[] = [];
   for (const batch of batches) results.push(...batch);
   return results;
 }
+
 
 // ── Extract the matching variant price from a card response ──────────────────
 export function extractPrice(
@@ -158,10 +191,12 @@ export function extractPrice(
 ): PriceResult | null {
   const variants: any[] = card.variants || [];
 
+
   if (!variants.length) {
     console.warn(`[JustTCG] No variants returned for card ${card.tcgplayerId ?? card.uuid}`);
     return null;
   }
+
 
   if (resolvedBySkuId) {
     const v = variants[0];
@@ -175,12 +210,15 @@ export function extractPrice(
     };
   }
 
+
   const jtCondition = condition || 'Near Mint';
   const jtPrinting  = printing ?? 'Normal';
+
 
   let variant = variants.find(
     (v: any) => v.condition === jtCondition && v.printing === jtPrinting
   );
+
 
   if (!variant?.price) {
     variant = variants.find((v: any) => v.condition === jtCondition);
@@ -192,6 +230,7 @@ export function extractPrice(
     }
   }
 
+
   if (!variant?.price) {
     const available = variants.map((v: any) => `${v.condition}/${v.printing}`).join(', ');
     console.warn(
@@ -200,6 +239,7 @@ export function extractPrice(
     );
     return null;
   }
+
 
   return {
     price:           variant.price,
@@ -210,7 +250,10 @@ export function extractPrice(
   };
 }
 
+
 // ── Cache every variant on a card response ───────────────────────────────────
+// FIX #1: SKU cache key is assigned only to the variant whose
+// tcgplayerSkuId actually matches requestedSkuId, not variants[0].
 async function cacheAllVariants(
   card: any,
   requestedSkuId?: string | null,
@@ -218,28 +261,40 @@ async function cacheAllVariants(
   const variants: any[] = card?.variants ?? [];
   if (!variants.length) return;
 
+
   const rows = variants
     .filter(v => v?.price != null && v?.condition)
-    .map(v => ({
-      cache_key:      buildPriceCacheKey(
-        card.tcgplayerId ?? '',
-        v.condition,
-        v.printing,
-        variants.indexOf(v) === 0 && requestedSkuId ? requestedSkuId : null,
-      ),
-      price:          v.price,
-      price_24hr_chg: v.priceChange24hr ?? null,
-      price_7d_chg:   v.priceChange7d ?? null,
-      variant_uuid:   v.uuid ?? null,
-      card_uuid:      card.uuid ?? null,
-      fetched_at:     new Date().toISOString(),
-      expires_at:     expiresAt(v.price),
-    }));
+    .map(v => {
+      const isSkuMatch =
+        requestedSkuId != null &&
+        v.tcgplayerSkuId != null &&
+        String(v.tcgplayerSkuId) === String(requestedSkuId);
+
+      return {
+        cache_key:      buildPriceCacheKey(
+          card.tcgplayerId ?? '',
+          v.condition,
+          v.printing,
+          isSkuMatch ? requestedSkuId : null,
+        ),
+        price:          v.price,
+        price_24hr_chg: v.priceChange24hr ?? null,
+        price_7d_chg:   v.priceChange7d ?? null,
+        variant_uuid:   v.uuid ?? null,
+        card_uuid:      card.uuid ?? null,
+        fetched_at:     new Date().toISOString(),
+        expires_at:     expiresAt(v.price),
+      };
+    });
+
 
   if (!rows.length) return;
-  const { error } = await supabaseAdmin.from('price_cache').upsert(rows, { onConflict: 'cache_key' });
+  const { error } = await supabaseAdmin
+    .from('price_cache')
+    .upsert(rows, { onConflict: 'cache_key' });
   if (error) console.error('[JustTCG] cacheAllVariants upsert error:', error.message);
 }
+
 
 // ── Batch fetch prices, with a shared cross-user Supabase cache ──────────────
 export async function batchFetchPrices(
@@ -249,18 +304,20 @@ export async function batchFetchPrices(
     tcgplayerSkuId?:   string | null;
     condition:         string;
     printing?:         string | null;
-    game?:             string | null;       // used for fallback routing
-    groupId?:          string | null;       // TCGPlayer set group id (Pokémon fallback)
-    cardNumber?:       string | null;       // card number (Pokémon/OP fallback)
+    game?:             string | null;
+    groupId?:          string | null;
+    cardNumber?:       string | null;
   }[]
 ): Promise<Map<string, PriceResult>> {
   const resultMap = new Map<string, PriceResult>();
   if (!items.length) return resultMap;
 
+
   // 1. Check Supabase cache
   const cacheKeys = items.map(item =>
     buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing, item.tcgplayerSkuId)
   );
+
 
   const { data: cachedRows } = await supabaseAdmin
     .from('price_cache')
@@ -268,12 +325,17 @@ export async function batchFetchPrices(
     .in('cache_key', cacheKeys)
     .gt('expires_at', new Date().toISOString());
 
+
   const cacheByKey = new Map((cachedRows ?? []).map((row: any) => [row.cache_key, row]));
   const toFetch: typeof items = [];
 
+
   for (const item of items) {
-    const cacheKey = buildPriceCacheKey(item.tcgplayerId, item.condition, item.printing, item.tcgplayerSkuId);
+    const cacheKey = buildPriceCacheKey(
+      item.tcgplayerId, item.condition, item.printing, item.tcgplayerSkuId
+    );
     const cached = cacheByKey.get(cacheKey);
+
 
     if (cached?.price) {
       resultMap.set(item.id, {
@@ -288,18 +350,24 @@ export async function batchFetchPrices(
     }
   }
 
+
   if (!toFetch.length) return resultMap;
+
 
   // 2. POST to JustTCG for cache misses
   let justTcgHitRateLimit = false;
   const stillNeedsPricing: typeof items = [];
 
+
   try {
     const requestMap = new Map<string, typeof toFetch[0]>();
     for (const item of toFetch) {
-      const key = item.tcgplayerSkuId ? `sku:${item.tcgplayerSkuId}` : `pid:${item.tcgplayerId}`;
+      const key = item.tcgplayerSkuId
+        ? `sku:${item.tcgplayerSkuId}`
+        : `pid:${item.tcgplayerId}`;
       if (!requestMap.has(key)) requestMap.set(key, item);
     }
+
 
     const cards = await getCardsDeduped(
       Array.from(requestMap.values()).map(item => ({
@@ -308,25 +376,42 @@ export async function batchFetchPrices(
       }))
     );
 
+
+    // FIX #2: Match each card response back to its request by ID/SKU,
+    // not by array index — API response order is not guaranteed.
     await Promise.all(
-      cards.map((card, i) => {
-        const req = Array.from(requestMap.values())[i];
+      cards.map((card: any) => {
+        const req = Array.from(requestMap.values()).find(item =>
+          item.tcgplayerSkuId
+            ? card.variants?.some(
+                (v: any) => String(v.tcgplayerSkuId) === String(item.tcgplayerSkuId)
+              )
+            : String(card.tcgplayerId) === String(item.tcgplayerId)
+        );
         return cacheAllVariants(card, req?.tcgplayerSkuId ?? null);
       })
     );
 
+
     for (const item of toFetch) {
       const card = item.tcgplayerSkuId
         ? cards.find((c: any) =>
-            c.variants?.some((v: any) => String(v.tcgplayerSkuId) === String(item.tcgplayerSkuId))
+            c.variants?.some(
+              (v: any) => String(v.tcgplayerSkuId) === String(item.tcgplayerSkuId)
+            )
           ) ?? cards.find((c: any) => String(c.tcgplayerId) === String(item.tcgplayerId))
         : cards.find((c: any) => String(c.tcgplayerId) === String(item.tcgplayerId));
 
+
       if (!card) {
-        console.warn(`[JustTCG] No card returned for item ${item.id} (skuId: ${item.tcgplayerSkuId}, productId: ${item.tcgplayerId})`);
+        console.warn(
+          `[JustTCG] No card returned for item ${item.id} ` +
+          `(skuId: ${item.tcgplayerSkuId}, productId: ${item.tcgplayerId})`
+        );
         stillNeedsPricing.push(item);
         continue;
       }
+
 
       const resolvedBySkuId = !!item.tcgplayerSkuId;
       const priceResult = extractPrice(card, item.condition, item.printing, resolvedBySkuId);
@@ -334,6 +419,7 @@ export async function batchFetchPrices(
         stillNeedsPricing.push(item);
         continue;
       }
+
 
       resultMap.set(item.id, priceResult);
     }
@@ -349,14 +435,19 @@ export async function batchFetchPrices(
     }
   }
 
+
   // 3. PokéWallet / BerryWallet fallback for Pokémon + One Piece
-  if (stillNeedsPricing.length > 0 && (justTcgHitRateLimit || stillNeedsPricing.length > 0)) {
+  // FIX #3: normaliseGame() converts 'one-piece' (DB value) to the
+  // canonical form, then we pass 'one_piece' to pokewallet.ts which
+  // expects that exact string in its game === 'one_piece' check.
+  if (stillNeedsPricing.length > 0 && process.env.POKEWALLET_API_KEY) {
     const fallbackItems = stillNeedsPricing.filter(item => {
-      const game = (item.game ?? '').toLowerCase();
-      return game === 'pokemon' || game === 'one_piece' || game === 'onepiece';
+      const game = normaliseGame(item.game);
+      return game === 'pokemon' || game === 'one-piece';
     });
 
-    if (fallbackItems.length > 0 && process.env.POKEWALLET_API_KEY) {
+
+    if (fallbackItems.length > 0) {
       try {
         const { pokeWalletFallbackFetch } = await import('./pokewallet.js');
         const fallbackMap = await pokeWalletFallbackFetch(
@@ -365,7 +456,9 @@ export async function batchFetchPrices(
             tcgplayerId: item.tcgplayerId,
             condition:   item.condition,
             printing:    item.printing,
-            game:        item.game ?? '',
+            // FIX #3 cont: pokewallet.ts checks game === 'one_piece',
+            // so convert canonical 'one-piece' → 'one_piece' at this boundary only.
+            game:        normaliseGame(item.game).replace('one-piece', 'one_piece'),
             groupId:     item.groupId ?? null,
             cardNumber:  item.cardNumber ?? null,
           }))
@@ -376,19 +469,24 @@ export async function batchFetchPrices(
       }
     }
 
-    // Log MTG misses (no fallback available)
+
+    // Log MTG and unknown game misses — no fallback available
     for (const item of stillNeedsPricing) {
-      const game = (item.game ?? '').toLowerCase();
-      if (game !== 'pokemon' && game !== 'one_piece' && game !== 'onepiece') {
+      const game = normaliseGame(item.game);
+      if (game !== 'pokemon' && game !== 'one-piece') {
         if (!resultMap.has(item.id)) {
-          console.warn(`[JustTCG] No fallback for game "${item.game}" — item ${item.id} unpriced`);
+          console.warn(
+            `[JustTCG] No fallback for game "${item.game}" — item ${item.id} unpriced`
+          );
         }
       }
     }
   }
 
+
   return resultMap;
 }
+
 
 // ── Single card live lookup ───────────────────────────────────────────────────
 export async function fetchSinglePrice(
@@ -399,12 +497,14 @@ export async function fetchSinglePrice(
 ): Promise<PriceResult | null> {
   const cacheKey = buildPriceCacheKey(tcgplayerId, condition, printing, tcgplayerSkuId);
 
+
   const { data: cached } = await supabaseAdmin
     .from('price_cache')
     .select('price, price_24hr_chg, price_7d_chg, variant_uuid, card_uuid')
     .eq('cache_key', cacheKey)
     .gt('expires_at', new Date().toISOString())
     .maybeSingle();
+
 
   if (cached?.price) {
     return {
@@ -416,12 +516,17 @@ export async function fetchSinglePrice(
     };
   }
 
+
   try {
-    const cards = await getCardsDeduped([{ tcgplayerId, tcgplayerSkuId: tcgplayerSkuId ?? null }]);
+    const cards = await getCardsDeduped([
+      { tcgplayerId, tcgplayerSkuId: tcgplayerSkuId ?? null }
+    ]);
     const card = cards[0];
     if (!card) return null;
 
+
     await cacheAllVariants(card, tcgplayerSkuId ?? null);
+
 
     const resolvedBySkuId = !!tcgplayerSkuId;
     return extractPrice(card, condition, printing, resolvedBySkuId);
