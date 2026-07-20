@@ -24,11 +24,16 @@
  */
 
 import { supabaseAdmin } from './supabase.js';
-import type { PriceResult } from './justtcg.js';
+import type { PriceResult, SearchResultCard } from './justtcg.js';
 import { buildPriceCacheKey } from './justtcg.js';
 
-const POKEWALLET_BASE = 'https://www.pokewallet.io/api/v1';
-const BERRYWALLET_BASE = 'https://www.pokewallet.io/api/v1/op';
+// FIX (Search feature, 2026-07-20): corrected to match the live API docs
+// (https://www.pokewallet.io/api-docs, https://www.pokewallet.io/berrywallet-docs).
+// The old base (www.pokewallet.io/api/v1) and /cards/search path were wrong —
+// the real API host is api.pokewallet.io with no /v1 segment, and the search
+// path is /search (Pokémon) or /op/search (One Piece), not /cards/search.
+const POKEWALLET_BASE = 'https://api.pokewallet.io';
+const BERRYWALLET_BASE = 'https://api.pokewallet.io/op';
 
 function apiKey(): string {
   const key = process.env.POKEWALLET_API_KEY;
@@ -86,22 +91,22 @@ async function fetchPokemonPrice(
   printing?: string | null,
 ): Promise<PriceResult | null> {
   const q = encodeURIComponent(`${groupId} ${cardNumber}`);
-  const { data } = await getJson(`${POKEWALLET_BASE}/cards/search?q=${q}`);
+  const { data } = await getJson(`${POKEWALLET_BASE}/search?q=${q}`);
 
-  const card = Array.isArray(data?.results) ? data.results[0] : data?.card ?? null;
+  const card = Array.isArray(data?.results) ? data.results[0] : null;
   if (!card) return null;
 
-  // PokéWallet price object shape: card.tcgplayer.prices[condition].market
-  const prices = card?.tcgplayer?.prices;
-  if (!prices) return null;
+  // Real response shape (per api-docs): card.tcgplayer.prices is an ARRAY
+  // of { sub_type_name, market_price, ... }, not an object keyed by condition.
+  const prices: any[] = card?.tcgplayer?.prices ?? [];
+  if (!prices.length) return null;
 
-  const jtCondition = condition || 'Near Mint';
-  const conditionKey = jtCondition.toLowerCase().replace(/\s+/g, '_');
-  const priceObj = prices[conditionKey] ?? prices['near_mint'] ?? null;
-  if (!priceObj?.market) return null;
+  const jtPrinting = printing ?? 'Normal';
+  const priceObj = prices.find((p: any) => p.sub_type_name === jtPrinting) ?? prices[0];
+  if (!priceObj?.market_price) return null;
 
   return {
-    price:           priceObj.market,
+    price:           priceObj.market_price,
     priceChange24hr: null,
     priceChange7d:   null,
     variantUuid:     card.id ?? null,
@@ -116,21 +121,18 @@ async function fetchOnePiecePrice(
   condition: string,
 ): Promise<PriceResult | null> {
   const q = encodeURIComponent(cardNumber);
-  const { data } = await getJson(`${BERRYWALLET_BASE}/cards/search?q=${q}`);
+  const { data } = await getJson(`${BERRYWALLET_BASE}/search?q=${q}`);
 
-  const card = Array.isArray(data?.results) ? data.results[0] : data?.card ?? null;
+  const card = Array.isArray(data?.data) ? data.data[0] : null;
   if (!card) return null;
 
-  const prices = card?.tcgplayer?.prices;
-  if (!prices) return null;
-
-  const jtCondition = condition || 'Near Mint';
-  const conditionKey = jtCondition.toLowerCase().replace(/\s+/g, '_');
-  const priceObj = prices[conditionKey] ?? prices['near_mint'] ?? null;
-  if (!priceObj?.market) return null;
+  // Real response shape (per berrywallet-docs): card.tcgplayer.prices is a
+  // flat object { low_price, market_price, high_price }, not keyed by condition.
+  const priceObj = card?.tcgplayer?.prices;
+  if (!priceObj?.market_price) return null;
 
   return {
-    price:           priceObj.market,
+    price:           priceObj.market_price,
     priceChange24hr: null,
     priceChange7d:   null,
     variantUuid:     card.id ?? null,
@@ -221,4 +223,84 @@ export async function pokeWalletFallbackFetch(
 
   console.log(`[PokéWallet] Fallback resolved ${resultMap.size}/${items.length} items`);
   return resultMap;
+}
+
+// ── Public: card search (Search section fallback) ─────────────────────
+// Used by server/routes/search.ts when JustTCG search is rate-limited or
+// returns no results for a Pokémon / One Piece query. Normalises both
+// PokéWallet and BerryWallet shapes into the same SearchResultCard shape
+// justtcg.ts's searchCards() returns, so the client only deals with one type.
+
+function mapPokemonResultToSearchCard(card: any): SearchResultCard {
+  const prices: any[] = card?.tcgplayer?.prices ?? [];
+  return {
+    source:      'justtcg', // shares the same client-side shape; UI doesn't need to branch
+    cardUuid:    card.id ?? null,
+    name:        card.card_info?.name ?? card.card_info?.clean_name ?? 'Unknown card',
+    game:        'pokemon',
+    setName:     card.card_info?.set_name ?? null,
+    number:      card.card_info?.card_number ?? null,
+    rarity:      card.card_info?.rarity ?? null,
+    tcgplayerId: null,
+    imageUrl:    null,
+    variants: prices.map((p: any) => ({
+      variantUuid:     card.id ?? null,
+      condition:       null, // PokéWallet doesn't expose per-condition prices, only printing/sub_type
+      printing:        p.sub_type_name ?? null,
+      price:           p.market_price ?? null,
+      priceChange24hr: null,
+      priceChange7d:   null,
+      tcgplayerSkuId:  null,
+    })),
+  };
+}
+
+function mapOnePieceResultToSearchCard(card: any): SearchResultCard {
+  const p = card?.tcgplayer?.prices ?? null;
+  return {
+    source:      'justtcg',
+    cardUuid:    card.id ?? null,
+    name:        card.name ?? card.clean_name ?? 'Unknown card',
+    game:        'one-piece',
+    setName:     null,
+    number:      card.card_number ?? null,
+    rarity:      card.rarity ?? null,
+    tcgplayerId: null,
+    imageUrl:    null,
+    variants: p ? [{
+      variantUuid:     card.id ?? null,
+      condition:       null,
+      printing:        card.sub_type_name ?? null,
+      price:           p.market_price ?? null,
+      priceChange24hr: null,
+      priceChange7d:   null,
+      tcgplayerSkuId:  null,
+    }] : [],
+  };
+}
+
+export async function pokeWalletSearchCards(query: string, limit = 20): Promise<SearchResultCard[]> {
+  if (!process.env.POKEWALLET_API_KEY || !hasPokeWalletQuota()) return [];
+  try {
+    const q = encodeURIComponent(query);
+    const { data } = await getJson(`${POKEWALLET_BASE}/search?q=${q}&limit=${limit}`);
+    const results: any[] = data?.results ?? [];
+    return results.map(mapPokemonResultToSearchCard);
+  } catch (err: any) {
+    console.error('[PokéWallet] searchCards error:', err.message);
+    return [];
+  }
+}
+
+export async function berryWalletSearchCards(query: string, limit = 20): Promise<SearchResultCard[]> {
+  if (!process.env.POKEWALLET_API_KEY || !hasPokeWalletQuota()) return [];
+  try {
+    const q = encodeURIComponent(query);
+    const { data } = await getJson(`${BERRYWALLET_BASE}/search?q=${q}&limit=${limit}`);
+    const results: any[] = data?.data ?? [];
+    return results.map(mapOnePieceResultToSearchCard);
+  } catch (err: any) {
+    console.error('[BerryWallet] searchCards error:', err.message);
+    return [];
+  }
 }
