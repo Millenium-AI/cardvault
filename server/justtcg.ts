@@ -612,7 +612,11 @@ function mapJustTcgCardToSearchResult(card: any): SearchResultCard {
     number:      card.number ?? null,
     rarity:      card.rarity ?? null,
     tcgplayerId: card.tcgplayerId ?? null,
-    imageUrl:    card.imageUrl ?? card.image_url ?? null,
+    // FIX (2026-07-20): JustTCG's Card object has no image field at all —
+    // imageUrl/image_url were always null. TCGplayer's CDN serves images
+    // predictably by product ID (same pattern already used in
+    // csvHelpers.ts upgradeTcgPlayerImageUrl for CSV-imported items).
+    imageUrl: card.tcgplayerId ? `https://product-images.tcgplayer.com/fit-in/1000x1000/${card.tcgplayerId}.jpg` : null,
     variants: variants.map((v: any) => ({
       variantUuid:     v.uuid ?? null,
       condition:       v.condition ?? null,

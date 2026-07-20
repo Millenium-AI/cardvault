@@ -231,8 +231,21 @@ export async function pokeWalletFallbackFetch(
 // PokéWallet and BerryWallet shapes into the same SearchResultCard shape
 // justtcg.ts's searchCards() returns, so the client only deals with one type.
 
+// Extracts the numeric TCGplayer product ID from a product URL like
+// "https://www.tcgplayer.com/product/556443", so we can build the same
+// CDN image URL used everywhere else in the app (see justtcg.ts fix).
+function extractTcgplayerId(productUrl: string | null | undefined): string | null {
+  const match = productUrl?.match(/\/product\/(\d+)/);
+  return match ? match[1] : null;
+}
+
+function tcgplayerImageUrl(tcgplayerId: string | null): string | null {
+  return tcgplayerId ? `https://product-images.tcgplayer.com/fit-in/1000x1000/${tcgplayerId}.jpg` : null;
+}
+
 function mapPokemonResultToSearchCard(card: any): SearchResultCard {
   const prices: any[] = card?.tcgplayer?.prices ?? [];
+  const tcgplayerId = extractTcgplayerId(card?.tcgplayer?.url);
   return {
     source:      'justtcg', // shares the same client-side shape; UI doesn't need to branch
     cardUuid:    card.id ?? null,
@@ -241,8 +254,8 @@ function mapPokemonResultToSearchCard(card: any): SearchResultCard {
     setName:     card.card_info?.set_name ?? null,
     number:      card.card_info?.card_number ?? null,
     rarity:      card.card_info?.rarity ?? null,
-    tcgplayerId: null,
-    imageUrl:    null,
+    tcgplayerId,
+    imageUrl:    tcgplayerImageUrl(tcgplayerId),
     variants: prices.map((p: any) => ({
       variantUuid:     card.id ?? null,
       condition:       null, // PokéWallet doesn't expose per-condition prices, only printing/sub_type
@@ -257,6 +270,7 @@ function mapPokemonResultToSearchCard(card: any): SearchResultCard {
 
 function mapOnePieceResultToSearchCard(card: any): SearchResultCard {
   const p = card?.tcgplayer?.prices ?? null;
+  const tcgplayerId = extractTcgplayerId(card?.tcgplayer?.url);
   return {
     source:      'justtcg',
     cardUuid:    card.id ?? null,
@@ -265,8 +279,8 @@ function mapOnePieceResultToSearchCard(card: any): SearchResultCard {
     setName:     null,
     number:      card.card_number ?? null,
     rarity:      card.rarity ?? null,
-    tcgplayerId: null,
-    imageUrl:    null,
+    tcgplayerId,
+    imageUrl:    tcgplayerImageUrl(tcgplayerId),
     variants: p ? [{
       variantUuid:     card.id ?? null,
       condition:       null,
