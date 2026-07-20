@@ -8,10 +8,18 @@ export async function runDailyPriceRefresh() {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
+    // Include items that are:
+    //   1. Never fetched (null timestamp)
+    //   2. Stale (last fetched > 7 days ago)
+    //   3. Still pending — price_source was never resolved, regardless of timestamp
     const { data: staleItems, error: queryError } = await supabaseAdmin
       .from('inventory_items')
       .select('user_id, id')
-      .or(`price_last_fetched_at.is.null,price_last_fetched_at.lt.${sevenDaysAgo}`)
+      .or(
+        `price_last_fetched_at.is.null,` +
+        `price_last_fetched_at.lt.${sevenDaysAgo},` +
+        `price_source.eq.pending`
+      )
       .limit(10000);
 
     if (queryError) {
