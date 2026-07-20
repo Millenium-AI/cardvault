@@ -18,6 +18,7 @@ import { searchCards, type SearchResultCard } from "../justtcg";
 import { pokeWalletSearchCards, berryWalletSearchCards } from "../pokewallet";
 import { storage } from "../storage";
 import { parseProductName } from "../lib/parseProductName";
+import { supabaseAdmin } from "../supabase";
 
 // Very small in-memory cache to avoid burning API quota on repeated
 // identical searches (e.g. user re-opening the same result, or typing
@@ -25,68 +26,6 @@ import { parseProductName } from "../lib/parseProductName";
 const searchCache = new Map<string, { data: SearchResultCard[]; expiresAt: number }>();
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-function cacheKey(query: string, game: string | null): string {
-  return `${query.trim().toLowerCase()}|${game ?? "all"}`;
-}
-
-export function registerSearchRoutes(app: Express) {
-  app.get("/api/search/cards", async (req: any, res) => {
-    try {
-      const { q, game, limit } = req.query as Record<string, string>;
-      const query = (q ?? "").trim();
-
-      if (!query) {
-        return res.status(400).json({ error: "q (search query) is required" });
-      }
-
-      const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 20, 20) : 20;
-      const gameFilter = game && game !== "all" ? game : null;
-      const key = cacheKey(query, gameFilter);
-
-      const cached = searchCache.get(key);
-      if (cached && cached.expiresAt > Date.now()) {
-        return res.json({ results: cached.data, source: "cache" });
-      }
-
-      let results: SearchResultCard[] = [];
-      let source: "justtcg" | "pokewallet-fallback" = "justtcg";
-      let justTcgRateLimited = false;
-
-      try {
-        results = await searchCards({ query, game: gameFilter, limit: parsedLimit });
-      } catch (err: any) {
-        if (err?.status === 429) {
-          justTcgRateLimited = true;
-          console.warn("[search] JustTCG 429 — trying PokéWallet/BerryWallet fallback");
-        } else {
-          throw err;
-        }
-      }
-
-      // Fallback only makes sense when the query is scoped (or scopable)
-      // to a game PokéWallet/BerryWallet actually cover.
-      const shouldFallback =
-        (justTcgRateLimited || results.length === 0) &&
-        (gameFilter === "pokemon" || gameFilter === "one-piece");
-
-      if (shouldFallback) {
-        source = "pokewallet-fallback";
-        const fallbackResults = gameFilter === "pokemon"
-          ? await pokeWalletSearchCards(query, parsedLimit)
-          : await berryWalletSearchCards(query, parsedLimit);
-        if (fallbackResults.length) results = fallbackResults;
-      }
-
-      searchCache.set(key, { data: results, expiresAt: Date.now() + SEARCH_CACHE_TTL_MS });
-      res.json({ results, source });
-    } catch (e: any) {
-      console.error("[search/cards]", e);
-      res.status(500).json({ error: e.message ?? "Search failed" });
-    }
-  });
-
-// ── Register search routes ───────────────────────────────────────────────────
-// Register the search routes with the Express app
 function cacheKey(query: string, game: string | null, set: string | null): string {
   return `${query.trim().toLowerCase()}|${game ?? "all"}|${set ?? "any"}`;
 }
@@ -143,6 +82,30 @@ export function registerSearchRoutes(app: Express) {
     } catch (e: any) {
       console.error("[search/cards]", e);
       res.status(500).json({ error: e.message ?? "Search failed" });
+    }
+  });
+
+  // ── GET /api/search/sets?game= — set options for the Search "Set" filter ──
+  // Reads only from our own `justtcg_sets` cache table (populated by
+  // syncSetsForGame). Never calls JustTCG directly, so it costs no API quota.
+  app.get("/api/search/sets", async (req: any, res) => {
+    try {
+      const { game } = req.query as Record<string, string>;
+      if (!game || game === "all") {
+        return res.json({ sets: [] });
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from("justtcg_sets")
+        .select("set_id, set_name")
+        .eq("game", game)
+        .order("set_name", { ascending: true });
+
+      if (error) throw new Error(error.message);
+      res.json({ sets: data ?? [] });
+    } catch (e: any) {
+      console.error("[search/sets]", e);
+      res.status(500).json({ error: e.message ?? "Failed to load sets" });
     }
   });
 

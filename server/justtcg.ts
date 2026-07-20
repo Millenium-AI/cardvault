@@ -255,42 +255,6 @@ export function extractPrice(
   };
 }
 
-// ── Search Cards ───────────────────────────────────────────────────────────
-// Parameters for the searchCards function
-
-export interface SearchCardsParams {
-  query: string;
-  game?: string | null;   // internal slug, e.g. "pokemon" — mapped to JustTCG's game value
-  set?: string | null;    // JustTCG set slug, e.g. "base-set-shadowless-pokemon"
-  limit?: number;         // default 20, capped at 20 on Free tier
-}
-
-export async function searchCards(params: SearchCardsParams): Promise<SearchResultCard[]> {
-  const { query, game, set, limit = 20 } = params;
-  if (!query?.trim()) return [];
-
-  const search = new URLSearchParams({ q: query.trim(), limit: String(Math.min(limit, 20)) });
-  const justTcgGame = toJustTcgGame(game);
-  if (justTcgGame) search.set('game', justTcgGame);
-  if (set?.trim()) search.set('set', set.trim());
-
-  const res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
-    headers: { 'x-api-key': apiKey() },
-  });
-
-  if (res.status === 429) {
-    throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
-  }
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`JustTCG search API ${res.status}: ${text}`);
-  }
-
-  const json = await res.json();
-  const cards: any[] = json?.data ?? [];
-  return cards.map(mapJustTcgCardToSearchResult);
-}
-
 // ── Cache every variant on a card response ───────────────────────────────────
 // FIX #1: SKU cache key is assigned only to the variant whose
 // tcgplayerSkuId actually matches requestedSkuId, not variants[0].
@@ -667,16 +631,18 @@ function mapJustTcgCardToSearchResult(card: any): SearchResultCard {
 export interface SearchCardsParams {
   query: string;
   game?: string | null;      // internal slug, e.g. "pokemon" — mapped to JustTCG's game value
+  set?: string | null;       // JustTCG set slug, e.g. "base-set-shadowless-pokemon"
   limit?: number;            // default 20, capped at 20 on Free tier
 }
 
 export async function searchCards(params: SearchCardsParams): Promise<SearchResultCard[]> {
-  const { query, game, limit = 20 } = params;
+  const { query, game, set, limit = 20 } = params;
   if (!query?.trim()) return [];
 
   const search = new URLSearchParams({ q: query.trim(), limit: String(Math.min(limit, 20)) });
   const justTcgGame = toJustTcgGame(game);
   if (justTcgGame) search.set('game', justTcgGame);
+  if (set?.trim()) search.set('set', set.trim());
 
   const res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
     headers: { 'x-api-key': apiKey() },
@@ -693,4 +659,58 @@ export async function searchCards(params: SearchCardsParams): Promise<SearchResu
   const json = await res.json();
   const cards: any[] = json?.data ?? [];
   return cards.map(mapJustTcgCardToSearchResult);
+}
+
+// ── Sets sync (Search "Set" filter) ───────────────────────────────────────────
+// Fetches JustTCG's set list for one game via GET /v1/sets?game= and upserts
+// it into the `justtcg_sets` cache table. Sets change rarely, so this is run
+// manually/scheduled (see POST /api/admin/sync-sets) rather than live per
+// dropdown open. The Search page reads the cached rows via GET /api/search/sets.
+export async function syncSetsForGame(internalGame: string): Promise<void> {
+  const justTcgGame = toJustTcgGame(internalGame);
+  if (!justTcgGame) {
+    throw new Error(`No JustTCG game mapping for "${internalGame}"`);
+  }
+
+  const res = await fetch(`${BASE_URL}/sets?game=${encodeURIComponent(justTcgGame)}`, {
+    headers: { 'x-api-key': apiKey() },
+  });
+
+  if (res.status === 429) {
+    throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`JustTCG sets API ${res.status}: ${text}`);
+  }
+
+  const json = await res.json();
+  const sets: any[] = json?.data ?? [];
+  const fetchedAt = new Date().toISOString();
+
+  const rows = sets
+    .map(s => {
+      const setId = s.id ?? s.set_id ?? s.slug ?? null;
+      const setName = s.name ?? s.set_name ?? s.set ?? null;
+      if (!setId || !setName) return null;
+      return {
+        game:       internalGame,
+        set_id:     String(setId),
+        set_name:   String(setName),
+        fetched_at: fetchedAt,
+      };
+    })
+    .filter((r): r is { game: string; set_id: string; set_name: string; fetched_at: string } => r !== null);
+
+  if (!rows.length) {
+    console.warn(`[JustTCG] syncSetsForGame("${internalGame}") returned no usable sets`);
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from('justtcg_sets')
+    .upsert(rows, { onConflict: 'game,set_id' });
+  if (error) throw new Error(`justtcg_sets upsert failed: ${error.message}`);
+
+  console.log(`[JustTCG] Synced ${rows.length} sets for game "${internalGame}"`);
 }
