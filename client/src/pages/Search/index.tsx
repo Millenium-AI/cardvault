@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -11,38 +11,7 @@ import { SearchResultCard } from "./SearchResultCard";
 import { SearchDetailModal, SearchDetailDrawer } from "./SearchDetailView";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 
-// Minimal starter set lists per game — expand these as needed, or swap
-// for a live-fetched list from JustTCG if/when a /sets endpoint is wired in.
-const SETS_BY_GAME: Record<string, { value: string; label: string }[]> = {
-  pokemon: [
-    { value: "base-set-shadowless-pokemon", label: "Base Set (Shadowless)" },
-    { value: "base-set-pokemon", label: "Base Set" },
-    { value: "jungle-pokemon", label: "Jungle" },
-    { value: "fossil-pokemon", label: "Fossil" },
-    { value: "scarlet-violet-pokemon", label: "Scarlet & Violet" },
-  ],
-  "pokemon-jp": [
-    { value: "scarlet-violet-pokemon-japan", label: "Scarlet & Violet (JP)" },
-  ],
-  "one-piece": [
-    { value: "romance-dawn-one-piece-card-game", label: "Romance Dawn (OP01)" },
-    { value: "paramount-war-one-piece-card-game", label: "Paramount War (OP02)" },
-  ],
-  sorcery: [
-    { value: "alpha-sorcery-contested-realm", label: "Alpha" },
-    { value: "beta-sorcery-contested-realm", label: "Beta" },
-  ],
-  "dragon-ball": [
-    { value: "fusion-world-dragon-ball-super-fusion-world", label: "Fusion World" },
-  ],
-  mtg: [
-    { value: "alpha-magic-the-gathering", label: "Alpha" },
-    { value: "modern-horizons-magic-the-gathering", label: "Modern Horizons" },
-  ],
-  "star-wars": [
-    { value: "spark-of-rebellion-star-wars-unlimited", label: "Spark of Rebellion" },
-  ],
-};
+interface SetOption { set_id: string; set_name: string; }
 
 export default function SearchPage() {
   const isDesktop = useIsDesktop();
@@ -53,7 +22,20 @@ export default function SearchPage() {
   const [selectedCard, setSelectedCard] = useState<any>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const availableSets = useMemo(() => SETS_BY_GAME[game] ?? [], [game]);
+  // Set options come from our own cached table (GET /api/search/sets), not
+  // JustTCG directly. Sets change rarely, so cache them hard (24h staleTime).
+  const { data: setsData } = useQuery({
+    queryKey: ["/api/search/sets", game],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/search/sets?game=${encodeURIComponent(game)}`);
+      if (!res.ok) throw new Error("Failed to load sets");
+      return res.json();
+    },
+    enabled: game !== "all",
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const availableSets: SetOption[] = setsData?.sets ?? [];
 
   const { data, isFetching, isError } = useQuery({
     queryKey: ["/api/search/cards", activeQuery, game, set],
@@ -125,7 +107,7 @@ export default function SearchPage() {
           </SelectContent>
         </Select>
 
-        {availableSets.length > 0 && (
+        {game !== "all" && (
           <Select value={set} onValueChange={setSet}>
             <SelectTrigger data-testid="select-search-set" className="w-full sm:w-[170px] h-10 text-xs">
               <SelectValue placeholder="Set" />
@@ -133,7 +115,7 @@ export default function SearchPage() {
             <SelectContent>
               <SelectItem value="all">All Sets</SelectItem>
               {availableSets.map(s => (
-                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                <SelectItem key={s.set_id} value={s.set_id}>{s.set_name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
