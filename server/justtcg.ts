@@ -29,6 +29,11 @@
  *   3. One Piece game string normalised to 'one-piece' before fallback
  *      filter so DB value matches pokewallet.ts expectations.
  *   4. Fallback condition simplified — removed redundant double-check.
+ *
+ * ADDED (Search feature):
+ *   searchCards() — GET /v1/cards?q=&game=&limit= text search for the
+ *   new "Search" section. Maps our internal game slugs (shared/gameLabels.ts)
+ *   to JustTCG's game query values before calling out.
  */
 import { supabaseAdmin } from './supabase.js';
 
@@ -534,4 +539,107 @@ export async function fetchSinglePrice(
     console.error('[JustTCG] fetchSinglePrice error:', err.message);
     return null;
   }
+}
+
+
+// ── Card search (Search section) ──────────────────────────────────────────────
+// GET /v1/cards?q=&game=&limit= — text search across name/set/number.
+// Docs: https://justtcg.com/docs/blog/from-zero-to-search-build-a-live-tcg-card-finder-with-the-justtcg-api
+
+// Maps our internal game slugs (shared/gameLabels.ts) to JustTCG's `game`
+// query values. Games with no known JustTCG equivalent are omitted from
+// the request (falls back to an unfiltered/all-games search).
+const GAME_SLUG_TO_JUSTTCG: Record<string, string> = {
+  'pokemon':      'pokemon',
+  'pokemon-jp':   'pokemon-japan',
+  'one-piece':    'one-piece',
+  'sorcery':      'sorcery-contested-realm',
+  'dragon-ball':  'dragon-ball-super-fusion-world',
+  'mtg':          'magic-the-gathering',
+  'lorcana':      'disney-lorcana',
+  'yugioh':       'yugioh',
+  'digimon':      'digimon',
+};
+
+export function toJustTcgGame(internalGame?: string | null): string | null {
+  if (!internalGame) return null;
+  return GAME_SLUG_TO_JUSTTCG[internalGame.toLowerCase().trim()] ?? null;
+}
+
+export interface SearchResultVariant {
+  variantUuid:     string | null;
+  condition:       string | null;
+  printing:        string | null;
+  price:           number | null;
+  priceChange24hr: number | null;
+  priceChange7d:   number | null;
+  tcgplayerSkuId:  string | null;
+}
+
+export interface SearchResultCard {
+  source:         'justtcg';
+  cardUuid:       string | null;
+  name:           string;
+  game:           string | null;   // JustTCG's raw game string, e.g. "pokemon"
+  setName:        string | null;
+  number:         string | null;
+  rarity:         string | null;
+  tcgplayerId:    string | null;
+  imageUrl:       string | null;
+  variants:       SearchResultVariant[];
+}
+
+function mapJustTcgCardToSearchResult(card: any): SearchResultCard {
+  const variants: any[] = card.variants ?? [];
+  return {
+    source:      'justtcg',
+    cardUuid:    card.uuid ?? null,
+    name:        card.name,
+    game:        card.game ?? null,
+    setName:     card.set_name ?? card.set ?? null,
+    number:      card.number ?? null,
+    rarity:      card.rarity ?? null,
+    tcgplayerId: card.tcgplayerId ?? null,
+    imageUrl:    card.imageUrl ?? card.image_url ?? null,
+    variants: variants.map((v: any) => ({
+      variantUuid:     v.uuid ?? null,
+      condition:       v.condition ?? null,
+      printing:        v.printing ?? null,
+      price:           v.price ?? null,
+      priceChange24hr: v.priceChange24hr ?? null,
+      priceChange7d:   v.priceChange7d   ?? null,
+      tcgplayerSkuId:  v.tcgplayerSkuId  ?? null,
+    })),
+  };
+}
+
+export interface SearchCardsParams {
+  query: string;
+  game?: string | null;      // internal slug, e.g. "pokemon" — mapped to JustTCG's game value
+  limit?: number;            // default 20, capped at 20 on Free tier
+}
+
+export async function searchCards(params: SearchCardsParams): Promise<SearchResultCard[]> {
+  const { query, game, limit = 20 } = params;
+  if (!query?.trim()) return [];
+
+  const search = new URLSearchParams({ q: query.trim(), limit: String(Math.min(limit, 20)) });
+  const justTcgGame = toJustTcgGame(game);
+  if (justTcgGame) search.set('game', justTcgGame);
+
+  const res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
+    headers: { 'x-api-key': apiKey() },
+  });
+
+  if (res.status === 429) {
+    throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw new Error(`JustTCG search API ${res.status}: ${text}`);
+  }
+
+  const json = await res.json();
+  const cards: any[] = json?.data ?? [];
+  return cards.map(mapJustTcgCardToSearchResult);
 }

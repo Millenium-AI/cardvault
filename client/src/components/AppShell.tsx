@@ -1,6 +1,6 @@
 import { useLocation, Link } from "wouter";
 import {
-  LayoutDashboard, Upload, Package,
+  LayoutDashboard, Upload, Package, Search,
   Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -11,6 +11,7 @@ import { useUserPrefs } from "@/lib/useUserPrefs";
 const bottomNav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
   { href: "/uploads",   label: "Uploads",   icon: Upload          },
+  { href: "/search",    label: "Search",    icon: Search          },
   { href: "/inventory", label: "Inventory", icon: Package         },
   { href: "/shows",     label: "Shows",     icon: Tent            },
 ];
@@ -18,6 +19,7 @@ const bottomNav = [
 const sideNav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
   { href: "/uploads",   label: "Uploads",   icon: Upload          },
+  { href: "/search",    label: "Search",    icon: Search          },
   { href: "/inventory", label: "Inventory", icon: Package         },
   { href: "/shows",     label: "Shows",     icon: Tent            },
   { href: "/settings",  label: "Settings",  icon: Settings        },
@@ -26,6 +28,7 @@ const sideNav = [
 const PAGE_TITLES: Record<string, string> = {
   "/":          "Dashboard",
   "/uploads":   "Uploads",
+  "/search":    "Search",
   "/inventory": "Inventory",
   "/shows":     "Shows",
   "/settings":  "Settings",
@@ -35,6 +38,7 @@ const PAGE_TITLES: Record<string, string> = {
 const PAGE_SUBTITLES: Record<string, string> = {
   "/":          "Overview & analytics",
   "/uploads":   "Import card data",
+  "/search":    "Look up any card",
   "/inventory": "Manage your collection",
   "/shows":     "Track card show events",
   "/settings":  "Account & preferences",
