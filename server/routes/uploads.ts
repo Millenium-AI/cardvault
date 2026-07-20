@@ -35,14 +35,29 @@ export async function refreshInventoryPrices(
   try {
     if (!itemIdsToPrice.length) return 0;
 
-    const { data: itemRows, error: fetchErr } = await supabaseAdmin
-      .from("inventory_items")
-      .select("id, product_name, condition, source_product_id, source_tcgplayer_sku_id, match_metadata_json, current_raw_market_price, current_quantity, photo_url, label_status, game")
-      .eq("user_id", userId)
-      .in("id", itemIdsToPrice);
+    // FIX (2026-07-20): a single .in("id", itemIdsToPrice) with 400+ UUIDs
+    // built a request URL long enough to fail outright ("TypeError: fetch
+    // failed", seen in production with 430 stale items) before it ever
+    // reached Supabase. Chunk the id lookup so each request stays small.
+    const ID_LOOKUP_CHUNK = 100;
+    const itemRows: any[] = [];
+    for (let i = 0; i < itemIdsToPrice.length; i += ID_LOOKUP_CHUNK) {
+      const idChunk = itemIdsToPrice.slice(i, i + ID_LOOKUP_CHUNK);
+      const { data, error: fetchErr } = await supabaseAdmin
+        .from("inventory_items")
+        .select("id, product_name, condition, source_product_id, source_tcgplayer_sku_id, match_metadata_json, current_raw_market_price, current_quantity, photo_url, label_status, game")
+        .eq("user_id", userId)
+        .in("id", idChunk);
 
-    if (fetchErr || !itemRows?.length) {
-      console.error("[JustTCG] Failed to load items:", fetchErr?.message);
+      if (fetchErr) {
+        console.error("[JustTCG] Failed to load items chunk:", fetchErr.message);
+        continue; // skip this chunk, keep processing the rest
+      }
+      if (data?.length) itemRows.push(...data);
+    }
+
+    if (!itemRows.length) {
+      console.error("[JustTCG] Failed to load any items for pricing");
       return 0;
     }
 

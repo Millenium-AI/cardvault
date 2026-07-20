@@ -549,16 +549,28 @@ export async function fetchSinglePrice(
 // Maps our internal game slugs (shared/gameLabels.ts) to JustTCG's `game`
 // query values. Games with no known JustTCG equivalent are omitted from
 // the request (falls back to an unfiltered/all-games search).
+// CONFIRMED against a live 400 response from JustTCG (2026-07-20), which
+// lists the exact accepted values: magic-the-gathering, mtg, pokemon,
+// yugioh, union-arena, flesh-and-blood-tcg, disney-lorcana,
+// digimon-card-game, one-piece-card-game, grand-archive-tcg,
+// pokemon-japan, gundam-card-game, star-wars-unlimited,
+// riftbound-league-of-legends-trading-card-game,
+// hololive-official-card-game, dragon-ball-super-fusion-world,
+// dragon-ball-super-masters, sorcery-contested-realm, universus.
+// FIX (2026-07-20): 'one-piece' and 'digimon' were wrong (missing the
+// -card-game suffix) and caused every One Piece / Digimon search to fail
+// with a 400. 'star-wars' was missing entirely.
 const GAME_SLUG_TO_JUSTTCG: Record<string, string> = {
   'pokemon':      'pokemon',
   'pokemon-jp':   'pokemon-japan',
-  'one-piece':    'one-piece',
+  'one-piece':    'one-piece-card-game',
   'sorcery':      'sorcery-contested-realm',
   'dragon-ball':  'dragon-ball-super-fusion-world',
   'mtg':          'magic-the-gathering',
+  'star-wars':    'star-wars-unlimited',
   'lorcana':      'disney-lorcana',
   'yugioh':       'yugioh',
-  'digimon':      'digimon',
+  'digimon':      'digimon-card-game',
 };
 
 export function toJustTcgGame(internalGame?: string | null): string | null {
