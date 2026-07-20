@@ -9,6 +9,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { SearchResultCard } from "./SearchResultCard";
 import { SearchDetailModal, SearchDetailDrawer } from "./SearchDetailView";
+import { SetFilterCombobox } from "@/components/SetFilterCombobox";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 
 interface SetOption { set_id: string; set_name: string; }
@@ -22,8 +23,6 @@ export default function SearchPage() {
   const [selectedCard, setSelectedCard] = useState<any>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  // Set options come from our own cached table (GET /api/search/sets), not
-  // JustTCG directly. Sets change rarely, so cache them hard (24h staleTime).
   const { data: setsData } = useQuery({
     queryKey: ["/api/search/sets", game],
     queryFn: async () => {
@@ -50,24 +49,15 @@ export default function SearchPage() {
     staleTime: 60 * 1000,
   });
 
-  function runSearch() {
-    setActiveQuery(query.trim());
-  }
+  function runSearch() { setActiveQuery(query.trim()); }
 
   function handleGameChange(newGame: string) {
     setGame(newGame);
-    setSet("all"); // reset set filter whenever game changes
+    setSet("all");
   }
 
-  function openCard(card: any) {
-    setSelectedCard(card);
-    setDetailOpen(true);
-  }
-
-  function closeDetail() {
-    setDetailOpen(false);
-    setSelectedCard(null);
-  }
+  function openCard(card: any) { setSelectedCard(card); setDetailOpen(true); }
+  function closeDetail() { setDetailOpen(false); setSelectedCard(null); }
 
   const results = data?.results ?? [];
   const selectedGame = selectedCard ? (game !== "all" ? game : (selectedCard.game ?? "pokemon")) : "pokemon";
@@ -108,17 +98,13 @@ export default function SearchPage() {
         </Select>
 
         {game !== "all" && (
-          <Select value={set} onValueChange={setSet}>
-            <SelectTrigger data-testid="select-search-set" className="w-full sm:w-[170px] h-10 text-xs">
-              <SelectValue placeholder="Set" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Sets</SelectItem>
-              {availableSets.map(s => (
-                <SelectItem key={s.set_id} value={s.set_id}>{s.set_name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="w-full sm:w-[200px]">
+            <SetFilterCombobox
+              sets={availableSets}
+              value={set}
+              onChange={setSet}
+            />
+          </div>
         )}
 
         <button
