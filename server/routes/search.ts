@@ -1,44 +1,28 @@
-/**
- * Search section — GET /api/search/cards
- *
- * Lets a user look up any card by name (optionally scoped to a game) and
- * get back expanded-detail-ready results, independent of their inventory.
- *
- * Source priority:
- *   1. JustTCG GET /v1/cards?q=&game=&limit= — covers all games we support.
- *   2. If JustTCG is rate-limited (429) or returns zero results AND the
- *      query is scoped to Pokémon or One Piece, fall back to PokéWallet /
- *      BerryWallet search so the user still gets results.
- *
- * Results are normalised to SearchResultCard (see server/justtcg.ts) so the
- * client always deals with one shape regardless of which source answered.
- */
 import type { Express } from "express";
-import { searchCards, type SearchResultCard } from "../justtcg";
+import { searchCards, syncSetsForGame, type SearchResultCard } from "../justtcg";
 import { pokeWalletSearchCards, berryWalletSearchCards } from "../pokewallet";
 import { storage } from "../storage";
 import { parseProductName } from "../lib/parseProductName";
 import { supabaseAdmin } from "../supabase";
 
-// Very small in-memory cache to avoid burning API quota on repeated
-// identical searches (e.g. user re-opening the same result, or typing
-// then deleting a character and retyping the same query).
 const searchCache = new Map<string, { data: SearchResultCard[]; expiresAt: number }>();
-const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 
 function cacheKey(query: string, game: string | null, set: string | null): string {
   return `${query.trim().toLowerCase()}|${game ?? "all"}|${set ?? "any"}`;
 }
 
+// How old a justtcg_sets cache entry can be before auto-resyncing (7 days)
+const SETS_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export function registerSearchRoutes(app: Express) {
+
+  // Search cards across all games via JustTCG, with PokéWallet/BerryWallet fallback
   app.get("/api/search/cards", async (req: any, res) => {
     try {
       const { q, game, set, limit } = req.query as Record<string, string>;
       const query = (q ?? "").trim();
-
-      if (!query) {
-        return res.status(400).json({ error: "q (search query) is required" });
-      }
+      if (!query) return res.status(400).json({ error: "q (search query) is required" });
 
       const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 20, 20) : 20;
       const gameFilter = game && game !== "all" ? game : null;
@@ -59,7 +43,7 @@ export function registerSearchRoutes(app: Express) {
       } catch (err: any) {
         if (err?.status === 429) {
           justTcgRateLimited = true;
-          console.warn("[search] JustTCG 429 — trying PokéWallet/BerryWallet fallback");
+          console.warn("[search] JustTCG 429 — trying fallback");
         } else {
           throw err;
         }
@@ -85,41 +69,52 @@ export function registerSearchRoutes(app: Express) {
     }
   });
 
-  // ── GET /api/search/sets?game= — set options for the Search "Set" filter ──
-  // Reads only from our own `justtcg_sets` cache table (populated by
-  // syncSetsForGame). Never calls JustTCG directly, so it costs no API quota.
+  // Set filter options — reads from justtcg_sets cache.
+  // Auto-syncs from JustTCG if cache is empty or stale (>7 days).
   app.get("/api/search/sets", async (req: any, res) => {
     try {
       const { game } = req.query as Record<string, string>;
-      if (!game || game === "all") {
-        return res.json({ sets: [] });
-      }
+      if (!game || game === "all") return res.json({ sets: [] });
 
       const { data, error } = await supabaseAdmin
         .from("justtcg_sets")
-        .select("set_id, set_name")
+        .select("set_id, set_name, fetched_at")
         .eq("game", game)
         .order("set_name", { ascending: true });
 
       if (error) throw new Error(error.message);
-      res.json({ sets: data ?? [] });
+
+      const isStale =
+        !data?.length ||
+        (data[0]?.fetched_at &&
+          Date.now() - new Date(data[0].fetched_at).getTime() > SETS_STALE_MS);
+
+      if (isStale) {
+        try {
+          await syncSetsForGame(game);
+          const { data: fresh, error: freshError } = await supabaseAdmin
+            .from("justtcg_sets")
+            .select("set_id, set_name")
+            .eq("game", game)
+            .order("set_name", { ascending: true });
+          if (freshError) throw new Error(freshError.message);
+          return res.json({ sets: fresh ?? [] });
+        } catch (syncErr: any) {
+          console.warn(`[search/sets] auto-sync failed for "${game}":`, syncErr.message);
+          // Return whatever we have rather than erroring
+          return res.json({ sets: data?.map(({ set_id, set_name }) => ({ set_id, set_name })) ?? [] });
+        }
+      }
+
+      res.json({ sets: data.map(({ set_id, set_name }) => ({ set_id, set_name })) });
     } catch (e: any) {
       console.error("[search/sets]", e);
       res.status(500).json({ error: e.message ?? "Failed to load sets" });
     }
   });
 
-  // ── POST /api/inventory/from-search — add a search result to inventory ────
-  // Body: { card: SearchResultCard, variantIndex: number, game: string,
-  //         quantity: number, condition?: string, notes?: string }
-  //
-  // Reuses the same dedupe logic as the CSV upload merge flow (match by
-  // sourceProductId, then by normalizedMatchKey): if an active item already
-  // exists for this exact card+condition+printing, its quantity is bumped
-  // instead of creating a duplicate row.
-  //
-  // Price/variant data comes straight from the search result the user already
-  // saw — no extra live API call, so this action never burns API quota.
+  // Add a search result card directly to inventory.
+  // Dedupes by sourceProductId then normalizedMatchKey — bumps qty if exists.
   app.post("/api/inventory/from-search", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -144,7 +139,6 @@ export function registerSearchRoutes(app: Express) {
 
       const qty = Math.max(1, parseInt(String(quantity), 10) || 1);
       const variant = card.variants?.[variantIndex] ?? card.variants?.[0] ?? null;
-
       const { cleanName, displaySuffix } = parseProductName(card.name, game, card.number ?? undefined);
 
       const normalizedMatchKey = [
@@ -156,8 +150,6 @@ export function registerSearchRoutes(app: Express) {
         (card.setName ?? "").trim().toLowerCase(),
       ].join("|");
 
-      // Dedupe against existing active inventory, same convention as the
-      // CSV upload merge flow (server/routes/uploads.ts).
       const existing =
         (card.tcgplayerId && await storage.getInventoryItemByExternalIds(userId, card.tcgplayerId)) ||
         (await storage.getInventoryItemByMatchKey(userId, normalizedMatchKey)) ||
@@ -172,40 +164,40 @@ export function registerSearchRoutes(app: Express) {
 
       const now = new Date().toISOString();
       const matchMetadataJson = JSON.stringify({
-        sourceProductId:      card.tcgplayerId ?? null,
-        sourceTcgplayerSkuId: variant?.tcgplayerSkuId ?? null,
-        sourceSetName:        card.setName ?? null,
-        sourcePrinting:       variant?.printing ?? null,
-        sourceRarity:         card.rarity ?? null,
+        sourceProductId:      card.tcgplayerId         ?? null,
+        sourceTcgplayerSkuId: variant?.tcgplayerSkuId  ?? null,
+        sourceSetName:        card.setName             ?? null,
+        sourcePrinting:       variant?.printing        ?? null,
+        sourceRarity:         card.rarity              ?? null,
         cleanName,
         displaySuffix: displaySuffix ?? null,
       });
 
       const created = await storage.createInventoryItem(userId, {
         game,
-        productName: card.name,
-        number: card.number ?? null,
+        productName:              card.name,
+        number:                   card.number                                        ?? null,
         condition,
-        currentQuantity: qty,
-        currentRawMarketPrice: variant?.price ?? null,
+        currentQuantity:          qty,
+        currentRawMarketPrice:    variant?.price                                     ?? null,
         currentRoundedPrintPrice: variant?.price != null ? Math.ceil(variant.price) : null,
-        priceSource: variant?.price != null ? "justtcg" : "pending",
-        csvMarketPrice: null,
-        latestUploadId: null,
+        priceSource:              variant?.price != null ? "justtcg" : "pending",
+        csvMarketPrice:           null,
+        latestUploadId:           null,
         normalizedMatchKey,
         matchMetadataJson,
-        sourceProductId: card.tcgplayerId ?? null,
-        sourceTcgplayerId: card.tcgplayerId ?? null,
-        sourceTcgplayerSkuId: variant?.tcgplayerSkuId ?? null,
-        photoUrl: card.imageUrl ?? null,
-        firstSeenAt: now,
-        lastSeenAt: now,
-        status: "active",
-        notes: notes ?? null,
-        justtcgCardUuid: card.cardUuid ?? null,
-        justtcgVariantUuid: variant?.variantUuid ?? null,
-        priceChange24hr: variant?.priceChange24hr ?? null,
-        priceChange7d: variant?.priceChange7d ?? null,
+        sourceProductId:          card.tcgplayerId       ?? null,
+        sourceTcgplayerId:        card.tcgplayerId       ?? null,
+        sourceTcgplayerSkuId:     variant?.tcgplayerSkuId ?? null,
+        photoUrl:                 card.imageUrl           ?? null,
+        firstSeenAt:              now,
+        lastSeenAt:               now,
+        status:                   "active",
+        notes:                    notes                  ?? null,
+        justtcgCardUuid:          card.cardUuid          ?? null,
+        justtcgVariantUuid:       variant?.variantUuid   ?? null,
+        priceChange24hr:          variant?.priceChange24hr ?? null,
+        priceChange7d:            variant?.priceChange7d   ?? null,
       });
 
       res.json({ item: created, created: true });
@@ -215,4 +207,3 @@ export function registerSearchRoutes(app: Express) {
     }
   });
 }
-
