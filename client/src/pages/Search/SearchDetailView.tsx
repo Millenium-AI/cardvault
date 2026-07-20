@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { PlusCircle, Minus, Plus } from "lucide-react";
+import { PlusCircle, Minus, Plus, ExternalLink } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -12,11 +12,6 @@ import { gameLabel } from "@shared/gameLabels";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 import { Chip } from "@/pages/Inventory/DetailPanel";
 
-// Reused across both the desktop dialog and mobile drawer. Unlike the
-// Inventory detail views, there's no price-history chart here — a search
-// result isn't in our DB yet, so there's no snapshot history to show. We
-// show the live price + 24h/7d change straight from the search response
-// instead, and swap Edit/Delete for a single "Add to Inventory" action.
 function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; onAdded: () => void }) {
   const { toast } = useToast();
   const variants = card.variants ?? [];
@@ -25,6 +20,11 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
   const [quantity, setQuantity] = useState(1);
 
   const variant = variants[variantIndex] ?? null;
+
+  // Build TCGplayer URL from tcgplayerId if available
+  const tcgplayerUrl = card.tcgplayerId
+    ? `https://www.tcgplayer.com/product/${card.tcgplayerId}`
+    : null;
 
   const addMut = useMutation({
     mutationFn: async () => {
@@ -146,6 +146,22 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
         <PlusCircle size={16} />
         {addMut.isPending ? "Adding…" : "Add to Inventory"}
       </Button>
+
+      {/* TCGplayer link — same style as inventory detail view */}
+      {tcgplayerUrl ? (
+        <a
+          href={tcgplayerUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 w-full rounded-xl border border-blue-500/40 px-3 py-2.5 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors"
+        >
+          View on TCGplayer <ExternalLink size={11} />
+        </a>
+      ) : (
+        <div className="flex items-center justify-center gap-1.5 w-full rounded-xl border border-border px-3 py-2.5 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+          TCGplayer <ExternalLink size={11} />
+        </div>
+      )}
     </div>
   );
 }

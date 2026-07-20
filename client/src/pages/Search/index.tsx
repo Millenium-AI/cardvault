@@ -69,11 +69,11 @@ export default function SearchPage() {
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2 mb-5">
-        <div className="relative flex-1">
+        <div className="relative flex-1 min-w-0 sm:max-w-[260px]">
           <SearchIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             data-testid="input-card-search"
-            placeholder='e.g. "Pikachu 25/102" or "Luffy P-061"'
+            placeholder='e.g. "Pikachu 25/102"'
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter") runSearch(); }}
@@ -82,7 +82,7 @@ export default function SearchPage() {
         </div>
 
         <Select value={game} onValueChange={handleGameChange}>
-          <SelectTrigger data-testid="select-search-game" className="w-full sm:w-[150px] h-10 text-xs">
+          <SelectTrigger data-testid="select-search-game" className="w-full sm:w-[140px] h-10 text-xs">
             <SelectValue placeholder="Game" />
           </SelectTrigger>
           <SelectContent>
@@ -98,7 +98,7 @@ export default function SearchPage() {
         </Select>
 
         {game !== "all" && (
-          <div className="w-full sm:w-[200px]">
+          <div className="w-full sm:w-[240px]">
             <SetFilterCombobox
               sets={availableSets}
               value={set}
