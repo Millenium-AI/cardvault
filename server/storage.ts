@@ -133,6 +133,48 @@ export interface ShowLedger {
   createdAt: string;
 }
 
+export interface Transaction {
+  id: string;
+  userId: string;
+  occurredAt: string;
+  type: string; // sale | trade
+  paymentMethod: string; // cash | credit_card | trade | trade_plus_cash
+  cashAmount?: number | null;
+  defaultTradePercent?: number | null;
+  showId?: string | null;
+  channel: string; // in_person | show | online | other
+  notes?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+export interface TransactionItem {
+  id: string;
+  userId: string;
+  transactionId: string;
+  inventoryItemId: string;
+  quantity: number;
+  allocatedPrice: number;
+  createdAt?: string | null;
+}
+
+export interface TransactionIncomingItem {
+  id: string;
+  userId: string;
+  transactionId: string;
+  productName: string;
+  game: string;
+  condition?: string | null;
+  cachedMarketPrice?: number | null;
+  tradePercent: number;
+  tradeCreditValue: number;
+  quantity: number;
+  status: string; // pending | approved | rejected
+  linkedInventoryItemId?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function toSnake(obj: Record<string, any>): Record<string, any> {
   const out: Record<string, any> = {};
@@ -519,6 +561,76 @@ class SupabaseStorage {
   async deleteShowLedger(userId: string, id: string): Promise<void> {
     const { error } = await supabaseAdmin.from('show_ledgers').delete().eq('id', id).eq('user_id', userId);
     if (error) throw new Error(error.message);
+  }
+
+  // ── transactions ───────────────────────────────────────────────────────────
+  async createTransaction(userId: string, data: Omit<Transaction, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Promise<Transaction> {
+    return dbOp<Transaction>(
+      supabaseAdmin.from('transactions').insert(toSnake({ ...data, id: crypto.randomUUID(), userId })).select().single()
+    );
+  }
+
+  async getTransaction(userId: string, id: string): Promise<Transaction | undefined> {
+    const { data } = await supabaseAdmin.from('transactions').select('*').eq('id', id).eq('user_id', userId).maybeSingle();
+    return data ? toCamel<Transaction>(data) : undefined;
+  }
+
+  async listTransactions(userId: string, filters?: { type?: string; channel?: string; showId?: string; attached?: boolean }): Promise<Transaction[]> {
+    let query = supabaseAdmin.from('transactions').select('*').eq('user_id', userId).order('occurred_at', { ascending: false });
+    if (filters?.type) query = query.eq('type', filters.type);
+    if (filters?.channel) query = query.eq('channel', filters.channel);
+    if (filters?.showId) query = query.eq('show_id', filters.showId);
+    if (filters?.attached === true) query = query.not('show_id', 'is', null);
+    if (filters?.attached === false) query = query.is('show_id', null);
+    const { data } = await query;
+    return (data || []).map(toCamel<Transaction>);
+  }
+
+  async updateTransaction(userId: string, id: string, data: Partial<Transaction>): Promise<Transaction | undefined> {
+    const patch = toSnake(stripMeta(data as any));
+    patch.updated_at = new Date().toISOString();
+    const { data: d } = await supabaseAdmin.from('transactions').update(patch).eq('id', id).eq('user_id', userId).select().single();
+    return d ? toCamel<Transaction>(d) : undefined;
+  }
+
+  // ── transaction items (outgoing) ─────────────────────────────────────────────
+  async createTransactionItems(userId: string, transactionId: string, rows: Omit<TransactionItem, 'id' | 'userId' | 'transactionId' | 'createdAt'>[]): Promise<TransactionItem[]> {
+    if (!rows.length) return [];
+    const insertRows = rows.map(r => toSnake({ ...r, id: crypto.randomUUID(), userId, transactionId }));
+    const { data, error } = await supabaseAdmin.from('transaction_items').insert(insertRows).select();
+    if (error) throw new Error(error.message);
+    return (data || []).map(toCamel<TransactionItem>);
+  }
+
+  async listTransactionItems(userId: string, transactionId: string): Promise<TransactionItem[]> {
+    const { data } = await supabaseAdmin.from('transaction_items').select('*').eq('user_id', userId).eq('transaction_id', transactionId);
+    return (data || []).map(toCamel<TransactionItem>);
+  }
+
+  // ── transaction incoming items (trade-ins) ────────────────────────────────────
+  async createTransactionIncomingItems(userId: string, transactionId: string, rows: Omit<TransactionIncomingItem, 'id' | 'userId' | 'transactionId' | 'createdAt' | 'updatedAt'>[]): Promise<TransactionIncomingItem[]> {
+    if (!rows.length) return [];
+    const insertRows = rows.map(r => toSnake({ ...r, id: crypto.randomUUID(), userId, transactionId }));
+    const { data, error } = await supabaseAdmin.from('transaction_incoming_items').insert(insertRows).select();
+    if (error) throw new Error(error.message);
+    return (data || []).map(toCamel<TransactionIncomingItem>);
+  }
+
+  async listTransactionIncomingItems(userId: string, transactionId: string): Promise<TransactionIncomingItem[]> {
+    const { data } = await supabaseAdmin.from('transaction_incoming_items').select('*').eq('user_id', userId).eq('transaction_id', transactionId);
+    return (data || []).map(toCamel<TransactionIncomingItem>);
+  }
+
+  async getTransactionIncomingItem(userId: string, transactionId: string, id: string): Promise<TransactionIncomingItem | undefined> {
+    const { data } = await supabaseAdmin.from('transaction_incoming_items').select('*').eq('id', id).eq('transaction_id', transactionId).eq('user_id', userId).maybeSingle();
+    return data ? toCamel<TransactionIncomingItem>(data) : undefined;
+  }
+
+  async updateTransactionIncomingItem(userId: string, id: string, data: Partial<TransactionIncomingItem>): Promise<TransactionIncomingItem | undefined> {
+    const patch = toSnake(stripMeta(data as any));
+    patch.updated_at = new Date().toISOString();
+    const { data: d } = await supabaseAdmin.from('transaction_incoming_items').update(patch).eq('id', id).eq('user_id', userId).select().single();
+    return d ? toCamel<TransactionIncomingItem>(d) : undefined;
   }
 
   // ── dashboard stats ────────────────────────────────────────────────────────

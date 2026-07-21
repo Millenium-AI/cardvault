@@ -11,6 +11,7 @@ import { registerInventoryRoutes } from "./inventory";
 import { registerShowsRoutes } from "./shows";
 import { registerSnapshotsRoutes } from "./snapshots";
 import { registerSearchRoutes } from "./search";
+import { registerTransactionsRoutes } from "./transactions";
 
 export function registerRoutes(httpServer: Server, app: Express) {
   // Auth routes (no auth requirement for validate-invite)
@@ -31,4 +32,5 @@ export function registerRoutes(httpServer: Server, app: Express) {
   registerShowsRoutes(app);
   registerSnapshotsRoutes(app);
   registerSearchRoutes(app);
+  registerTransactionsRoutes(app);
 }
