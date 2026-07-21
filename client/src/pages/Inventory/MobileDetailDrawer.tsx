@@ -64,9 +64,9 @@ function OverviewTab({
       {/* Chips */}
       {hasChips && (
         <div className="flex flex-wrap gap-1.5">
-          {meta.sourceSetName && <Chip>{meta.sourceSetName}</Chip>}
-          {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
-          {meta.sourceRarity && <Chip>{meta.sourceRarity}</Chip>}
+          {meta.sourceSetName && <Chip variant="set">{meta.sourceSetName}</Chip>}
+          {meta.sourcePrinting && <Chip variant="printing">{meta.sourcePrinting}</Chip>}
+          {meta.sourceRarity && <Chip variant="rarity">{meta.sourceRarity}</Chip>}
         </div>
       )}
 
@@ -260,8 +260,12 @@ export function MobileDetailDrawer({
               </TabsContent>
 
               <TabsContent value="price" className="mt-0 px-4 pt-3 pb-2">
+                {/* 140px chart leaves headroom in the 420px budget for the
+                    window-selector row, current-price/7d pill, and the
+                    statistics tiles beneath it — those were getting pushed
+                    into their own inner scroll before. */}
                 <div className="rounded-xl border border-border/40 bg-muted/10 p-3 max-h-[420px] overflow-y-auto">
-                  <PriceHistory item={item} />
+                  <PriceHistory item={item} height={140} />
                 </div>
               </TabsContent>
 

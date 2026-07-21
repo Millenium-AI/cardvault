@@ -3,7 +3,9 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { PriceHistory, InlineEditPanel, Chip } from "./DetailPanel";
+import { ConditionBadge } from "@/components/ConditionBadge";
+import { gameLabel } from "@shared/gameLabels";
+import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 
 export function ExpandedDetail({
@@ -37,30 +39,86 @@ export function ExpandedDetail({
     <div className="mx-auto max-w-[960px] py-1" onClick={wrap}>
       <div className="rounded-2xl border border-border/50 bg-card shadow-sm overflow-hidden">
 
-        {/* Header strip — chips + divider */}
-        {hasChips && (
-          <div className="flex flex-wrap items-center gap-1.5 px-5 pt-4 pb-3 border-b border-border/30">
-            {meta.sourceSetName  && <Chip>{meta.sourceSetName}</Chip>}
-            {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
-            {meta.sourceRarity   && <Chip>{meta.sourceRarity}</Chip>}
-          </div>
-        )}
+        {/* Mobile-only header: small thumbnail + chips together, since the
+            larger photo column below is desktop-only (hidden sm:flex).
+            Previously mobile users never saw the card photo anywhere in
+            this panel — this restores it as a compact thumbnail instead of
+            the full-size desktop treatment, which wouldn't fit here. */}
+        <div className="flex sm:hidden items-center gap-3 px-5 pt-4 pb-3 border-b border-border/30">
+          <CardImagePlaceholder
+            photoUrl={item.photoUrl}
+            size="sm"
+            className="w-12 h-16 rounded-md shrink-0 border border-border/40"
+          />
+          {hasChips && (
+            <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+              {meta.sourceSetName  && <Chip variant="set">{meta.sourceSetName}</Chip>}
+              {meta.sourcePrinting && <Chip variant="printing">{meta.sourcePrinting}</Chip>}
+              {meta.sourceRarity   && <Chip variant="rarity">{meta.sourceRarity}</Chip>}
+            </div>
+          )}
+        </div>
 
-        {/* Body: stacks vertically on mobile, three-column on sm+ */}
+        {/* Desktop chips now live inside the left column below (see body),
+            matching DetailSheet's image → chips → condition → stats stack,
+            instead of a separate strip above the whole row. */}
+
+        {/* Body: stacks vertically on mobile, two-column on sm+ (was three
+            columns — photo | chart | actions — which is why the left side
+            felt too small for anything beyond a bare photo. Now it's a
+            single richer meta column, like DetailSheet's left column, plus
+            an uncapped chart column. */}
         <div className="flex flex-col sm:flex-row items-stretch">
 
-          {/* Photo column — fixed width, left of chart, desktop only */}
-          <div className="hidden sm:flex w-[130px] shrink-0 border-r border-border/30 items-center justify-center p-3">
-            <CardImagePlaceholder
-              photoUrl={item.photoUrl}
-              size="md"
-              className="w-full h-[150px] rounded-lg"
-            />
+          {/* Left column — widened from 130px (image-only) to 220px, and
+              enriched to match DetailSheet's left column: image, chips,
+              condition/game/label badges, and Qty/Market/Print stat tiles.
+              This was the "missing info" — those fields already exist in
+              the grid dialog's left column but were absent here entirely. */}
+          <div className="hidden sm:flex sm:w-[220px] shrink-0 flex-col border-r border-border/30">
+            <div className="w-full bg-muted/20 flex items-center justify-center py-4 px-4">
+              <CardImagePlaceholder
+                photoUrl={item.photoUrl}
+                size="md"
+                className="max-h-36 max-w-full rounded-lg shadow-sm"
+              />
+            </div>
+            <div className="px-4 pb-4 pt-3 space-y-3 flex-1 flex flex-col">
+              {hasChips && (
+                <div className="flex flex-wrap gap-1">
+                  {meta.sourceSetName  && <Chip variant="set">{meta.sourceSetName}</Chip>}
+                  {meta.sourcePrinting && <Chip variant="printing">{meta.sourcePrinting}</Chip>}
+                  {meta.sourceRarity   && <Chip variant="rarity">{meta.sourceRarity}</Chip>}
+                </div>
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <ConditionBadge condition={item.condition} abbreviated />
+                <span className="text-xs text-muted-foreground">{gameLabel(item.game)}</span>
+                <LabelStatusBadge status={item.labelStatus} />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { label: "Qty",    value: String(item.currentQuantity),                             highlight: false },
+                  { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`,  highlight: false },
+                  { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,           highlight: true  },
+                ] as const).map(({ label, value, highlight }) => (
+                  <div key={label} className="rounded-lg border border-border bg-muted/30 px-2 py-2 text-center">
+                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{label}</div>
+                    <div className={`text-xs font-mono font-bold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Chart column — capped height on desktop so the row stays compact */}
-          <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30 sm:max-h-[280px] sm:overflow-y-auto">
-            <PriceHistory item={item} />
+          {/* Chart column — height cap removed. The old sm:max-h-[340px]
+              was still forcing an inner scrollbar to see the full
+              PriceHistory block (buttons + chart + History tiles +
+              Statistics) on most items. DetailSheet's equivalent column has
+              no cap of its own — only the outer dialog does — so this now
+              matches that: the row simply expands to fit its content. */}
+          <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30">
+            <PriceHistory item={item} height={190} />
           </div>
 
           {/* Actions sidebar — full width on mobile with top border, fixed 200px on desktop */}
@@ -79,7 +137,7 @@ export function ExpandedDetail({
                 <Button
                   data-testid="button-edit-item"
                   variant="outline" size="sm"
-                  className="h-8 w-full text-xs gap-1.5 justify-start"
+                  className="h-9 w-full text-xs gap-1.5 justify-start"
                   onClick={e => { e.stopPropagation(); setEditing(true); }}>
                   <Pencil size={12} /> Edit item
                 </Button>
@@ -87,7 +145,7 @@ export function ExpandedDetail({
                   data-testid="button-delete-item"
                   variant="outline" size="sm"
                   disabled={deleteMut.isPending}
-                  className="h-8 w-full text-xs gap-1.5 justify-start border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+                  className="h-9 w-full text-xs gap-1.5 justify-start border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
                   onClick={handleDelete}>
                   <Trash2 size={12} /> {deleteMut.isPending ? "Deleting\u2026" : "Delete"}
                 </Button>

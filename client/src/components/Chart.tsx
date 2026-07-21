@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useLayoutEffect } from "react";
 
 type Point = { t: number; p: number };
 type Stats = { high?: number; low?: number; avg?: number; change?: number } | null;
@@ -10,6 +10,11 @@ interface Crosshair {
   date: string;
 }
 
+// `width` is only a fallback used for the very first paint, before the
+// ResizeObserver below reports the container's real pixel width. `height`
+// is a real, fixed pixel height — it no longer gets derived from an
+// aspect-ratio, so callers can size it independently of column width and
+// it won't fight a parent's max-height wrapper.
 export function Chart({
   points,
   stats,
@@ -25,8 +30,28 @@ export function Chart({
   height?: number;
   padding?: number;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [crosshair, setCrosshair] = useState<Crosshair | null>(null);
+  const [measuredWidth, setMeasuredWidth] = useState(width);
+
+  // ── Responsive width measurement ─────────────────────────────────────────
+  // Ties the viewBox width to the container's actual rendered pixel width,
+  // so 1 SVG unit == 1 real px. This is what keeps font-size/stroke-width/
+  // padding visually consistent whether the chart sits in a 320px mobile
+  // drawer or a 600px desktop panel — previously a fixed 320-unit viewBox
+  // got stretched by the browser to fill whatever width it was given, which
+  // scaled text and lines up or down along with it.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect?.width;
+      if (w && w > 0) setMeasuredWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   if (!points || points.length < 2) return null;
 
@@ -35,7 +60,7 @@ export function Chart({
   const maxP = Math.max(...prices);
   const range = maxP - minP || 1;
 
-  const W = width;
+  const W = measuredWidth;
   const H = height;
   const PAD_L = padding + 18;
   const PAD_R = padding;
@@ -156,15 +181,17 @@ export function Chart({
   const pillY = crosshair ? Math.max(crosshair.y - PILL_H - 6, PAD_T) : 0;
 
   return (
-    <div className="w-full">
+    <div className="w-full" ref={containerRef}>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
         style={{
-          // Let height scale naturally with the viewBox aspect ratio instead
-          // of being pinned — this is what caused the Y-axis coordinate drift
-          aspectRatio: `${W} / ${H}`,
+          // Height is fixed in real pixels (from the `height` prop) and no
+          // longer derived from an aspect-ratio tied to viewBox width. Width
+          // and height now scale independently, matching how the measured
+          // viewBox width already keeps 1 unit == 1 px.
+          height: `${H}px`,
           display: "block",
           touchAction: "none",        // Prevents scroll-hijack on mobile
           userSelect: "none",         // Prevents text selection while scrubbing

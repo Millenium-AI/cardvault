@@ -53,9 +53,9 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
             </div>
             {hasChips && (
               <div className="flex flex-wrap gap-1">
-                {meta.sourceSetName  && <Chip>{meta.sourceSetName}</Chip>}
-                {meta.sourcePrinting && <Chip>{meta.sourcePrinting}</Chip>}
-                {meta.sourceRarity   && <Chip>{meta.sourceRarity}</Chip>}
+                {meta.sourceSetName  && <Chip variant="set">{meta.sourceSetName}</Chip>}
+                {meta.sourcePrinting && <Chip variant="printing">{meta.sourcePrinting}</Chip>}
+                {meta.sourceRarity   && <Chip variant="rarity">{meta.sourceRarity}</Chip>}
               </div>
             )}
             <div className="flex items-center gap-2 flex-wrap">
@@ -89,11 +89,11 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
             ) : (
               <div className="space-y-2 pt-1">
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5 flex-1 rounded-lg" onClick={() => setEditing(true)}>
+                  <Button variant="outline" size="sm" className="h-9 text-xs gap-1.5 flex-1 rounded-lg" onClick={() => setEditing(true)}>
                     <Pencil size={11} /> Edit
                   </Button>
                   <Button variant="outline" size="sm" disabled={deleteMut.isPending}
-                    className="h-8 text-xs gap-1.5 rounded-lg border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
+                    className="h-9 text-xs gap-1.5 rounded-lg border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50"
                     onClick={handleDelete}>
                     <Trash2 size={11} /> {deleteMut.isPending ? "\u2026" : "Delete"}
                   </Button>
@@ -113,9 +113,12 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
           </div>
         </div>
 
-        {/* Right col: chart fills remaining width */}
+        {/* Right col: chart fills remaining width. This is the roomiest of
+            the three surfaces (only bounded by the dialog's max-h-[88vh]),
+            so the chart can take a taller, more legible height here than
+            in the table-row or mobile-drawer versions. */}
         <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto">
-          <PriceHistory itemId={item.id} item={item} />
+          <PriceHistory itemId={item.id} item={item} height={190} />
         </div>
       </div>
 

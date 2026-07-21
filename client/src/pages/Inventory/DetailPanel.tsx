@@ -125,13 +125,14 @@ export function PriceChartWithSelector({
 
   return (
     <div>
-      {/* Chart-view selector buttons */}
+      {/* Chart-view selector buttons — min-h-10 (40px) meets the standard
+          touch-target minimum; these were 34-36px tall before. */}
       <div className="flex items-center gap-1 mb-3">
         {WINDOWS.map(w => (
           <button
             key={w.key}
             onClick={() => onWindowChange(w.key)}
-            className={`px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+            className={`min-h-10 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
               activeWindow === w.key
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -181,7 +182,9 @@ export function PriceChartWithSelector({
 }
 
 // ── PriceHistory (original — unchanged, keeps all existing usages working) ───
-export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?: string }) {
+export function PriceHistory({
+  item, itemId: itemIdProp, height = 150,
+}: { item?: any; itemId?: string; height?: number }) {
   const [activeWindow, setActiveWindow] = useState<HistoryWindow>("30d");
 
   const resolvedItem = item ?? null;
@@ -209,6 +212,8 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Price History</div>
 
+      {/* Window-selector buttons — min-h-10 (40px) meets the standard
+          touch-target minimum; these were 34-36px tall before. */}
       <div className="flex items-center gap-1 mb-3">
         {WINDOWS.map(w => {
           const chg = data ? resolveChange(w.key, data) : null;
@@ -216,7 +221,7 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
             <button
               key={w.key}
               onClick={() => setActiveWindow(w.key)}
-              className={`flex flex-col items-center px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+              className={`flex flex-col items-center justify-center min-h-10 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
                 activeWindow === w.key
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -237,6 +242,8 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
         })}
       </div>
 
+      {/* Loading / error states now match PriceChartWithSelector's styling
+          so the two surfaces feel like the same component family. */}
       {isFetching && (
         <div className="flex items-center gap-2 py-2">
           <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -256,32 +263,48 @@ export function PriceHistory({ item, itemId: itemIdProp }: { item?: any; itemId?
                 points={data.history}
                 stats={chartStats}
                 showStats={false}
-                height={150}
+                height={height}
               />
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Not enough data points for this window.</p>
+            <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-6 text-center">
+              <p className="text-xs text-muted-foreground">Not enough data points for this window.</p>
+            </div>
           )}
 
-          <div className="flex items-center gap-3">
-            {data.current != null && (
-              <div className="flex flex-col">
-                <span className="text-[9px] text-muted-foreground uppercase tracking-wider">Current</span>
-                <span className="text-base font-mono font-bold text-primary tabular-nums">${data.current.toFixed(2)}</span>
-              </div>
-            )}
-            <StatPill label="7d" value={data.priceChange7d ?? null} />
+          {/* History — quick "where has this card been" view across all 5
+              windows at once, sitting right under the chart with no
+              border/background box around it. Uses PriceChangeTiles, which
+              was already built for exactly this but never wired in
+              anywhere — it's a static glance-view, not a selector, so it's
+              separate from the interactive window buttons above. */}
+          <div>
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">History</div>
+            <PriceChangeTiles
+              loading={isFetching}
+              values={{
+                "7d":   data ? resolveChange("7d", data)   : null,
+                "30d":  data ? resolveChange("30d", data)  : null,
+                "90d":  data ? resolveChange("90d", data)  : null,
+                "180d": data ? resolveChange("180d", data) : null,
+                "1y":   data ? resolveChange("1y", data)   : null,
+              }}
+            />
           </div>
 
           {normalizedStats && Object.keys(normalizedStats).length > 0 && (
             <div>
               <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Statistics</div>
-              <div className="flex flex-wrap gap-1.5">
+              {/* Real grid instead of flex-wrap — on narrow mobile widths
+                  flex-wrap was producing a ragged 2-up layout; grid-cols-2
+                  keeps it tidy at any width, expanding to 4-up when there's
+                  room. */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                 {["7d", "30d", "90d", "alltime"].map(key => {
                   const stat = normalizedStats[key];
                   if (!stat) return null;
                   return (
-                    <div key={key} className="rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 min-w-[80px] space-y-0.5">
+                    <div key={key} className="rounded-lg border border-border bg-muted/30 px-2.5 py-1.5 space-y-0.5">
                       <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{key === "alltime" ? "All Time" : key}</div>
                       {stat.high != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">H</span><span className="text-[10px] font-mono font-semibold text-emerald-400 tabular-nums">${stat.high.toFixed(2)}</span></div>}
                       {stat.low  != null && <div className="flex justify-between gap-2"><span className="text-[10px] text-muted-foreground">L</span><span className="text-[10px] font-mono font-semibold text-red-400 tabular-nums">${stat.low.toFixed(2)}</span></div>}
@@ -341,7 +364,7 @@ export function InlineEditPanel({ item, onDone }: { item: any; onDone: () => voi
         <div className="space-y-1">
           <div className="text-[11px] text-muted-foreground font-medium">Quantity</div>
           <Input data-testid="input-edit-qty" type="number" min="0" value={qty}
-            onChange={e => setQty(e.target.value)} className="h-8 text-sm font-mono" />
+            onChange={e => setQty(e.target.value)} className="h-9 text-sm font-mono" />
         </div>
         <div className="space-y-1">
           <div className="text-[11px] text-muted-foreground font-medium">
@@ -349,13 +372,13 @@ export function InlineEditPanel({ item, onDone }: { item: any; onDone: () => voi
             {printPrice !== null && <span className="ml-1.5 text-primary font-semibold">→ ${printPrice}</span>}
           </div>
           <Input data-testid="input-edit-price" type="number" min="0" step="0.01" value={price}
-            onChange={e => setPrice(e.target.value)} className="h-8 text-sm font-mono" />
+            onChange={e => setPrice(e.target.value)} className="h-9 text-sm font-mono" />
         </div>
       </div>
       <div className="space-y-1">
         <div className="text-[11px] text-muted-foreground font-medium">Condition</div>
         <Select value={condition} onValueChange={setCondition}>
-          <SelectTrigger data-testid="select-edit-condition" className="h-8 text-sm"><SelectValue /></SelectTrigger>
+          <SelectTrigger data-testid="select-edit-condition" className="h-9 text-sm"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="Near Mint">Near Mint (NM)</SelectItem>
             <SelectItem value="Lightly Played">Lightly Played (LP)</SelectItem>
@@ -372,11 +395,11 @@ export function InlineEditPanel({ item, onDone }: { item: any; onDone: () => voi
       </div>
       <div className="flex gap-2 pt-1">
         <Button data-testid="button-save-edit" size="sm" onClick={handleSave}
-          disabled={mutation.isPending} className="h-8 text-xs gap-1.5">
+          disabled={mutation.isPending} className="h-9 text-xs gap-1.5">
           <Check size={12} />{mutation.isPending ? "Saving…" : "Save"}
         </Button>
         <Button data-testid="button-cancel-edit" variant="outline" size="sm" onClick={onDone}
-          disabled={mutation.isPending} className="h-8 text-xs gap-1.5">
+          disabled={mutation.isPending} className="h-9 text-xs gap-1.5">
           <X size={12} />Cancel
         </Button>
       </div>
@@ -384,9 +407,22 @@ export function InlineEditPanel({ item, onDone }: { item: any; onDone: () => voi
   );
 }
 
-export function Chip({ children }: { children: React.ReactNode }) {
+// Chip variants give the three metadata chips (set name, printing, rarity)
+// distinct visual weight instead of reading as three identical grey pills —
+// set name is the primary identifier so it's bolder/tinted, printing stays
+// neutral, rarity gets an accent color since it's often the most scannable
+// piece of info for pricing decisions.
+export function Chip({
+  children, variant = "default",
+}: { children: React.ReactNode; variant?: "default" | "set" | "printing" | "rarity" }) {
+  const styles: Record<string, string> = {
+    default:  "border-border bg-muted/50 text-foreground",
+    set:      "border-primary/30 bg-primary/10 text-primary font-semibold",
+    printing: "border-border bg-muted/30 text-muted-foreground",
+    rarity:   "border-amber-500/30 bg-amber-500/10 text-amber-400 font-semibold",
+  };
   return (
-    <span className="inline-flex items-center rounded-full border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-medium text-foreground">
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] ${styles[variant]}`}>
       {children}
     </span>
   );
