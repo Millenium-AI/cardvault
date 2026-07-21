@@ -25,6 +25,10 @@ import {
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
+import { useTransactions } from "./Transactions/hooks";
+import {
+  txnCashIn, txnTotalValue, txnItemCount, channelLabel, fmtMoney,
+} from "./Transactions/constants";
 
 /* ─────────────────────── helpers ─────────────────────── */
 
@@ -58,6 +62,42 @@ function calcShow(show: any) {
     (show.startingInventoryMarketValue || 0);
   const combined = cashResult + invEdge;
   return { cashResult, invEdge, invDelta, combined };
+}
+
+// When a show has attached transactions, its cash-sales-in is the summed cash
+// taken in across those transactions; otherwise fall back to the manual field.
+function computeShowCash(show: any, txns: any[]) {
+  const hasAttached = txns.length > 0;
+  const cashSalesIn = hasAttached
+    ? txns.reduce((s, t) => s + txnCashIn(t), 0)
+    : show.cashSalesIn;
+  return { hasAttached, effShow: hasAttached ? { ...show, cashSalesIn } : show };
+}
+
+function AttachedTxnList({ txns }: { txns: any[] }) {
+  if (!txns.length) return null;
+  return (
+    <div className="rounded-lg border border-border bg-card/60 p-3 mb-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+        Attached Transactions ({txns.length})
+      </div>
+      <div className="divide-y divide-border/50">
+        {txns.map(tx => (
+          <div key={tx.id} className="flex items-center gap-2 py-1.5 text-xs">
+            <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+              tx.type === "trade" ? "bg-sky-500/10 text-sky-400" : "bg-emerald-500/10 text-emerald-400"
+            }`}>
+              {tx.type === "trade" ? "Trade" : "Sale"}
+            </span>
+            <span className="text-muted-foreground">{channelLabel(tx.channel)}</span>
+            <span className="text-muted-foreground">· {txnItemCount(tx)} items</span>
+            <span className="ml-auto font-mono text-foreground tabular-nums">{fmtMoney(txnTotalValue(tx))}</span>
+            <span className="font-mono text-muted-foreground tabular-nums w-20 text-right">cash {fmtMoney(txnCashIn(tx))}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /* ─────────────────────── shared form fields ─────────────────────── */
@@ -533,7 +573,9 @@ function ShowSummary({
 
 /* ─────────────────────── mobile ShowCard ─────────────────────── */
 
-function ShowCard({ show, onEdit }: { show: any; onEdit: () => void }) {
+function ShowCard({ show, onEdit, txns = [], hasAttached = false }: {
+  show: any; onEdit: () => void; txns?: any[]; hasAttached?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const { toast } = useToast();
   const { cashResult, invEdge, invDelta, combined } = calcShow(show);
@@ -596,11 +638,17 @@ function ShowCard({ show, onEdit }: { show: any; onEdit: () => void }) {
       {expanded && (
         <div className="border-t border-border/50 bg-muted/20 px-4 py-3">
           <ShowSummary cashResult={cashResult} invEdge={invEdge} invDelta={invDelta} combined={combined} />
+          <AttachedTxnList txns={txns} />
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
             Raw Inputs
           </div>
           <div className="grid grid-cols-2 gap-3 text-xs">
-            <div><span className="text-muted-foreground block">Cash Sales In</span><span className="font-mono text-foreground">{fmtDollar(show.cashSalesIn)}</span></div>
+            <div>
+              <span className="text-muted-foreground block">
+                Cash Sales In {hasAttached && <span className="text-primary">(auto)</span>}
+              </span>
+              <span className="font-mono text-foreground">{fmtDollar(show.cashSalesIn)}</span>
+            </div>
             <div><span className="text-muted-foreground block">Cash Spent on Buys</span><span className="font-mono text-foreground">{fmtDollar(show.cashSpentOnBuys)}</span></div>
             <div><span className="text-muted-foreground block">Other Cash Out</span><span className="font-mono text-foreground">{fmtDollar(show.otherCashOut)}</span></div>
             <div><span className="text-muted-foreground block">Show Expenses</span><span className="font-mono text-foreground">{fmtDollar(show.expensesTotal)}</span></div>
@@ -623,7 +671,9 @@ function ShowCard({ show, onEdit }: { show: any; onEdit: () => void }) {
 
 /* ─────────────────────── desktop ShowRow ─────────────────────── */
 
-function ShowRow({ show, onEdit }: { show: any; onEdit: () => void }) {
+function ShowRow({ show, onEdit, txns = [], hasAttached = false }: {
+  show: any; onEdit: () => void; txns?: any[]; hasAttached?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const { toast } = useToast();
   const { cashResult, invEdge, invDelta, combined } = calcShow(show);
@@ -682,11 +732,15 @@ function ShowRow({ show, onEdit }: { show: any; onEdit: () => void }) {
         <tr className="border-b border-border/50 bg-muted/20">
           <td colSpan={9} className="px-6 py-3">
             <ShowSummary cashResult={cashResult} invEdge={invEdge} invDelta={invDelta} combined={combined} />
+            <AttachedTxnList txns={txns} />
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               Raw Inputs
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-              <div><span className="text-muted-foreground">Cash Sales In</span><div className="font-mono text-foreground">{fmtDollar(show.cashSalesIn)}</div></div>
+              <div>
+                <span className="text-muted-foreground">Cash Sales In {hasAttached && <span className="text-primary">(auto)</span>}</span>
+                <div className="font-mono text-foreground">{fmtDollar(show.cashSalesIn)}</div>
+              </div>
               <div><span className="text-muted-foreground">Cash Spent on Buys</span><div className="font-mono text-foreground">{fmtDollar(show.cashSpentOnBuys)}</div></div>
               <div><span className="text-muted-foreground">Other Cash Out</span><div className="font-mono text-foreground">{fmtDollar(show.otherCashOut)}</div></div>
               <div><span className="text-muted-foreground">Show Expenses</span><div className="font-mono text-foreground">{fmtDollar(show.expensesTotal)}</div></div>
@@ -719,8 +773,16 @@ export default function Shows() {
     queryKey: ["/api/shows"],
   });
 
-  const chartData = [...shows].reverse().map(s => {
-    const { cashResult, invEdge, combined } = calcShow(s);
+  const { data: transactions = [] } = useTransactions();
+
+  const enriched = shows.map(s => {
+    const txns = transactions.filter((t: any) => t.showId === s.id);
+    const { hasAttached, effShow } = computeShowCash(s, txns);
+    return { show: s, txns, hasAttached, effShow };
+  });
+
+  const chartData = [...enriched].reverse().map(({ show: s, effShow }) => {
+    const { cashResult, invEdge, combined } = calcShow(effShow);
     return {
       name: s.showName,
       cashResult: Math.round(cashResult * 100) / 100,
@@ -729,9 +791,9 @@ export default function Shows() {
     };
   });
 
-  const totals = shows.reduce(
-    (acc, s) => {
-      const { cashResult, invEdge, combined } = calcShow(s);
+  const totals = enriched.reduce(
+    (acc, { effShow }) => {
+      const { cashResult, invEdge, combined } = calcShow(effShow);
       acc.cashResult += cashResult;
       acc.invEdge += invEdge;
       acc.combined += combined;
@@ -843,8 +905,14 @@ export default function Shows() {
                 No shows yet — tap the + button to add your first record
               </div>
             )
-          : shows.map((show: any) => (
-              <ShowCard key={show.id} show={show} onEdit={() => openEdit(show)} />
+          : enriched.map(({ show, txns, hasAttached, effShow }) => (
+              <ShowCard
+                key={show.id}
+                show={effShow}
+                txns={txns}
+                hasAttached={hasAttached}
+                onEdit={() => openEdit(show)}
+              />
             ))
         }
       </div>
@@ -883,8 +951,14 @@ export default function Shows() {
                       </td>
                     </tr>
                   )
-                : shows.map((show: any) => (
-                    <ShowRow key={show.id} show={show} onEdit={() => openEdit(show)} />
+                : enriched.map(({ show, txns, hasAttached, effShow }) => (
+                    <ShowRow
+                      key={show.id}
+                      show={effShow}
+                      txns={txns}
+                      hasAttached={hasAttached}
+                      onEdit={() => openEdit(show)}
+                    />
                   ))
               }
             </tbody>

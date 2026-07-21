@@ -1,4 +1,4 @@
-function normalizeCondition(raw: string): string {
+export function normalizeCondition(raw: string): string {
   const s = (raw || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (s.includes("near mint") || s === "nm") return "Near Mint";
   if (s.includes("lightly played") || s === "lp") return "Lightly Played";
@@ -23,7 +23,7 @@ function normalizeNumber(n: string): string {
   return (n || "").trim().replace(/\s+/g, "");
 }
 
-function buildMatchKey(
+export function buildMatchKey(
   productName: string,
   number: string | null | undefined,
   condition: string | null | undefined,

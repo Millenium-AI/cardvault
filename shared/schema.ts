@@ -154,3 +154,57 @@ export const showLedgers = pgTable("show_ledgers", {
 export const insertShowLedgerSchema = createInsertSchema(showLedgers).omit({ id: true, createdAt: true });
 export type InsertShowLedger = z.infer<typeof insertShowLedgerSchema>;
 export type ShowLedger = typeof showLedgers.$inferSelect;
+
+// ─── transactions ─────────────────────────────────────────────────────────────
+export const transactions = pgTable("transactions", {
+  id: text("id").primaryKey(),
+  occurredAt: text("occurred_at").notNull(),
+  type: text("type").notNull(), // sale | trade
+  paymentMethod: text("payment_method").notNull(), // cash | credit_card | trade | trade_plus_cash
+  cashAmount: doublePrecision("cash_amount"), // full price for sales; cash delta for trade_plus_cash
+  defaultTradePercent: doublePrecision("default_trade_percent"), // e.g. 0.80, only for trades
+  showId: text("show_id"),
+  channel: text("channel").notNull().default("in_person"), // in_person | show | online | other
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at"),
+});
+
+export const insertTransactionSchema = createInsertSchema(transactions).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
+export type Transaction = typeof transactions.$inferSelect;
+
+// ─── transaction_items (outgoing) ─────────────────────────────────────────────
+export const transactionItems = pgTable("transaction_items", {
+  id: text("id").primaryKey(),
+  transactionId: text("transaction_id").notNull(),
+  inventoryItemId: text("inventory_item_id").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  allocatedPrice: doublePrecision("allocated_price").notNull(),
+  createdAt: text("created_at"),
+});
+
+export const insertTransactionItemSchema = createInsertSchema(transactionItems).omit({ id: true, createdAt: true });
+export type InsertTransactionItem = z.infer<typeof insertTransactionItemSchema>;
+export type TransactionItem = typeof transactionItems.$inferSelect;
+
+// ─── transaction_incoming_items (trade-ins, pending approval) ──────────────────
+export const transactionIncomingItems = pgTable("transaction_incoming_items", {
+  id: text("id").primaryKey(),
+  transactionId: text("transaction_id").notNull(),
+  productName: text("product_name").notNull(),
+  game: text("game").notNull(),
+  condition: text("condition"),
+  cachedMarketPrice: doublePrecision("cached_market_price"),
+  tradePercent: doublePrecision("trade_percent").notNull(),
+  tradeCreditValue: doublePrecision("trade_credit_value").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  linkedInventoryItemId: text("linked_inventory_item_id"),
+  createdAt: text("created_at"),
+  updatedAt: text("updated_at"),
+});
+
+export const insertTransactionIncomingItemSchema = createInsertSchema(transactionIncomingItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTransactionIncomingItem = z.infer<typeof insertTransactionIncomingItemSchema>;
+export type TransactionIncomingItem = typeof transactionIncomingItems.$inferSelect;

@@ -1,7 +1,7 @@
 import { useLocation, Link } from "wouter";
 import {
   LayoutDashboard, Package, Search,
-  Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon,
+  Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon, ArrowLeftRight,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
@@ -10,39 +10,43 @@ import { useUserPrefs } from "@/lib/useUserPrefs";
 
 
 const bottomNav = [
-  { href: "/",          label: "Dashboard", icon: LayoutDashboard },
-  { href: "/search",    label: "Search",    icon: Search          },
-  { href: "/inventory", label: "Inventory", icon: Package         },
-  { href: "/shows",     label: "Shows",     icon: Tent            },
+  { href: "/",             label: "Dashboard", icon: LayoutDashboard },
+  { href: "/inventory",    label: "Inventory", icon: Package         },
+  { href: "/transactions", label: "Txns",      icon: ArrowLeftRight  },
+  { href: "/shows",        label: "Shows",     icon: Tent            },
+  { href: "/search",       label: "Search",    icon: Search          },
 ];
 
 
 const sideNav = [
-  { href: "/",          label: "Dashboard", icon: LayoutDashboard },
-  { href: "/search",    label: "Search",    icon: Search          },
-  { href: "/inventory", label: "Inventory", icon: Package         },
-  { href: "/shows",     label: "Shows",     icon: Tent            },
-  { href: "/settings",  label: "Settings",  icon: Settings        },
+  { href: "/",             label: "Dashboard",    icon: LayoutDashboard },
+  { href: "/search",       label: "Search",       icon: Search          },
+  { href: "/inventory",    label: "Inventory",    icon: Package         },
+  { href: "/transactions", label: "Transactions", icon: ArrowLeftRight  },
+  { href: "/shows",        label: "Shows",        icon: Tent            },
+  { href: "/settings",     label: "Settings",     icon: Settings        },
 ];
 
 
 const PAGE_TITLES: Record<string, string> = {
-  "/":          "Dashboard",
-  "/search":    "Search",
-  "/inventory": "Inventory",
-  "/shows":     "Shows",
-  "/settings":  "Settings",
-  "/admin":     "Admin",
+  "/":             "Dashboard",
+  "/search":       "Search",
+  "/inventory":    "Inventory",
+  "/transactions": "Transactions",
+  "/shows":        "Shows",
+  "/settings":     "Settings",
+  "/admin":        "Admin",
 };
 
 
 const PAGE_SUBTITLES: Record<string, string> = {
-  "/":          "Overview & analytics",
-  "/search":    "Look up any card",
-  "/inventory": "Manage your collection",
-  "/shows":     "Track card show events",
-  "/settings":  "Account & preferences",
-  "/admin":     "Admin controls",
+  "/":             "Overview & analytics",
+  "/search":       "Look up any card",
+  "/inventory":    "Manage your collection",
+  "/transactions": "Sales & trades",
+  "/shows":        "Track card show events",
+  "/settings":     "Account & preferences",
+  "/admin":        "Admin controls",
 };
 
 
