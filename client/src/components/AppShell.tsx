@@ -1,6 +1,6 @@
 import { useLocation, Link } from "wouter";
 import {
-  LayoutDashboard, Upload, Package, Search,
+  LayoutDashboard, Package, Search,
   Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -8,26 +8,26 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/AuthContext";
 import { useUserPrefs } from "@/lib/useUserPrefs";
 
+
 const bottomNav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
-  { href: "/uploads",   label: "Uploads",   icon: Upload          },
   { href: "/search",    label: "Search",    icon: Search          },
   { href: "/inventory", label: "Inventory", icon: Package         },
   { href: "/shows",     label: "Shows",     icon: Tent            },
 ];
 
+
 const sideNav = [
   { href: "/",          label: "Dashboard", icon: LayoutDashboard },
-  { href: "/uploads",   label: "Uploads",   icon: Upload          },
   { href: "/search",    label: "Search",    icon: Search          },
   { href: "/inventory", label: "Inventory", icon: Package         },
   { href: "/shows",     label: "Shows",     icon: Tent            },
   { href: "/settings",  label: "Settings",  icon: Settings        },
 ];
 
+
 const PAGE_TITLES: Record<string, string> = {
   "/":          "Dashboard",
-  "/uploads":   "Uploads",
   "/search":    "Search",
   "/inventory": "Inventory",
   "/shows":     "Shows",
@@ -35,9 +35,9 @@ const PAGE_TITLES: Record<string, string> = {
   "/admin":     "Admin",
 };
 
+
 const PAGE_SUBTITLES: Record<string, string> = {
   "/":          "Overview & analytics",
-  "/uploads":   "Import card data",
   "/search":    "Look up any card",
   "/inventory": "Manage your collection",
   "/shows":     "Track card show events",
@@ -45,9 +45,11 @@ const PAGE_SUBTITLES: Record<string, string> = {
   "/admin":     "Admin controls",
 };
 
+
 function isActive(href: string, location: string) {
   return href === "/" ? location === "/" : location.startsWith(href);
 }
+
 
 function Logo({ size = 28 }: { size?: number }) {
   return (
@@ -60,6 +62,7 @@ function Logo({ size = 28 }: { size?: number }) {
   );
 }
 
+
 function SideNavItem({ href, label, icon: Icon, collapsed }: {
   href: string; label: string; icon: any; collapsed: boolean;
 }) {
@@ -68,7 +71,7 @@ function SideNavItem({ href, label, icon: Icon, collapsed }: {
   return (
     <Link
       href={href}
-      data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      data-testid={`nav-${label.toLowerCase().replace(/\\s+/g, "-")}`}
       className={cn(
         "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all",
         active
@@ -83,13 +86,14 @@ function SideNavItem({ href, label, icon: Icon, collapsed }: {
   );
 }
 
+
 function BottomNavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
     <Link
       href={href}
-      data-testid={`mobile-nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      data-testid={`mobile-nav-${label.toLowerCase().replace(/\\s+/g, "-")}`}
       className="relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-1 group"
     >
       {active && (
@@ -111,6 +115,7 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
   );
 }
 
+
 function AvatarMenu({
   user, isAdmin, avatarRef, onClose, onSignOut,
 }: {
@@ -122,12 +127,13 @@ function AvatarMenu({
   const [, navigate] = useLocation();
   const { theme, setTheme } = useUserPrefs();
 
-  // Recalculate position every time the menu opens and on resize
+
   const recalcPos = useCallback(() => {
     if (!avatarRef.current) return;
     const r = avatarRef.current.getBoundingClientRect();
     setPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
   }, [avatarRef]);
+
 
   useEffect(() => {
     recalcPos();
@@ -135,34 +141,36 @@ function AvatarMenu({
     return () => window.removeEventListener("resize", recalcPos);
   }, [recalcPos]);
 
-  // Use pointerdown instead of mousedown — works on iOS touch + desktop
+
   useEffect(() => {
     function handler(e: PointerEvent) {
       if (avatarRef.current?.contains(e.target as Node)) return;
       if (menuRef.current?.contains(e.target as Node)) return;
       onClose();
     }
-    // Small delay so the opening tap doesn't immediately trigger close
     const t = setTimeout(() => document.addEventListener("pointerdown", handler), 50);
     return () => { clearTimeout(t); document.removeEventListener("pointerdown", handler); };
   }, [avatarRef, onClose]);
 
-  // Navigate then close — no preventDefault so iOS touch chain is unbroken
+
   function goSettings() {
     onClose();
     navigate("/settings");
   }
+
 
   function goAdmin() {
     onClose();
     navigate("/admin");
   }
 
+
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     onClose();
   }
+
 
   return (
     <div
@@ -190,6 +198,7 @@ function AvatarMenu({
         </div>
       )}
 
+
       <div className="py-1.5 px-1.5 space-y-0.5">
         <button
           onClick={goSettings}
@@ -198,6 +207,7 @@ function AvatarMenu({
           <Settings size={14} className="text-muted-foreground shrink-0" />
           <span>Settings</span>
         </button>
+
 
         {isAdmin && (
           <button
@@ -208,6 +218,7 @@ function AvatarMenu({
             <span>Admin</span>
           </button>
         )}
+
 
         <button
           onClick={toggleTheme}
@@ -223,6 +234,7 @@ function AvatarMenu({
         </button>
       </div>
 
+
       <div className="border-t border-border/40 py-1.5 px-1.5">
         <button
           data-testid="mobile-button-sign-out"
@@ -237,6 +249,7 @@ function AvatarMenu({
   );
 }
 
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(() =>
     typeof window !== "undefined" && window.innerWidth < 1024
@@ -248,6 +261,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { signOut, user, isAdmin } = useAuth();
   const { theme, setTheme } = useUserPrefs();
 
+
   useEffect(() => {
     const observer = new MutationObserver(() => {
       setModalOpen(document.body.classList.contains("modal-open"));
@@ -256,9 +270,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => observer.disconnect();
   }, []);
 
+
   const pageTitle    = PAGE_TITLES[location]    ?? "CardVault";
   const pageSubtitle = PAGE_SUBTITLES[location] ?? "";
   const userInitial  = user?.email?.[0]?.toUpperCase() ?? "U";
+
 
   return (
     <div className="flex h-app overflow-hidden bg-background">
@@ -328,8 +344,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </button>
       </aside>
 
+
       {/* ── Main column ────────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+
 
         {/* Mobile header */}
         <header
@@ -356,6 +374,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
+
           <button
             ref={avatarRef}
             onClick={() => setAvatarOpen(o => !o)}
@@ -372,6 +391,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </header>
 
+
         {/* Avatar dropdown — rendered inside the flex column so z-index stacks correctly */}
         {avatarOpen && (
           <AvatarMenu
@@ -383,6 +403,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
         )}
 
+
         {/* Scrollable page content */}
         <main
           className="flex-1 overflow-y-auto"
@@ -392,6 +413,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {children}
           </div>
         </main>
+
 
         {/* Bottom nav */}
         <nav
@@ -411,6 +433,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <BottomNavItem key={item.href} {...item} />
           ))}
         </nav>
+
 
       </div>
     </div>

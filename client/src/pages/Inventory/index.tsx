@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Search,
   ChevronDown,
@@ -45,6 +46,9 @@ import { MobileDetailDrawer } from "./MobileDetailDrawer";
 import { InventoryDetailModal } from "./DetailSheet";
 import { BulkActionBar } from "./BulkActionsBar";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
+import Uploads from "@/pages/Uploads";
+
+type InventorySubTab = "inventory" | "uploads";
 
 function RefreshProgressBar({
   progress,
@@ -86,9 +90,45 @@ function RefreshProgressBar({
   );
 }
 
+function InventorySubTabToggle({
+  value,
+  onChange,
+  pendingUploadsCount,
+}: {
+  value: InventorySubTab;
+  onChange: (v: InventorySubTab) => void;
+  pendingUploadsCount: number;
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/30 p-1 shrink-0">
+      {(["inventory", "uploads"] as const).map((tab) => (
+        <button
+          key={tab}
+          data-testid={`tab-inventory-subtab-${tab}`}
+          onClick={() => onChange(tab)}
+          className={cn(
+            "flex items-center gap-2 px-5 py-2 rounded-lg text-base font-semibold transition-colors",
+            value === tab
+              ? "bg-primary/15 text-primary"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {tab === "inventory" ? "Inventory" : "Uploads"}
+          {tab === "uploads" && pendingUploadsCount > 0 && (
+            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+              {pendingUploadsCount}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function Inventory() {
   const { toast } = useToast();
   const isDesktop = useIsDesktop();
+  const [subTab, setSubTab] = useState<InventorySubTab>("inventory");
   const [search, setSearch] = useState("");
   const [selectedGame, setSelectedGame] = useGameParam();
   const game = selectedGame ?? "all";
@@ -97,6 +137,7 @@ export default function Inventory() {
   const [labelFilter, setLabelFilter] = useState<LabelFilter>("all");
   const [exportOpen, setExportOpen] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProgress, setRefreshProgress] = useState(0);
   const [refreshLabel, setRefreshLabel] = useState("Refreshing prices...");
@@ -134,6 +175,13 @@ export default function Inventory() {
   );
   const columnMut = useColumnOrderMutation();
   const exportMut = useLabelsExportMutation();
+
+  const { data: uploadsList = [] } = useQuery<any[]>({
+    queryKey: ["/api/uploads"],
+  });
+  const pendingUploadsCount = uploadsList.filter(
+    (u: any) => u.status === "parsed"
+  ).length;
 
   async function handleRefreshPrices() {
     if (refreshing) return;
@@ -357,620 +405,663 @@ export default function Inventory() {
 
   return (
     <div>
-      <div className="flex flex-col gap-1 mb-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="hidden md:block text-xl font-semibold text-foreground">Inventory</h1>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-          <span className="font-mono">{items.length.toLocaleString()} SKUs</span>
-          <span>·</span>
-          <span className="font-mono">{totalUnits.toLocaleString()} units</span>
-          <span>·</span>
-          <span className="font-mono text-primary font-medium">
-            ${totalValue.toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </span>
-        </div>
-      </div>
+      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between">
+        <InventorySubTabToggle
+          value={subTab}
+          onChange={setSubTab}
+          pendingUploadsCount={pendingUploadsCount}
+        />
 
-      {/* MOBILE FILTER BAR */}
-      <div className="md:hidden space-y-2 mb-3">
-        {/* Row 1 */}
-        <div className="flex gap-2">
-          <div className="relative flex-1 min-w-0">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              data-testid="input-search"
-              placeholder="Search cards..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-10 text-sm w-full"
-            />
-          </div>
-
-          <button
-            onClick={() => setFilterOpen((o) => !o)}
-            className={cn(
-              "flex items-center gap-1.5 h-10 px-3 rounded-md border text-xs font-medium transition-colors shrink-0",
-              filterOpen || activeFilterCount > 0
-                ? "border-primary/50 bg-primary/10 text-primary"
-                : "border-border text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <SlidersHorizontal size={13} />
-            {activeFilterCount > 0 && (
-              <span className="flex items-center justify-center w-4 h-4 rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
-                {activeFilterCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={handleRefreshPrices}
-            disabled={refreshing}
-            title="Refresh prices"
-            className="flex items-center justify-center h-10 w-10 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors shrink-0 disabled:opacity-50"
-          >
-            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-          </button>
-
-          <Button
-            data-testid="button-bulk-edit"
-            size="sm"
-            variant={selectMode ? "default" : "outline"}
-            className="h-10 px-3 text-xs shrink-0"
-            onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-          >
-            <CheckSquare size={14} />
-          </Button>
-        </div>
-
-        {filterOpen && (
-          <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
-            <Select value={game} onValueChange={setSelectedGame}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Game" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Games</SelectItem>
-                <SelectItem value="pokemon">Pokémon</SelectItem>
-                <SelectItem value="pokemon-jp">Pokémon JP</SelectItem>
-                <SelectItem value="one-piece">One Piece</SelectItem>
-                <SelectItem value="sorcery">Sorcery</SelectItem>
-                <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
-                <SelectItem value="mtg">MTG</SelectItem>
-                <SelectItem value="star-wars">Star Wars</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={condition} onValueChange={setCondition}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue placeholder="Condition" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Conds</SelectItem>
-                <SelectItem value="Near Mint">NM</SelectItem>
-                <SelectItem value="Lightly Played">LP</SelectItem>
-                <SelectItem value="Moderately Played">MP</SelectItem>
-                <SelectItem value="Heavily Played">HP</SelectItem>
-                <SelectItem value="Damaged">DMG</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="h-9 text-xs col-span-2">
-                <SelectValue placeholder="Sort" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="lastSeenAt">Last Updated</SelectItem>
-                <SelectItem value="price">Market Price</SelectItem>
-                <SelectItem value="quantity">Quantity</SelectItem>
-                <SelectItem value="value">Total Value</SelectItem>
-                <SelectItem value="name">Name A-Z</SelectItem>
-              </SelectContent>
-            </Select>
+        {subTab === "inventory" && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+            <span className="font-mono">{items.length.toLocaleString()} SKUs</span>
+            <span>·</span>
+            <span className="font-mono">{totalUnits.toLocaleString()} units</span>
+            <span>·</span>
+            <span className="font-mono text-primary font-medium">
+              ${totalValue.toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
           </div>
         )}
-
-        {/* Row 2 */}
-        <div className="flex items-center gap-2">
-          <div className="flex-1 min-w-0">
-            <Select
-              value={labelFilter}
-              onValueChange={(value) => setLabelFilter(value as LabelFilter)}
-            >
-              <SelectTrigger className="h-10 text-xs w-full">
-                <SelectValue placeholder="Label filter" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Items ({items.length})</SelectItem>
-                <SelectItem value="needs_label">
-                  Needs Label ({labelCounts.needs_label})
-                </SelectItem>
-                <SelectItem value="needs_repricing">
-                  Needs Repricing ({labelCounts.needs_repricing})
-                </SelectItem>
-                <SelectItem value="label_created">
-                  Label Created ({labelCounts.label_created})
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="shrink-0">
-            <ViewModeToggle value={viewMode} onChange={handleViewMode} />
-          </div>
-
-          <div className="relative shrink-0" ref={exportRef}>
-            <Button
-              data-testid="button-export-labels-mobile"
-              size="sm"
-              className="h-10 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-              onClick={() => setExportOpen((prev) => !prev)}
-              disabled={exportMut.isPending}
-            >
-              <Download size={13} />
-              <ChevronDown
-                size={12}
-                className={`transition-transform ${exportOpen ? "rotate-180" : ""}`}
-              />
-            </Button>
-
-            {exportOpen && (
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Excel (Niimbot)
-                </div>
-                <button
-                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                  onClick={() =>
-                    exportMut.mutate({
-                      game,
-                      format: "xlsx",
-                      stickerMode: "single",
-                    })
-                  }
-                >
-                  Single-side labels
-                </button>
-                <button
-                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                  onClick={() =>
-                    exportMut.mutate({
-                      game,
-                      format: "xlsx",
-                      stickerMode: "dual",
-                    })
-                  }
-                >
-                  Dual A/B labels
-                </button>
-                <div className="my-1 border-t border-border" />
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  CSV (Mac)
-                </div>
-                <button
-                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                  onClick={() =>
-                    exportMut.mutate({
-                      game,
-                      format: "csv",
-                      stickerMode: "single",
-                    })
-                  }
-                >
-                  Single-side CSV
-                </button>
-                <button
-                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                  onClick={() =>
-                    exportMut.mutate({
-                      game,
-                      format: "csv",
-                      stickerMode: "dual",
-                    })
-                  }
-                >
-                  Dual A/B CSV
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
 
-      {/* DESKTOP FILTER BAR */}
-      <div className="hidden md:block">
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <div className="relative flex-1 min-w-[240px] max-w-[360px] lg:max-w-[420px]">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              data-testid="input-search"
-              placeholder="Search cards..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-10 text-sm"
-            />
-          </div>
+      {subTab === "uploads" ? (
+        <Uploads />
+      ) : (
+        <>
+          {/* MOBILE FILTER BAR */}
+          <div className="md:hidden space-y-2 mb-3">
+            {/* Row 1 */}
+            <div className="flex gap-2">
+              <div className="relative flex-1 min-w-0">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  data-testid="input-search"
+                  placeholder="Search cards..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 h-10 text-sm w-full"
+                />
+              </div>
 
-          <Select value={game} onValueChange={setSelectedGame}>
-            <SelectTrigger
-              data-testid="select-filter-game"
-              className="w-[120px] h-10 text-xs"
-            >
-              <SelectValue placeholder="Game" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Games</SelectItem>
-              <SelectItem value="pokemon">Pokémon</SelectItem>
-              <SelectItem value="pokemon-jp">Pokémon JP</SelectItem>
-              <SelectItem value="one-piece">One Piece</SelectItem>
-              <SelectItem value="sorcery">Sorcery</SelectItem>
-              <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
-              <SelectItem value="mtg">MTG</SelectItem>
-              <SelectItem value="star-wars">Star Wars</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={condition} onValueChange={setCondition}>
-            <SelectTrigger
-              data-testid="select-filter-condition"
-              className="w-[130px] h-10 text-xs"
-            >
-              <SelectValue placeholder="All Conditions" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Conditions</SelectItem>
-              <SelectItem value="Near Mint">NM</SelectItem>
-              <SelectItem value="Lightly Played">LP</SelectItem>
-              <SelectItem value="Moderately Played">MP</SelectItem>
-              <SelectItem value="Heavily Played">HP</SelectItem>
-              <SelectItem value="Damaged">DMG</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger data-testid="select-sort" className="w-[120px] h-10 text-xs">
-              <SelectValue placeholder="Sort" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="lastSeenAt">Last Updated</SelectItem>
-              <SelectItem value="price">Market Price</SelectItem>
-              <SelectItem value="quantity">Quantity</SelectItem>
-              <SelectItem value="value">Total Value</SelectItem>
-              <SelectItem value="name">Name A-Z</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <div className="ml-auto h-10 flex items-center shrink-0">
-            <ViewModeToggle value={viewMode} onChange={handleViewMode} />
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5 mb-4 flex-wrap">
-          {labelOptions.map(({ key, label, count, cls }) => (
-            <button
-              key={key}
-              onClick={() => setLabelFilter(key as LabelFilter)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs md:gap-2 md:px-4 md:py-1.5 md:text-sm font-medium transition-colors ${
-                labelFilter === key
-                  ? "border-primary bg-primary/15 text-primary"
-                  : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
-              }`}
-            >
-              <span>{label}</span>
-              <span
+              <button
+                onClick={() => setFilterOpen((o) => !o)}
                 className={cn(
-                  "font-mono tabular-nums text-[10px] md:text-xs",
-                  labelFilter === key ? "text-primary" : (cls ?? "text-muted-foreground")
+                  "flex items-center gap-1.5 h-10 px-3 rounded-md border text-xs font-medium transition-colors shrink-0",
+                  filterOpen || activeFilterCount > 0
+                    ? "border-primary/50 bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
                 )}
               >
-                {count}
-              </span>
-            </button>
-          ))}
+                <SlidersHorizontal size={13} />
+                {activeFilterCount > 0 && (
+                  <span className="flex items-center justify-center w-4 h-4 rounded-full bg-primary text-[9px] font-bold text-primary-foreground">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
 
-          <div className="ml-auto flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-10 px-3 text-xs gap-1.5"
-              onClick={handleRefreshPrices}
-              disabled={refreshing}
-            >
-              <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
-              {refreshing ? "Refreshing..." : "Refresh Prices"}
-            </Button>
-
-            <Button
-              data-testid="button-bulk-edit"
-              size="sm"
-              variant={selectMode ? "default" : "outline"}
-              className="h-10 px-3 text-xs gap-1.5"
-              onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
-            >
-              <CheckSquare size={14} />
-              {selectMode ? "Cancel" : "Bulk Edit"}
-            </Button>
-
-            <div className="relative" ref={exportRef}>
-              <Button
-                data-testid="button-export-labels"
-                size="sm"
-                className="h-10 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-                onClick={() => setExportOpen((prev) => !prev)}
-                disabled={exportMut.isPending}
+              <button
+                onClick={handleRefreshPrices}
+                disabled={refreshing}
+                title="Refresh prices"
+                className="flex items-center justify-center h-10 w-10 rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-colors shrink-0 disabled:opacity-50"
               >
-                <Download size={13} />
-                {exportMut.isPending
-                  ? "Exporting..."
-                  : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
-                <ChevronDown
-                  size={12}
-                  className={`transition-transform ${exportOpen ? "rotate-180" : ""}`}
-                />
-              </Button>
+                <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+              </button>
 
-              {exportOpen && (
-                <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Excel (Niimbot)
+              <Button
+                data-testid="button-bulk-edit"
+                size="sm"
+                variant={selectMode ? "default" : "outline"}
+                className="h-10 px-3 text-xs shrink-0"
+                onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+              >
+                <CheckSquare size={14} />
+              </Button>
+            </div>
+
+            {filterOpen && (
+              <div className="grid grid-cols-2 gap-2 p-3 rounded-lg border border-border bg-muted/20 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+                <Select value={game} onValueChange={setSelectedGame}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Game" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Games</SelectItem>
+                    <SelectItem value="pokemon">Pokémon</SelectItem>
+                    <SelectItem value="pokemon-jp">Pokémon JP</SelectItem>
+                    <SelectItem value="one-piece">One Piece</SelectItem>
+                    <SelectItem value="sorcery">Sorcery</SelectItem>
+                    <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
+                    <SelectItem value="mtg">MTG</SelectItem>
+                    <SelectItem value="star-wars">Star Wars</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select value={condition} onValueChange={setCondition}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Condition" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Conds</SelectItem>
+                    <SelectItem value="Near Mint">NM</SelectItem>
+                    <SelectItem value="Lightly Played">LP</SelectItem>
+                    <SelectItem value="Moderately Played">MP</SelectItem>
+                    <SelectItem value="Heavily Played">HP</SelectItem>
+                    <SelectItem value="Damaged">DMG</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="h-9 text-xs col-span-2">
+                    <SelectValue placeholder="Sort" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lastSeenAt">Last Updated</SelectItem>
+                    <SelectItem value="price">Market Price</SelectItem>
+                    <SelectItem value="quantity">Quantity</SelectItem>
+                    <SelectItem value="value">Total Value</SelectItem>
+                    <SelectItem value="name">Name A-Z</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Row 2 */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <Select
+                  value={labelFilter}
+                  onValueChange={(value) => setLabelFilter(value as LabelFilter)}
+                >
+                  <SelectTrigger className="h-10 text-xs w-full">
+                    <SelectValue placeholder="Label filter" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Items ({items.length})</SelectItem>
+                    <SelectItem value="needs_label">
+                      Needs Label ({labelCounts.needs_label})
+                    </SelectItem>
+                    <SelectItem value="needs_repricing">
+                      Needs Repricing ({labelCounts.needs_repricing})
+                    </SelectItem>
+                    <SelectItem value="label_created">
+                      Label Created ({labelCounts.label_created})
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="shrink-0">
+                <ViewModeToggle value={viewMode} onChange={handleViewMode} />
+              </div>
+
+              <div className="relative shrink-0" ref={exportRef}>
+                <Button
+                  data-testid="button-export-labels-mobile"
+                  size="sm"
+                  className="h-10 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                  onClick={() => setExportOpen((prev) => !prev)}
+                  disabled={exportMut.isPending}
+                >
+                  <Download size={13} />
+                  <ChevronDown
+                    size={12}
+                    className={`transition-transform ${exportOpen ? "rotate-180" : ""}`}
+                  />
+                </Button>
+
+                {exportOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Excel (Niimbot)
+                    </div>
+                    <button
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                      onClick={() =>
+                        exportMut.mutate({
+                          game,
+                          format: "xlsx",
+                          stickerMode: "single",
+                        })
+                      }
+                    >
+                      Single-side labels
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                      onClick={() =>
+                        exportMut.mutate({
+                          game,
+                          format: "xlsx",
+                          stickerMode: "dual",
+                        })
+                      }
+                    >
+                      Dual A/B labels
+                    </button>
+                    <div className="my-1 border-t border-border" />
+                    <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      CSV (Mac)
+                    </div>
+                    <button
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                      onClick={() =>
+                        exportMut.mutate({
+                          game,
+                          format: "csv",
+                          stickerMode: "single",
+                        })
+                      }
+                    >
+                      Single-side CSV
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                      onClick={() =>
+                        exportMut.mutate({
+                          game,
+                          format: "csv",
+                          stickerMode: "dual",
+                        })
+                      }
+                    >
+                      Dual A/B CSV
+                    </button>
                   </div>
-                  <button
-                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                    onClick={() =>
-                      exportMut.mutate({
-                        game,
-                        format: "xlsx",
-                        stickerMode: "single",
-                      })
-                    }
-                  >
-                    Single-side labels
-                  </button>
-                  <button
-                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                    onClick={() =>
-                      exportMut.mutate({
-                        game,
-                        format: "xlsx",
-                        stickerMode: "dual",
-                      })
-                    }
-                  >
-                    Dual A/B labels
-                  </button>
-                  <div className="my-1 border-t border-border" />
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    CSV (Mac)
-                  </div>
-                  <button
-                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                    onClick={() =>
-                      exportMut.mutate({
-                        game,
-                        format: "csv",
-                        stickerMode: "single",
-                      })
-                    }
-                  >
-                    Single-side CSV
-                  </button>
-                  <button
-                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
-                    onClick={() =>
-                      exportMut.mutate({
-                        game,
-                        format: "csv",
-                        stickerMode: "dual",
-                      })
-                    }
-                  >
-                    Dual A/B CSV
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {viewMode === "list" && (
-        <div className="rounded-lg border border-border/40 bg-card overflow-hidden shadow-sm">
-          <div className="md:hidden divide-y divide-border/50">
-            {isLoading ? (
-              Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 px-3 py-3">
-                  <Skeleton className="w-9 h-[50px] rounded shrink-0" />
-                  <div className="flex-1 space-y-2">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-3 w-1/2" />
-                  </div>
-                </div>
-              ))
-            ) : sorted.length === 0 ? (
-              <div className="px-4 py-12 text-center text-muted-foreground text-sm">
-                {emptyMsg}
-              </div>
-            ) : (
-              sorted.map((item: any) => (
-                <MobileInventoryCard
-                  key={item.id}
-                  item={item}
-                  selected={selectedIds.has(item.id)}
-                  onSelect={handleSelect}
-                  selectMode={selectMode}
-                  onOpen={openSheet}
+          {/* DESKTOP FILTER BAR */}
+          <div className="hidden md:block">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <div className="relative flex-1 min-w-[240px] max-w-[360px] lg:max-w-[420px]">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                 />
-              ))
-            )}
+                <Input
+                  data-testid="input-search"
+                  placeholder="Search cards..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 h-10 text-sm"
+                />
+              </div>
+
+              <Select value={game} onValueChange={setSelectedGame}>
+                <SelectTrigger
+                  data-testid="select-filter-game"
+                  className="w-[120px] h-10 text-xs"
+                >
+                  <SelectValue placeholder="Game" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Games</SelectItem>
+                  <SelectItem value="pokemon">Pokémon</SelectItem>
+                  <SelectItem value="pokemon-jp">Pokémon JP</SelectItem>
+                  <SelectItem value="one-piece">One Piece</SelectItem>
+                  <SelectItem value="sorcery">Sorcery</SelectItem>
+                  <SelectItem value="dragon-ball">Dragon Ball</SelectItem>
+                  <SelectItem value="mtg">MTG</SelectItem>
+                  <SelectItem value="star-wars">Star Wars</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={condition} onValueChange={setCondition}>
+                <SelectTrigger
+                  data-testid="select-filter-condition"
+                  className="w-[130px] h-10 text-xs"
+                >
+                  <SelectValue placeholder="All Conditions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Conditions</SelectItem>
+                  <SelectItem value="Near Mint">NM</SelectItem>
+                  <SelectItem value="Lightly Played">LP</SelectItem>
+                  <SelectItem value="Moderately Played">MP</SelectItem>
+                  <SelectItem value="Heavily Played">HP</SelectItem>
+                  <SelectItem value="Damaged">DMG</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger data-testid="select-sort" className="w-[120px] h-10 text-xs">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="lastSeenAt">Last Updated</SelectItem>
+                  <SelectItem value="price">Market Price</SelectItem>
+                  <SelectItem value="quantity">Quantity</SelectItem>
+                  <SelectItem value="value">Total Value</SelectItem>
+                  <SelectItem value="name">Name A-Z</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <div className="ml-auto h-10 flex items-center shrink-0">
+                <ViewModeToggle value={viewMode} onChange={handleViewMode} />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 mb-4 flex-wrap">
+              <button
+                onClick={() => setFiltersExpanded((e) => !e)}
+                className={cn(
+                  "flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors shrink-0",
+                  filtersExpanded || labelFilter !== "all"
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                )}
+              >
+                <SlidersHorizontal size={14} />
+                <span>
+                  {labelFilter === "all"
+                    ? "Label Filters"
+                    : labelOptions.find((o) => o.key === labelFilter)?.label}
+                </span>
+              </button>
+
+              <div
+                className={cn(
+                  "flex items-center gap-1.5 overflow-hidden transition-all duration-300 ease-out",
+                  filtersExpanded ? "max-w-[800px] opacity-100" : "max-w-0 opacity-0"
+                )}
+              >
+                {labelOptions.map(({ key, label, count, cls }, i) => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      setLabelFilter(key as LabelFilter);
+                      setFiltersExpanded(false);
+                    }}
+                    style={{ transitionDelay: filtersExpanded ? `${i * 40}ms` : "0ms" }}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs md:gap-2 md:px-4 md:py-1.5 md:text-sm font-medium transition-all duration-200 shrink-0",
+                      filtersExpanded ? "translate-x-0 opacity-100" : "-translate-x-2 opacity-0",
+                      labelFilter === key
+                        ? "border-primary bg-primary/15 text-primary"
+                        : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    )}
+                  >
+                    <span>{label}</span>
+                    <span
+                      className={cn(
+                        "font-mono tabular-nums text-[10px] md:text-xs",
+                        labelFilter === key ? "text-primary" : (cls ?? "text-muted-foreground")
+                      )}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-10 px-3 text-xs gap-1.5"
+                  onClick={handleRefreshPrices}
+                  disabled={refreshing}
+                >
+                  <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
+                  {refreshing ? "Refreshing..." : "Refresh Prices"}
+                </Button>
+
+                <Button
+                  data-testid="button-bulk-edit"
+                  size="sm"
+                  variant={selectMode ? "default" : "outline"}
+                  className="h-10 px-3 text-xs gap-1.5"
+                  onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                >
+                  <CheckSquare size={14} />
+                  {selectMode ? "Cancel" : "Bulk Edit"}
+                </Button>
+
+                <div className="relative" ref={exportRef}>
+                  <Button
+                    data-testid="button-export-labels"
+                    size="sm"
+                    className="h-10 px-3 text-xs font-semibold gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                    onClick={() => setExportOpen((prev) => !prev)}
+                    disabled={exportMut.isPending}
+                  >
+                    <Download size={13} />
+                    {exportMut.isPending
+                      ? "Exporting..."
+                      : `Export Labels${pendingExportCount > 0 ? ` (${pendingExportCount})` : ""}`}
+                    <ChevronDown
+                      size={12}
+                      className={`transition-transform ${exportOpen ? "rotate-180" : ""}`}
+                    />
+                  </Button>
+
+                  {exportOpen && (
+                    <div className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border bg-card shadow-lg py-1 animate-in fade-in-0 slide-in-from-top-1 duration-100">
+                      <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Excel (Niimbot)
+                      </div>
+                      <button
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                        onClick={() =>
+                          exportMut.mutate({
+                            game,
+                            format: "xlsx",
+                            stickerMode: "single",
+                          })
+                        }
+                      >
+                        Single-side labels
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                        onClick={() =>
+                          exportMut.mutate({
+                            game,
+                            format: "xlsx",
+                            stickerMode: "dual",
+                          })
+                        }
+                      >
+                        Dual A/B labels
+                      </button>
+                      <div className="my-1 border-t border-border" />
+                      <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        CSV (Mac)
+                      </div>
+                      <button
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                        onClick={() =>
+                          exportMut.mutate({
+                            game,
+                            format: "csv",
+                            stickerMode: "single",
+                          })
+                        }
+                      >
+                        Single-side CSV
+                      </button>
+                      <button
+                        className="w-full text-left px-3 py-1.5 text-xs hover:bg-accent transition-colors"
+                        onClick={() =>
+                          exportMut.mutate({
+                            game,
+                            format: "csv",
+                            stickerMode: "dual",
+                          })
+                        }
+                      >
+                        Dual A/B CSV
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/30">
-                  {columnOrder.map((col) => (
-                    <DraggableColHeader key={col} id={col} onMove={handleColumnMove}>
-                      {col === "card" ? (
-                        <div className="flex items-center gap-2">
-                          {selectMode && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                (selectedIds.size === sorted.length && sorted.length > 0
-                                  ? deselectAll
-                                  : selectAll)();
-                              }}
-                              className="text-muted-foreground/50 hover:text-primary transition-colors"
-                            >
-                              {selectedIds.size === sorted.length &&
-                              sorted.length > 0 ? (
-                                <CheckSquare size={13} className="text-primary" />
-                              ) : someSelected ? (
-                                <CheckSquare
-                                  size={13}
-                                  className="text-primary/50"
-                                />
-                              ) : (
-                                <Square size={13} />
-                              )}
-                            </button>
-                          )}
-                          {COLUMN_LABELS.card}
-                        </div>
-                      ) : (
-                        COLUMN_LABELS[col]
-                      )}
-                    </DraggableColHeader>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+          {viewMode === "list" && (
+            <div className="rounded-lg border border-border/40 bg-card overflow-hidden shadow-sm">
+              <div className="md:hidden divide-y divide-border/50">
                 {isLoading ? (
-                  Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i} className="border-b border-border/20">
-                      <td colSpan={columnOrder.length} className="px-4 py-3">
-                        <Skeleton className="h-9 w-full" />
-                      </td>
-                    </tr>
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 px-3 py-3">
+                      <Skeleton className="w-9 h-[50px] rounded shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                      </div>
+                    </div>
                   ))
                 ) : sorted.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={columnOrder.length}
-                      className="px-3 py-12 text-center text-muted-foreground text-sm"
-                    >
-                      {emptyMsg}
-                    </td>
-                  </tr>
+                  <div className="px-4 py-12 text-center text-muted-foreground text-sm">
+                    {emptyMsg}
+                  </div>
                 ) : (
                   sorted.map((item: any) => (
-                    <InventoryRow
+                    <MobileInventoryCard
                       key={item.id}
                       item={item}
                       selected={selectedIds.has(item.id)}
                       onSelect={handleSelect}
                       selectMode={selectMode}
-                      columnOrder={columnOrder}
+                      onOpen={openSheet}
                     />
                   ))
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border/30">
+                      {columnOrder.map((col) => (
+                        <DraggableColHeader key={col} id={col} onMove={handleColumnMove}>
+                          {col === "card" ? (
+                            <div className="flex items-center gap-2">
+                              {selectMode && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    (selectedIds.size === sorted.length && sorted.length > 0
+                                      ? deselectAll
+                                      : selectAll)();
+                                  }}
+                                  className="text-muted-foreground/50 hover:text-primary transition-colors"
+                                >
+                                  {selectedIds.size === sorted.length &&
+                                  sorted.length > 0 ? (
+                                    <CheckSquare size={13} className="text-primary" />
+                                  ) : someSelected ? (
+                                    <CheckSquare
+                                      size={13}
+                                      className="text-primary/50"
+                                    />
+                                  ) : (
+                                    <Square size={13} />
+                                  )}
+                                </button>
+                              )}
+                              {COLUMN_LABELS.card}
+                            </div>
+                          ) : (
+                            COLUMN_LABELS[col]
+                          )}
+                        </DraggableColHeader>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {isLoading ? (
+                      Array.from({ length: 8 }).map((_, i) => (
+                        <tr key={i} className="border-b border-border/20">
+                          <td colSpan={columnOrder.length} className="px-4 py-3">
+                            <Skeleton className="h-9 w-full" />
+                          </td>
+                        </tr>
+                      ))
+                    ) : sorted.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={columnOrder.length}
+                          className="px-3 py-12 text-center text-muted-foreground text-sm"
+                        >
+                          {emptyMsg}
+                        </td>
+                      </tr>
+                    ) : (
+                      sorted.map((item: any) => (
+                        <InventoryRow
+                          key={item.id}
+                          item={item}
+                          selected={selectedIds.has(item.id)}
+                          onSelect={handleSelect}
+                          selectMode={selectMode}
+                          columnOrder={columnOrder}
+                        />
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {viewMode === "grid-sm" &&
+            (isLoading ? (
+              <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-7 gap-2">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} className="h-40 rounded-lg" />
+                ))}
+              </div>
+            ) : sorted.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground text-sm">
+                {emptyMsg}
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-7 gap-2">
+                {sorted.map((item: any) => (
+                  <InventoryGridCard
+                    key={item.id}
+                    item={item}
+                    size="sm"
+                    selected={selectedIds.has(item.id)}
+                    onSelect={handleSelect}
+                    selectMode={selectMode}
+                    onOpen={() => openSheet(item)}
+                  />
+                ))}
+              </div>
+            ))}
+
+          {viewMode === "grid-lg" &&
+            (isLoading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-44 rounded-lg" />
+                ))}
+              </div>
+            ) : sorted.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground text-sm">
+                {emptyMsg}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {sorted.map((item: any) => (
+                  <InventoryGridCard
+                    key={item.id}
+                    item={item}
+                    size="lg"
+                    selected={selectedIds.has(item.id)}
+                    onSelect={handleSelect}
+                    selectMode={selectMode}
+                    onOpen={() => openSheet(item)}
+                  />
+                ))}
+              </div>
+            ))}
+
+          {isDesktop ? (
+            <InventoryDetailModal
+              item={liveSheetItem}
+              open={sheetOpen}
+              onClose={closeSheet}
+            />
+          ) : (
+            <MobileDetailDrawer
+              item={liveSheetItem}
+              open={sheetOpen}
+              onClose={closeSheet}
+            />
+          )}
+
+          {selectMode && (
+            <BulkActionBar
+              selectedIds={selectedIds}
+              allCount={sorted.length}
+              onSelectAll={selectAll}
+              onDeselectAll={deselectAll}
+              onCancel={exitSelectMode}
+            />
+          )}
+
+          <RefreshProgressBar
+            progress={refreshProgress}
+            label={refreshLabel}
+            visible={showProgressBar}
+          />
+        </>
       )}
-
-      {viewMode === "grid-sm" &&
-        (isLoading ? (
-          <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-7 gap-2">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-40 rounded-lg" />
-            ))}
-          </div>
-        ) : sorted.length === 0 ? (
-          <div className="py-12 text-center text-muted-foreground text-sm">
-            {emptyMsg}
-          </div>
-        ) : (
-          <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-7 gap-2">
-            {sorted.map((item: any) => (
-              <InventoryGridCard
-                key={item.id}
-                item={item}
-                size="sm"
-                selected={selectedIds.has(item.id)}
-                onSelect={handleSelect}
-                selectMode={selectMode}
-                onOpen={() => openSheet(item)}
-              />
-            ))}
-          </div>
-        ))}
-
-      {viewMode === "grid-lg" &&
-        (isLoading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-44 rounded-lg" />
-            ))}
-          </div>
-        ) : sorted.length === 0 ? (
-          <div className="py-12 text-center text-muted-foreground text-sm">
-            {emptyMsg}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {sorted.map((item: any) => (
-              <InventoryGridCard
-                key={item.id}
-                item={item}
-                size="lg"
-                selected={selectedIds.has(item.id)}
-                onSelect={handleSelect}
-                selectMode={selectMode}
-                onOpen={() => openSheet(item)}
-              />
-            ))}
-          </div>
-        ))}
-
-      {isDesktop ? (
-        <InventoryDetailModal
-          item={liveSheetItem}
-          open={sheetOpen}
-          onClose={closeSheet}
-        />
-      ) : (
-        <MobileDetailDrawer
-          item={liveSheetItem}
-          open={sheetOpen}
-          onClose={closeSheet}
-        />
-      )}
-
-      {selectMode && (
-        <BulkActionBar
-          selectedIds={selectedIds}
-          allCount={sorted.length}
-          onSelectAll={selectAll}
-          onDeselectAll={deselectAll}
-          onCancel={exitSelectMode}
-        />
-      )}
-
-      <RefreshProgressBar
-        progress={refreshProgress}
-        label={refreshLabel}
-        visible={showProgressBar}
-      />
     </div>
   );
 }
