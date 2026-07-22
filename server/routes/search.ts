@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { searchCards, syncSetsForGame, type SearchResultCard } from "../justtcg";
 import { pokeWalletSearchCards, berryWalletSearchCards } from "../pokewallet";
 import { storage } from "../storage";
-import { parseProductName } from "../lib/parseProductName";
+import { parseProductName } from "../../shared/lib/parseProductName";
 import { supabaseAdmin } from "../supabase";
 
 const searchCache = new Map<string, { data: SearchResultCard[]; expiresAt: number }>();

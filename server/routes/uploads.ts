@@ -453,7 +453,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
   });
 
   app.post("/api/uploads/:id/approve", async (req: any, res) => {
-    const { parseProductName } = await import("../lib/parseProductName.js");
+    const { parseProductName } = await import("../../shared/lib/parseProductName.js");
     try {
       const userId = req.user.id;
       const uploadId = req.params.id;

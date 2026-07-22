@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage, type TransactionIncomingItem } from "../storage";
-import { allocatePrices, tradeCreditValue } from "../lib/transactionMath";
+import { allocatePrices, tradeCreditValue } from "../../shared/lib/transactionMath";
 import { buildMatchKey, normalizeCondition } from "./csvHelpers";
 import { fetchSinglePrice } from "../justtcg";
 
