@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Plus, Minus, X, Trash2, Pencil } from "lucide-react";
+import { Search, Plus, Minus, X, Trash2, Pencil, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,6 +21,7 @@ import {
   CHANNELS, SALE_PAYMENT_METHODS, CONDITIONS, TRADE_PERCENT_OPTIONS, fmtMoney, fmtPrintPrice,
 } from "./constants";
 import { useCreateTransaction } from "./hooks";
+import { tradeCreditValue, allocatePrices } from "@shared/lib/transactionMath";
 
 type TxType = "sale" | "trade";
 
@@ -29,12 +32,19 @@ interface OutgoingSel {
 
 interface IncomingRow {
   id: string;
+  source: "search" | "manual";
   productName: string;
   game: string;
   condition: string;
+  printing: string | null;
   quantity: number;
   marketPrice: string;
   percentOverride: number | null;
+  // Provenance — only populated when source === "search".
+  tcgplayerId: string | null;
+  cardUuid: string | null;
+  variantUuid: string | null;
+  tcgplayerSkuId: string | null;
 }
 
 /* ─────────────────────── helpers ─────────────────────── */
@@ -46,6 +56,52 @@ function calcOutgoingDefault(selected: Record<string, OutgoingSel>): string {
     return s + (item.currentRoundedPrintPrice ?? 0) * quantity;
   }, 0);
   return sum > 0 ? String(sum) : "";
+}
+
+/** Sum of exact-market-price trade credit (price × effective % × qty) across
+ *  incoming rows, using the same tested tradeCreditValue() the backend uses. */
+function calcIncomingDefault(rows: IncomingRow[], defaultPercent: number): string {
+  const sum = rows.reduce((s, r) => {
+    const price = parseFloat(r.marketPrice) || 0;
+    const percent = r.percentOverride ?? defaultPercent;
+    return s + tradeCreditValue(price, percent) * r.quantity;
+  }, 0);
+  return sum > 0 ? String(sum) : "";
+}
+
+/**
+ * Per-row credit + effective trade percent for incoming rows.
+ *
+ * When `overrideTotal` is null, each row's credit is simply
+ * tradeCreditValue(price, effPercent) * qty — no redistribution.
+ *
+ * When `overrideTotal` is a number (the user has hand-edited the incoming
+ * credit total), redistributes that total across rows proportionally to
+ * price × qty via the shared allocatePrices() helper — the same allocation
+ * function/behavior used for the outgoing total override — then back-solves
+ * an effective trade percent per row (credit / (price × qty)) so the result
+ * can still be submitted as a normal tradePercent, with no backend changes
+ * needed.
+ */
+function computeIncomingAllocation(
+  rows: IncomingRow[],
+  defaultPercent: number,
+  overrideTotal: number | null,
+): { credit: number; percent: number }[] {
+  if (overrideTotal == null) {
+    return rows.map(r => {
+      const price = parseFloat(r.marketPrice) || 0;
+      const percent = r.percentOverride ?? defaultPercent;
+      return { credit: tradeCreditValue(price, percent) * r.quantity, percent };
+    });
+  }
+  const weights = rows.map(r => ({ marketPrice: parseFloat(r.marketPrice) || 0, qty: r.quantity }));
+  const allocated = allocatePrices(weights, overrideTotal);
+  return rows.map((r, i) => {
+    const weight = (parseFloat(r.marketPrice) || 0) * r.quantity;
+    const percent = weight > 0 ? allocated[i] / weight : (r.percentOverride ?? defaultPercent);
+    return { credit: allocated[i], percent };
+  });
 }
 
 /* ─────────────────────── trade % selector (shared) ─────────────────────── */
@@ -225,23 +281,235 @@ function OutgoingPicker({
                 </div>
               </div>
             </button>
-          )))
-          }
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-/* ─────────────────────── incoming (trade-in) rows ─────────────────────── */
+/* ─────────────────────── incoming (trade-in) search + rows ─────────────────────── */
+
+interface SearchVariant {
+  variantUuid: string | null;
+  condition: string | null;
+  printing: string | null;
+  price: number | null;
+  tcgplayerSkuId: string | null;
+}
+interface SearchCard {
+  cardUuid: string | null;
+  name: string;
+  game: string | null;
+  setName: string | null;
+  number: string | null;
+  tcgplayerId: string | null;
+  variants: SearchVariant[];
+}
+
+/** Inline search box + expandable result for adding trade-in cards by exact
+ *  market price (reuses /api/search/cards — the same endpoint the Search
+ *  tab uses). Expanding a result lets you pick condition/printing and qty
+ *  before adding it as an incoming row. */
+function IncomingSearchPicker({ onAdd }: { onAdd: (row: IncomingRow) => void }) {
+  const [query, setQuery] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [variantIndex, setVariantIndex] = useState(0);
+  const [quantity, setQuantity] = useState(1);
+  const [manualOpen, setManualOpen] = useState(false);
+
+  const { data, isFetching } = useQuery({
+    queryKey: ["/api/search/cards", activeQuery],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/search/cards?q=${encodeURIComponent(activeQuery)}`);
+      if (!res.ok) return { results: [] };
+      return res.json();
+    },
+    enabled: activeQuery.length > 0,
+    staleTime: 60 * 1000,
+  });
+
+  const results: SearchCard[] = data?.results ?? [];
+
+  function runSearch() { setActiveQuery(query.trim()); }
+
+  function openResult(card: SearchCard, key: string) {
+    if (expandedKey === key) { setExpandedKey(null); return; }
+    setExpandedKey(key);
+    setVariantIndex(0);
+    setQuantity(1);
+  }
+
+  function addFromSearch(card: SearchCard) {
+    const variant = card.variants?.[variantIndex] ?? null;
+    onAdd({
+      id: crypto.randomUUID(),
+      source: "search",
+      productName: card.name,
+      game: card.game ?? "pokemon",
+      condition: variant?.condition ?? "Near Mint",
+      printing: variant?.printing ?? null,
+      quantity,
+      marketPrice: variant?.price != null ? String(variant.price) : "",
+      percentOverride: null,
+      tcgplayerId: card.tcgplayerId ?? null,
+      cardUuid: card.cardUuid ?? null,
+      variantUuid: variant?.variantUuid ?? null,
+      tcgplayerSkuId: variant?.tcgplayerSkuId ?? null,
+    });
+    setExpandedKey(null);
+    setQuery("");
+    setActiveQuery("");
+  }
+
+  function addManualRow() {
+    onAdd({
+      id: crypto.randomUUID(),
+      source: "manual",
+      productName: "",
+      game: "pokemon",
+      condition: "Near Mint",
+      printing: null,
+      quantity: 1,
+      marketPrice: "",
+      percentOverride: null,
+      tcgplayerId: null,
+      cardUuid: null,
+      variantUuid: null,
+      tcgplayerSkuId: null,
+    });
+    setManualOpen(false);
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+        <input
+          type="text"
+          placeholder="Search for a card to add as a trade-in…"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") runSearch(); }}
+          className="w-full pl-8 pr-16 h-9 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none transition-colors"
+        />
+        <button
+          type="button"
+          onClick={runSearch}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 h-6 px-2 rounded text-[11px] font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+        >
+          Search
+        </button>
+      </div>
+
+      {isFetching && (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground py-2">
+          <Loader2 size={12} className="animate-spin" /> Searching…
+        </div>
+      )}
+
+      {!isFetching && activeQuery && results.length === 0 && (
+        <div className="text-xs text-muted-foreground py-1">
+          No cards found for "{activeQuery}".
+        </div>
+      )}
+
+      {!isFetching && results.length > 0 && (
+        <div className="max-h-56 overflow-y-auto rounded-md border border-border divide-y divide-border/50">
+          {results.map((card, i) => {
+            const key = `${card.cardUuid ?? card.name}-${i}`;
+            const expanded = expandedKey === key;
+            const variants = card.variants ?? [];
+            const variant = variants[variantIndex] ?? null;
+            return (
+              <div key={key}>
+                <button
+                  type="button"
+                  onClick={() => openResult(card, key)}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 text-left hover:bg-accent transition-colors"
+                >
+                  <Plus size={12} className={cn("shrink-0", expanded ? "text-primary rotate-45 transition-transform" : "text-primary")} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-foreground truncate">{card.name}</div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      {card.setName && <span>{card.setName}</span>}
+                      {card.number && <><span>·</span><span>#{card.number}</span></>}
+                    </div>
+                  </div>
+                </button>
+                {expanded && (
+                  <div className="px-2.5 pb-2.5 space-y-2 bg-muted/20">
+                    {variants.length > 0 ? (
+                      <Select value={String(variantIndex)} onValueChange={v => setVariantIndex(Number(v))}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {variants.map((v, vi) => (
+                            <SelectItem key={vi} value={String(vi)}>
+                              {[v.condition, v.printing].filter(Boolean).join(" · ") || "Standard"}
+                              {v.price != null ? ` — $${v.price.toFixed(2)}` : " — —"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground">No pricing variants available for this card.</div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => setQuantity(q => Math.max(1, q - 1))} className="w-7 h-7 flex items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent shrink-0">
+                          <Minus size={12} />
+                        </button>
+                        <span className="w-6 text-center text-xs tabular-nums text-foreground">{quantity}</span>
+                        <button type="button" onClick={() => setQuantity(q => q + 1)} className="w-7 h-7 flex items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent shrink-0">
+                          <Plus size={12} />
+                        </button>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Market: <span className="font-mono text-foreground">{variant?.price != null ? `$${variant.price.toFixed(2)}` : "—"}</span>
+                      </div>
+                      <Button type="button" size="sm" className="ml-auto h-7 text-xs" onClick={() => addFromSearch(card)}>
+                        Add
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!manualOpen ? (
+        <button
+          type="button"
+          onClick={() => setManualOpen(true)}
+          className="text-[11px] text-muted-foreground hover:text-foreground underline"
+        >
+          Can't find it? Add manually
+        </button>
+      ) : (
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground">Manual entry adds a blank row you fill in below.</span>
+          <Button type="button" variant="outline" size="sm" className="h-7 text-xs ml-auto" onClick={addManualRow}>
+            <Plus size={12} className="mr-1" /> Add manually
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function IncomingRows({
-  rows, onChange, defaultPercent, inventory,
+  rows, onChange, defaultPercent, inventory, overrideCreditTotal,
 }: {
   rows: IncomingRow[];
   onChange: (next: IncomingRow[]) => void;
   defaultPercent: number;
   inventory: any[];
+  /** Parsed value of the incoming-credit total input when the user has
+   *  hand-edited it; null when the total is still auto-calculated. */
+  overrideCreditTotal: number | null;
 }) {
   function update(id: string, patch: Partial<IncomingRow>) {
     onChange(rows.map(r => (r.id === id ? { ...r, ...patch } : r)));
@@ -249,24 +517,15 @@ function IncomingRows({
   function remove(id: string) {
     onChange(rows.filter(r => r.id !== id));
   }
-  function add() {
-    onChange([
-      ...rows,
-      {
-        id: crypto.randomUUID(),
-        productName: "",
-        game: "pokemon",
-        condition: "Near Mint",
-        quantity: 1,
-        marketPrice: "",
-        percentOverride: null,
-      },
-    ]);
+  function addRow(row: IncomingRow) {
+    onChange([...rows, row]);
   }
 
-  // Best-effort auto price: match a typed product name to an inventory item's
-  // cached market price (same price cache the rest of the app uses).
+  // Best-effort auto price for manual rows: match a typed product name to an
+  // inventory item's cached market price (same price cache the rest of the
+  // app uses). Search-added rows already have an exact price and skip this.
   function autoPrice(row: IncomingRow) {
+    if (row.source !== "manual") return;
     const name = row.productName.trim().toLowerCase();
     if (!name) return;
     const match = inventory.find(i => (i.productName || "").toLowerCase() === name);
@@ -275,13 +534,16 @@ function IncomingRows({
     }
   }
 
+  const allocation = computeIncomingAllocation(rows, defaultPercent, overrideCreditTotal);
+  const overrideActive = overrideCreditTotal != null;
+
   return (
     <div className="space-y-2">
-      {rows.map(row => {
-        const effPercent = row.percentOverride ?? defaultPercent;
+      <IncomingSearchPicker onAdd={addRow} />
+
+      {rows.map((row, i) => {
+        const { credit, percent: effPercent } = allocation[i];
         const overridden = row.percentOverride != null;
-        const price = parseFloat(row.marketPrice) || 0;
-        const credit = price * effPercent;
         return (
           <div
             key={row.id}
@@ -297,8 +559,15 @@ function IncomingRows({
                 value={row.productName}
                 onChange={e => update(row.id, { productName: e.target.value })}
                 onBlur={() => autoPrice(row)}
-                className="flex-1 min-w-0 h-8 px-2 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none"
+                readOnly={row.source === "search"}
+                className={cn(
+                  "flex-1 min-w-0 h-8 px-2 text-xs rounded border border-border bg-background text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary/30 outline-none",
+                  row.source === "search" && "opacity-80",
+                )}
               />
+              {row.source === "search" && (
+                <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">Searched</span>
+              )}
               <button type="button" onClick={() => remove(row.id)} className="shrink-0 p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-500/10">
                 <Trash2 size={13} />
               </button>
@@ -350,30 +619,30 @@ function IncomingRows({
                   @ {Math.round(effPercent * 100)}%
                 </span>
               </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button type="button" className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-border hover:border-primary hover:bg-primary/10 transition-colors">
-                    <Pencil size={10} /> Edit %
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="end" className="w-auto p-3 space-y-2">
-                  <div className="text-[11px] font-medium text-muted-foreground">Trade % for this card</div>
-                  <PercentSelector value={effPercent} onChange={v => update(row.id, { percentOverride: v })} />
-                  {overridden && (
-                    <button type="button" onClick={() => update(row.id, { percentOverride: null })} className="text-[11px] text-muted-foreground hover:text-foreground underline">
-                      Reset to default ({Math.round(defaultPercent * 100)}%)
+              {overrideActive ? (
+                <span className="text-[11px] text-muted-foreground italic">set by total override</span>
+              ) : (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-border hover:border-primary hover:bg-primary/10 transition-colors">
+                      <Pencil size={10} /> Edit %
                     </button>
-                  )}
-                </PopoverContent>
-              </Popover>
+                  </PopoverTrigger>
+                  <PopoverContent side="top" align="end" className="w-auto p-3 space-y-2">
+                    <div className="text-[11px] font-medium text-muted-foreground">Trade % for this card</div>
+                    <PercentSelector value={effPercent} onChange={v => update(row.id, { percentOverride: v })} />
+                    {overridden && (
+                      <button type="button" onClick={() => update(row.id, { percentOverride: null })} className="text-[11px] text-muted-foreground hover:text-foreground underline">
+                        Reset to default ({Math.round(defaultPercent * 100)}%)
+                      </button>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
           </div>
         );
       })}
-
-      <Button type="button" variant="outline" size="sm" onClick={add} className="w-full gap-1.5 border-dashed text-xs h-9">
-        <Plus size={13} /> Add trade-in card
-      </Button>
     </div>
   );
 }
@@ -408,6 +677,10 @@ function LogTransactionBody({
   const totalPriceDirty = useRef(false);
   const [defaultPercent, setDefaultPercent] = useState(0.8);
   const [incoming, setIncoming] = useState<IncomingRow[]>([]);
+  // Step 3: incomingCreditTotal auto-fills from exact-market-price credit sum;
+  // user can always type over it, same dirty-tracking pattern as totalPrice.
+  const [incomingCreditTotal, setIncomingCreditTotal] = useState("");
+  const incomingCreditDirty = useRef(false);
   const [includeCash, setIncludeCash] = useState(false);
   const [cashDelta, setCashDelta] = useState("");
   const [channel, setChannel] = useState("in_person");
@@ -417,10 +690,9 @@ function LogTransactionBody({
   const createMut = useCreateTransaction(onClose);
 
   const outgoingList = Object.values(selected);
-  const incomingCredit = incoming.reduce((s, r) => {
-    const p = parseFloat(r.marketPrice) || 0;
-    return s + p * (r.percentOverride ?? defaultPercent) * r.quantity;
-  }, 0);
+  const incomingCreditOverride = incomingCreditDirty.current ? (parseFloat(incomingCreditTotal) || 0) : null;
+  const incomingAllocation = computeIncomingAllocation(incoming, defaultPercent, incomingCreditOverride);
+  const incomingCredit = incomingAllocation.reduce((s, a) => s + a.credit, 0);
 
   // 1b: auto-fill totalPrice from sum of print price × qty whenever the
   // outgoing selection changes, unless the user has manually edited the field.
@@ -429,6 +701,15 @@ function LogTransactionBody({
     const next = calcOutgoingDefault(selected);
     setTotalPrice(next);
   }, [selected]);
+
+  // Step 3: auto-fill incomingCreditTotal from the exact-market-price credit
+  // sum whenever incoming rows or the default percent change, unless the
+  // user has manually edited the field.
+  useEffect(() => {
+    if (incomingCreditDirty.current) return;
+    const next = calcIncomingDefault(incoming, defaultPercent);
+    setIncomingCreditTotal(next);
+  }, [incoming, defaultPercent]);
 
   const canSave =
     type === "sale"
@@ -462,6 +743,14 @@ function LogTransactionBody({
         outgoingItems,
       });
     } else {
+      // Step 3: submit each row's *effective* trade percent — when the
+      // incoming credit total was overridden, this is the back-solved
+      // percent from computeIncomingAllocation() (proportional redistribution
+      // via the shared allocatePrices() helper); otherwise it's just the
+      // row's own percentOverride ?? defaultPercent, unchanged from before.
+      // Keyed by row id (not array index) since the payload below filters
+      // out blank rows first, which would otherwise misalign indices.
+      const allocationById = new Map(incoming.map((r, i) => [r.id, incomingAllocation[i]]));
       createMut.mutate({
         ...base,
         type: "trade",
@@ -477,7 +766,13 @@ function LogTransactionBody({
             condition: r.condition || null,
             quantity: r.quantity,
             cachedMarketPrice: parseFloat(r.marketPrice) || null,
-            tradePercent: r.percentOverride ?? defaultPercent,
+            tradePercent: allocationById.get(r.id)?.percent ?? (r.percentOverride ?? defaultPercent),
+            // Provenance for search-backed rows — lets the backend re-fetch a
+            // price on save if cachedMarketPrice is ever missing (it won't be,
+            // for search rows, but this keeps the fields populated for
+            // consistency with what the route already accepts).
+            tcgplayerId: r.tcgplayerId ?? undefined,
+            printing: r.printing ?? undefined,
           })),
       });
     }
@@ -554,7 +849,13 @@ function LogTransactionBody({
             </div>
             <div>
               <div className={fieldLabel}>Cards you're receiving</div>
-              <IncomingRows rows={incoming} onChange={setIncoming} defaultPercent={defaultPercent} inventory={inventory} />
+              <IncomingRows
+                rows={incoming}
+                onChange={setIncoming}
+                defaultPercent={defaultPercent}
+                inventory={inventory}
+                overrideCreditTotal={incomingCreditOverride}
+              />
             </div>
             <div className="rounded-lg border border-border p-3 space-y-3">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -570,8 +871,27 @@ function LogTransactionBody({
                   </div>
                 </div>
               )}
-              <div className="text-xs text-muted-foreground">
-                Trade-in credit total: <span className="font-mono font-semibold text-foreground tabular-nums">{fmtMoney(incomingCredit)}</span>
+              <div>
+                <div className={fieldLabel}>
+                  Trade-in credit total
+                  {incoming.length > 0 && !incomingCreditDirty.current && (
+                    <span className="ml-1.5 text-[10px] text-muted-foreground/70">(auto)</span>
+                  )}
+                </div>
+                <div className="relative max-w-[200px]">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">$</span>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={incomingCreditTotal}
+                    onChange={e => {
+                      incomingCreditDirty.current = true;
+                      setIncomingCreditTotal(e.target.value);
+                    }}
+                    className="h-9 text-sm pl-7"
+                  />
+                </div>
               </div>
             </div>
           </>
