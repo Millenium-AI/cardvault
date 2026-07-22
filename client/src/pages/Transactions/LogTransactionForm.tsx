@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Plus, Minus, X, Trash2, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,17 @@ interface IncomingRow {
   quantity: number;
   marketPrice: string;
   percentOverride: number | null;
+}
+
+/* ─────────────────────── helpers ─────────────────────── */
+
+/** Sum of print price × qty across outgoing selection. Pending items ($0) are
+ *  included in the sum as $0 — they contribute nothing but don't crash. */
+function calcOutgoingDefault(selected: Record<string, OutgoingSel>): string {
+  const sum = Object.values(selected).reduce((s, { item, quantity }) => {
+    return s + (item.currentRoundedPrintPrice ?? 0) * quantity;
+  }, 0);
+  return sum > 0 ? String(sum) : "";
 }
 
 /* ─────────────────────── trade % selector (shared) ─────────────────────── */
@@ -128,7 +139,8 @@ function OutgoingPicker({
   function setQty(id: string, qty: number) {
     const sel = selected[id];
     if (!sel) return;
-    onChange({ ...selected, [id]: { ...sel, quantity: Math.max(1, qty) } });
+    const max = sel.item.currentQuantity ?? Infinity;
+    onChange({ ...selected, [id]: { ...sel, quantity: Math.min(max, Math.max(1, qty)) } });
   }
 
   const selList = Object.values(selected);
@@ -213,7 +225,8 @@ function OutgoingPicker({
                 </div>
               </div>
             </button>
-          ))}
+          )))
+          }
         </div>
       )}
     </div>
@@ -388,7 +401,11 @@ function LogTransactionBody({
   const [type, setType] = useState<TxType>("sale");
   const [selected, setSelected] = useState<Record<string, OutgoingSel>>({});
   const [salePayment, setSalePayment] = useState("cash");
+  // 1b: totalPrice auto-fills from print price sum; user can always type over it.
   const [totalPrice, setTotalPrice] = useState("");
+  // Track whether the user has manually edited totalPrice so we only auto-fill
+  // when they haven't diverged. Ref (not state) avoids re-render on write.
+  const totalPriceDirty = useRef(false);
   const [defaultPercent, setDefaultPercent] = useState(0.8);
   const [incoming, setIncoming] = useState<IncomingRow[]>([]);
   const [includeCash, setIncludeCash] = useState(false);
@@ -405,6 +422,14 @@ function LogTransactionBody({
     return s + p * (r.percentOverride ?? defaultPercent) * r.quantity;
   }, 0);
 
+  // 1b: auto-fill totalPrice from sum of print price × qty whenever the
+  // outgoing selection changes, unless the user has manually edited the field.
+  useEffect(() => {
+    if (totalPriceDirty.current) return;
+    const next = calcOutgoingDefault(selected);
+    setTotalPrice(next);
+  }, [selected]);
+
   const canSave =
     type === "sale"
       ? outgoingList.length > 0 && parseFloat(totalPrice) > 0
@@ -414,8 +439,8 @@ function LogTransactionBody({
     const outgoingItems = outgoingList.map(({ item, quantity }) => ({
       inventoryItemId: item.id,
       quantity,
-      // 1a/1b: send print price as the per-item weight basis; null when pending
-      // so backend falls back to its own currentRoundedPrintPrice lookup.
+      // Send print price as per-item weight; null when pending so backend falls
+      // back to currentRoundedPrintPrice.
       marketPrice: item.currentRoundedPrintPrice ?? null,
     }));
 
@@ -431,6 +456,8 @@ function LogTransactionBody({
         type: "sale",
         paymentMethod: salePayment,
         cashAmount: parseFloat(totalPrice) || 0,
+        // 1b: pass allocationTotal so backend allocatePrices redistributes
+        // proportionally when totalPrice differs from the per-item sum.
         allocationTotal: parseFloat(totalPrice) || undefined,
         outgoingItems,
       });
@@ -496,10 +523,26 @@ function LogTransactionBody({
               </div>
             </div>
             <div>
-              <div className={fieldLabel}>Total price</div>
+              <div className={fieldLabel}>
+                Total price
+                {/* Subtle hint that the value is auto-calculated from print prices */}
+                {outgoingList.length > 0 && !totalPriceDirty.current && (
+                  <span className="ml-1.5 text-[10px] text-muted-foreground/70">(auto)</span>
+                )}
+              </div>
               <div className="relative max-w-[200px]">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">$</span>
-                <Input type="number" step="0.01" placeholder="0.00" value={totalPrice} onChange={e => setTotalPrice(e.target.value)} className="h-11 text-sm pl-7" />
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={totalPrice}
+                  onChange={e => {
+                    totalPriceDirty.current = true;
+                    setTotalPrice(e.target.value);
+                  }}
+                  className="h-11 text-sm pl-7"
+                />
               </div>
             </div>
           </>

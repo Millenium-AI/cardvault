@@ -38,6 +38,16 @@ export function fmtMoney(n: number | null | undefined): string {
   return "$" + Number(n).toFixed(2);
 }
 
+/**
+ * Format a rounded print price (whole-dollar integer from Math.ceil).
+ * Returns "Pending" when the price is null (priceSource === "pending").
+ * Used in OutgoingPicker rows and the sale total auto-calc.
+ */
+export function fmtPrintPrice(p: number | null | undefined): string {
+  if (p === null || p === undefined) return "Pending";
+  return "$" + Number(p).toFixed(0);
+}
+
 export function fmtDate(d: string | null | undefined): string {
   if (!d) return "—";
   try { return format(parseISO(d), "MMM d, yyyy"); } catch { return d; }
