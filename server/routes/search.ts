@@ -196,8 +196,6 @@ export function registerSearchRoutes(app: Express) {
         notes:                    notes                  ?? null,
         justtcgCardUuid:          card.cardUuid          ?? null,
         justtcgVariantUuid:       variant?.variantUuid   ?? null,
-        priceChange24hr:          variant?.priceChange24hr ?? null,
-        priceChange7d:            variant?.priceChange7d   ?? null,
       });
 
       res.json({ item: created, created: true });
