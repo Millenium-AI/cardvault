@@ -16,7 +16,7 @@ import { gameLabel } from "@shared/gameLabels";
 import { GAMES } from "@/pages/Uploads/UploadForm";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import {
-  CHANNELS, SALE_PAYMENT_METHODS, CONDITIONS, TRADE_PERCENT_OPTIONS, fmtMoney,
+  CHANNELS, SALE_PAYMENT_METHODS, CONDITIONS, TRADE_PERCENT_OPTIONS, fmtMoney, fmtPrintPrice,
 } from "./constants";
 import { useCreateTransaction } from "./hooks";
 
@@ -148,7 +148,13 @@ function OutgoingPicker({
                   <span>{gameLabel(item.game)}</span>
                   {item.condition && <><span>·</span><span>{item.condition}</span></>}
                   <span>·</span>
-                  <span className="tabular-nums">{fmtMoney(item.currentRawMarketPrice)}</span>
+                  {/* 1a: show print price; "Pending" when null */}
+                  <span className={cn(
+                    "tabular-nums",
+                    item.currentRoundedPrintPrice == null && "text-amber-400 font-medium",
+                  )}>
+                    {fmtPrintPrice(item.currentRoundedPrintPrice)}
+                  </span>
                   <span>·</span>
                   <span className="tabular-nums">{item.currentQuantity} on hand</span>
                 </div>
@@ -197,7 +203,13 @@ function OutgoingPicker({
                   <span>{gameLabel(item.game)}</span>
                   {item.condition && <><span>·</span><span>{item.condition}</span></>}
                   <span>·</span>
-                  <span className="tabular-nums">{fmtMoney(item.currentRawMarketPrice)}</span>
+                  {/* 1a: show print price in results list too */}
+                  <span className={cn(
+                    "tabular-nums",
+                    item.currentRoundedPrintPrice == null && "text-amber-400 font-medium",
+                  )}>
+                    {fmtPrintPrice(item.currentRoundedPrintPrice)}
+                  </span>
                 </div>
               </div>
             </button>
@@ -402,7 +414,9 @@ function LogTransactionBody({
     const outgoingItems = outgoingList.map(({ item, quantity }) => ({
       inventoryItemId: item.id,
       quantity,
-      marketPrice: item.currentRawMarketPrice ?? null,
+      // 1a/1b: send print price as the per-item weight basis; null when pending
+      // so backend falls back to its own currentRoundedPrintPrice lookup.
+      marketPrice: item.currentRoundedPrintPrice ?? null,
     }));
 
     const base = {
@@ -417,6 +431,7 @@ function LogTransactionBody({
         type: "sale",
         paymentMethod: salePayment,
         cashAmount: parseFloat(totalPrice) || 0,
+        allocationTotal: parseFloat(totalPrice) || undefined,
         outgoingItems,
       });
     } else {

@@ -142,13 +142,17 @@ export function registerTransactionsRoutes(app: Express) {
       }
 
       const incomingCreditSum = incomingRows.reduce((s, r) => s + r.tradeCreditValue * r.quantity, 0);
+
+      // 1b: outgoingMarketSum fallback uses print price (rounded, whole-dollar).
+      // o.marketPrice is already print price when the client is current; this is
+      // the server-side safety net for any older clients that send null.
       const outgoingMarketSum = outgoingItems.reduce((s, o, i) => {
-        const mp = o.marketPrice ?? invItems[i]!.currentRawMarketPrice ?? 0;
+        const mp = o.marketPrice ?? invItems[i]!.currentRoundedPrintPrice ?? 0;
         return s + mp * (o.quantity ?? 1);
       }, 0);
 
       // Sale total = full cash price. Trade total = credit received (+ any cash delta),
-      // falling back to outgoing market value when no incoming rows exist.
+      // falling back to outgoing print value when no incoming rows exist.
       const total =
         allocationTotal ??
         (type === "sale"
@@ -157,9 +161,11 @@ export function registerTransactionsRoutes(app: Express) {
             ? incomingCreditSum + (paymentMethod === "trade_plus_cash" ? cashAmount ?? 0 : 0)
             : outgoingMarketSum);
 
+      // 1b: allocation weight uses print price (o.marketPrice is print price from
+      // current client; fallback to currentRoundedPrintPrice for safety).
       const allocations = allocatePrices(
         outgoingItems.map((o, i) => ({
-          marketPrice: o.marketPrice ?? invItems[i]!.currentRawMarketPrice ?? 0,
+          marketPrice: o.marketPrice ?? invItems[i]!.currentRoundedPrintPrice ?? 0,
           qty: o.quantity ?? 1,
         })),
         total,
