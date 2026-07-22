@@ -100,14 +100,14 @@ function InventorySubTabToggle({
   pendingUploadsCount: number;
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/30 p-1 shrink-0">
+    <div className="flex w-full items-center gap-1 rounded-xl border border-border bg-muted/30 p-1 sm:w-auto sm:shrink-0">
       {(["inventory", "uploads"] as const).map((tab) => (
         <button
           key={tab}
           data-testid={`tab-inventory-subtab-${tab}`}
           onClick={() => onChange(tab)}
           className={cn(
-            "flex items-center gap-2 px-5 py-2 rounded-lg text-base font-semibold transition-colors",
+            "flex flex-1 items-center justify-center gap-2 px-5 py-2 rounded-lg text-base font-semibold transition-colors sm:flex-initial",
             value === tab
               ? "bg-primary/15 text-primary"
               : "text-muted-foreground hover:text-foreground"
@@ -432,9 +432,7 @@ export default function Inventory() {
         <Uploads />
       ) : (
         <>
-          {/* MOBILE FILTER BAR */}
           <div className="md:hidden space-y-2 mb-3">
-            {/* Row 1 */}
             <div className="flex gap-2">
               <div className="relative flex-1 min-w-0">
                 <Search
@@ -534,7 +532,6 @@ export default function Inventory() {
               </div>
             )}
 
-            {/* Row 2 */}
             <div className="flex items-center gap-2">
               <div className="flex-1 min-w-0">
                 <Select
@@ -641,7 +638,6 @@ export default function Inventory() {
             </div>
           </div>
 
-          {/* DESKTOP FILTER BAR */}
           <div className="hidden md:block">
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <div className="relative flex-1 min-w-[240px] max-w-[360px] lg:max-w-[420px]">
