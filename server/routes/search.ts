@@ -182,7 +182,6 @@ export function registerSearchRoutes(app: Express) {
         currentRawMarketPrice:    variant?.price                                     ?? null,
         currentRoundedPrintPrice: variant?.price != null ? Math.ceil(variant.price) : null,
         priceSource:              variant?.price != null ? "justtcg" : "pending",
-        csvMarketPrice:           null,
         latestUploadId:           null,
         normalizedMatchKey,
         matchMetadataJson,

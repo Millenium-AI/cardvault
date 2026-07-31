@@ -45,7 +45,7 @@ export async function refreshInventoryPrices(
       const idChunk = itemIdsToPrice.slice(i, i + ID_LOOKUP_CHUNK);
       const { data, error: fetchErr } = await supabaseAdmin
         .from("inventory_items")
-        .select("id, product_name, condition, source_product_id, source_tcgplayer_sku_id, match_metadata_json, current_raw_market_price, current_quantity, photo_url, label_status, game")
+        .select("id, product_name, number, condition, source_product_id, source_tcgplayer_sku_id, match_metadata_json, current_raw_market_price, current_quantity, photo_url, label_status, game")
         .eq("user_id", userId)
         .in("id", idChunk);
 
@@ -67,6 +67,8 @@ export async function refreshInventoryPrices(
       .map(r => ({
         id:                      r.id as string,
         productName:             r.product_name as string,
+        number:                  r.number as string | null,
+        game:                    r.game as string | null,
         condition:               r.condition as string,
         sourceProductId:         r.source_product_id as string,
         sourceTcgplayerSkuId:    r.source_tcgplayer_sku_id as string | null,
@@ -102,6 +104,11 @@ export async function refreshInventoryPrices(
           tcgplayerSkuId: item.sourceTcgplayerSkuId ?? metadata.sourceTcgplayerSkuId ?? null,
           condition:      item.condition ?? "Near Mint",
           printing:       metadata.sourcePrinting || null,
+          // Fallback routing fields — without these, batchFetchPrices cannot route
+          // to PokéWallet/BerryWallet and unpriced items stay unpriced forever.
+          game:           item.game ?? null,
+          groupId:        item.sourceProductId ?? null,
+          cardNumber:     item.number ?? null,
         };
       });
 
@@ -140,6 +147,20 @@ export async function refreshInventoryPrices(
         }
 
         pricedCount++;
+
+        // Labels are created with NULL prices at merge time (CSV prices are never
+        // recorded). Backfill the queued label now that a real price resolved.
+        await supabaseAdmin
+          .from("label_queue_items")
+          .update({
+            current_raw_price:   priceResult.price,
+            rounded_print_price: Math.ceil(priceResult.price),
+            updated_at:          now.toISOString(),
+          })
+          .eq("user_id", userId)
+          .eq("inventory_item_id", item.id)
+          .eq("export_status", "pending")
+          .is("current_raw_price", null);
 
         const oldPrice = item.currentRawMarketPrice ?? null;
         if (oldPrice !== null) {
@@ -496,9 +517,6 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           number: row.number ?? null,
           condition: finalCondition ?? null,
           addToQuantity: row.addToQuantity ?? 1,
-          rawMarketPrice: null,
-          roundedPrintPrice: null,
-          csvMarketPrice: null,
           priceSource: "pending",
           normalizedMatchKey: parsed?.normalizedMatchKey ?? null,
           matchMetadataJson: JSON.stringify({
@@ -525,12 +543,11 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
           existingId:     match.existingId,
           game:           resolvedGame,
           newQty:         overrides[match.rowId]?.csvQty ?? match.csvQty ?? match.existingQty ?? 0,
-          csvMarketPrice: null,
           priceSource:    "pending",
         };
       });
 
-      const { error: rpcError } = await supabaseAdmin.rpc("approve_upload", {
+      const { data: rpcResult, error: rpcError } = await supabaseAdmin.rpc("approve_upload", {
         p_user_id:      userId,
         p_upload_id:    uploadId,
         p_review_id:    review.id,
@@ -540,10 +557,24 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         p_now:          now,
       });
 
+      // approve_upload is all-or-nothing: it verifies every submitted item landed
+      // on disk and raises (rolling the whole merge back) if the counts disagree,
+      // so an error here means nothing was written and the upload is still pending.
       if (rpcError) {
         console.error("[approve_upload RPC error]", rpcError);
-        return res.status(500).json({ error: rpcError.message });
+        return res.status(500).json({
+          error: rpcError.message,
+          merged: false,
+          hint: "No rows were written — the merge was rolled back. Re-approve to retry.",
+        });
       }
+
+      const counts = (rpcResult ?? {}) as Record<string, number>;
+      console.log(
+        `[approve_upload] upload=${uploadId} inserted=${counts.newInserted ?? 0} ` +
+        `merged=${counts.newMergedIntoExisting ?? 0} matched=${counts.matchedUpdated ?? 0} ` +
+        `parsedLinked=${counts.parsedRowsLinked ?? 0} expectedNew=${counts.expectedNew ?? 0}`,
+      );
 
       const newItemIds = rpcNewItems.map((i: any) => i.inventoryItemId);
 
@@ -572,7 +603,7 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         });
       }
 
-      res.json({ success: true });
+      res.json({ success: true, merged: true, counts });
     } catch (e: any) {
       console.error(e);
       res.status(500).json({ error: e.message });

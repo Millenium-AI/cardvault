@@ -64,7 +64,6 @@ export interface InventoryItem {
   status: string;
   labelStatus?: string;
   priceSource?: string | null;
-  csvMarketPrice?: number | null;
   priceLastFetchedAt?: string | null;
   priceChange24hr?: number | null;
   priceChange7d?: number | null;
