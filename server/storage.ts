@@ -66,6 +66,15 @@ export interface InventoryItem {
   status: string;
   labelStatus?: string;
   priceSource?: string | null;
+  // Sales-derived pricing (see server/tcgplayerSales.ts)
+  adjustedMarketPrice?: number | null;
+  lastSaleDate?: string | null;
+  lastSaleCount?: number | null;
+  lastSaleOutliers?: number | null;
+  lastSaleMatch?: string | null;
+  lastSaleFetchedAt?: string | null;
+  priceDivergencePct?: number | null;
+  priceLocked?: boolean | null;
   priceLastFetchedAt?: string | null;
   priceChange24hr?: number | null;
   priceChange7d?: number | null;
@@ -631,6 +640,85 @@ class SupabaseStorage {
 
   async setSetting(userId: string, key: string, value: string): Promise<void> {
     await supabaseAdmin.from('app_settings').upsert({ user_id: userId, key, value }, { onConflict: 'user_id,key' });
+  }
+
+  // ── product sales ───────────────────────────────────────────────────────
+  /** Every stored sale for a product, newest first — including outliers, which
+   *  the expanded view shows struck through rather than hiding. */
+  async listProductSales(userId: string, sourceProductId: string, limit = 25): Promise<any[]> {
+    const { data } = await supabaseAdmin
+      .from('product_sales')
+      .select('condition, variant, language, quantity, purchase_price, order_date, is_outlier')
+      .eq('user_id', userId)
+      .eq('source_product_id', sourceProductId)
+      .order('order_date', { ascending: false })
+      .limit(limit);
+
+    return (data || []).map((r: any) => ({
+      condition: r.condition,
+      variant: r.variant,
+      language: r.language,
+      quantity: r.quantity,
+      purchasePrice: Number(r.purchase_price),
+      orderDate: r.order_date,
+      isOutlier: r.is_outlier,
+    }));
+  }
+
+  /** Items in the shape the sales sweep needs. */
+  async listItemsForSalesSweep(
+    userId: string,
+    opts: { ids?: string[]; minValue?: number; staleHours?: number } = {},
+  ): Promise<any[]> {
+    const rows = await fetchAllPages<Record<string, any>>((from, to) => {
+      let q = supabaseAdmin
+        .from('inventory_items')
+        .select('id, source_product_id, condition, match_metadata_json, current_raw_market_price, current_rounded_print_price, current_quantity, label_status, price_locked, last_sale_fetched_at')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .not('source_product_id', 'is', null)
+        .order('id', { ascending: true });
+
+      if (opts.ids?.length) q = q.in('id', opts.ids);
+      if (opts.minValue) q = q.gte('current_raw_market_price', opts.minValue);
+      if (opts.staleHours) {
+        const cutoff = new Date(Date.now() - opts.staleHours * 3600_000).toISOString();
+        q = q.or(`last_sale_fetched_at.is.null,last_sale_fetched_at.lt.${cutoff}`);
+      }
+      return q.range(from, to);
+    });
+
+    return rows.map(r => {
+      const meta = (() => {
+        if (!r.match_metadata_json) return {};
+        if (typeof r.match_metadata_json === 'object') return r.match_metadata_json;
+        try { return JSON.parse(r.match_metadata_json); } catch { return {}; }
+      })();
+      return {
+        id: r.id as string,
+        sourceProductId: r.source_product_id as string | null,
+        condition: r.condition as string | null,
+        printing: (meta.sourcePrinting ?? null) as string | null,
+        currentRawMarketPrice: r.current_raw_market_price == null ? null : Number(r.current_raw_market_price),
+        currentRoundedPrintPrice: r.current_rounded_print_price == null ? null : Number(r.current_rounded_print_price),
+        currentQuantity: Number(r.current_quantity ?? 0),
+        labelStatus: r.label_status as string | null,
+        priceLocked: !!r.price_locked,
+      };
+    });
+  }
+
+  async getSalesCheckSettings(userId: string): Promise<{ enabled: boolean; autoAdjust: boolean; windowDays: number }> {
+    const [enabled, autoAdjust, windowDays] = await Promise.all([
+      this.getSetting(userId, 'sales_check_enabled'),
+      this.getSetting(userId, 'sales_auto_adjust_enabled'),
+      this.getSetting(userId, 'sales_check_window_days'),
+    ]);
+    return {
+      enabled: enabled !== 'false',
+      autoAdjust: autoAdjust !== 'false',
+      windowDays: windowDays ? parseInt(windowDays, 10) || 30 : 30,
+    };
   }
 
   async getRepricingThresholds(userId: string): Promise<{ over100Pct: number; mid50to100Pct: number; under50Pct: number }> {

@@ -154,6 +154,27 @@ export const insertShowLedgerSchema = createInsertSchema(showLedgers).omit({ id:
 export type InsertShowLedger = z.infer<typeof insertShowLedgerSchema>;
 export type ShowLedger = typeof showLedgers.$inferSelect;
 
+// ─── product_sales ───────────────────────────────────────────────────
+// Recent TCGplayer sales per product, used to compute adjustedMarketPrice.
+// Shipping is deliberately never stored. Purged after 180 days.
+export const productSales = pgTable("product_sales", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  sourceProductId: text("source_product_id").notNull(),
+  condition: text("condition"),
+  variant: text("variant"), // printing
+  language: text("language"),
+  quantity: integer("quantity").notNull().default(1),
+  purchasePrice: doublePrecision("purchase_price").notNull(),
+  orderDate: text("order_date").notNull(),
+  isOutlier: boolean("is_outlier").notNull().default(false),
+  fetchedAt: text("fetched_at").notNull(),
+});
+
+export const insertProductSaleSchema = createInsertSchema(productSales).omit({ id: true, fetchedAt: true });
+export type InsertProductSale = z.infer<typeof insertProductSaleSchema>;
+export type ProductSale = typeof productSales.$inferSelect;
+
 // ─── transactions ─────────────────────────────────────────────────────────────
 export const transactions = pgTable("transactions", {
   id: text("id").primaryKey(),
