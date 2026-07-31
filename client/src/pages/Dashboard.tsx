@@ -1,15 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Package, Tag, RefreshCcw, Upload, DollarSign,
+  Package, Tag, RefreshCcw, DollarSign,
   TrendingUp, TrendingDown, Trophy, AlertCircle, Store,
-  BarChart2, ArrowRight,
+  BarChart2, ArrowRight, Clock, AlertTriangle,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
-import { format, parseISO } from "date-fns";
 import { Link } from "wouter";
 
 /* ─────────────────────── helpers ─────────────────────── */
@@ -41,28 +40,42 @@ function calcShow(show: any) {
   return { cashResult, invEdge, invDelta, combined };
 }
 
+/** Days since a date string */
+function daysSince(dateStr: string): number {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return 0;
+  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 /* ─────────────────────── sub-components ─────────────────────── */
 
 function StatCard({
-  label, value, icon: Icon, sub, accent = false, trend,
+  label, value, icon: Icon, sub, accent = false, warn = false, trend,
 }: {
   label: string;
   value: string | number;
   icon: any;
   sub?: string;
   accent?: boolean;
+  warn?: boolean;
   trend?: { value: string; up: boolean | null };
 }) {
+  const iconBg = warn
+    ? "bg-amber-500/15 text-amber-400"
+    : accent
+    ? "bg-primary/15 text-primary"
+    : "bg-accent text-muted-foreground";
+
   return (
     <div className="stat-card flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider leading-none">{label}</span>
-        <div className={`p-1.5 rounded-md ${accent ? "bg-primary/15 text-primary" : "bg-accent text-muted-foreground"}`}>
+        <div className={`p-1.5 rounded-md ${iconBg}`}>
           <Icon size={14} />
         </div>
       </div>
       <div>
-        <div className="text-xl font-bold text-foreground mono leading-none">{value}</div>
+        <div className={`text-xl font-bold leading-none mono ${warn ? "text-amber-400" : "text-foreground"}`}>{value}</div>
         {trend && (
           <div className={`text-[10px] mt-1 flex items-center gap-1 ${trend.up === true ? "text-emerald-400" : trend.up === false ? "text-red-400" : "text-muted-foreground"}`}>
             {trend.up === true && <TrendingUp size={9} />}
@@ -98,11 +111,122 @@ function CustomTooltip({ active, payload, label }: any) {
       <div className="text-muted-foreground mb-1">{label}</div>
       {payload.map((p: any, i: number) => (
         <div key={i} style={{ color: p.color }} className="font-medium">
-          {typeof p.value === "number"
-            ? `$${p.value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          {p.name}: {typeof p.value === "number"
+            ? p.name?.toLowerCase().includes("value") || p.name?.toLowerCase().includes("$")
+              ? `$${p.value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : p.value.toLocaleString()
             : p.value}
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ─────────────────────── inventory health (aging) ─────────────────────── */
+
+const AGE_BUCKETS = [
+  { label: "0–30d",   min: 0,   max: 30,  color: "hsl(142 71% 45%)" },
+  { label: "31–90d",  min: 31,  max: 90,  color: "hsl(199 89% 48%)" },
+  { label: "91–180d", min: 91,  max: 180, color: "hsl(38 92% 50%)"  },
+  { label: "180d+",   min: 181, max: Infinity, color: "hsl(0 72% 51%)" },
+];
+
+function InventoryHealth({ items }: { items: any[] }) {
+  if (!items.length) return (
+    <div className="stat-card h-full flex items-center justify-center py-10 text-center">
+      <div>
+        <Clock size={24} className="text-muted-foreground/40 mb-2 mx-auto" />
+        <div className="text-xs text-muted-foreground">No inventory yet — upload to see aging</div>
+      </div>
+    </div>
+  );
+
+  const buckets = AGE_BUCKETS.map(b => {
+    const matches = items.filter(item => {
+      const age = daysSince(item.lastSeenAt || item.firstSeenAt);
+      return age >= b.min && age <= b.max;
+    });
+    const value = matches.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
+    return { label: b.label, skus: matches.length, value: Math.round(value * 100) / 100, color: b.color };
+  });
+
+  const totalSkus = items.length;
+
+  return (
+    <div className="stat-card">
+      <SectionHeader title="Inventory Age" linkTo="/inventory" />
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={buckets} barSize={28}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+          <XAxis dataKey="label" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} width={28} />
+          <Tooltip content={<CustomTooltip />} />
+          <Bar dataKey="skus" name="SKUs" radius={[3, 3, 0, 0]}>
+            {buckets.map((b, i) => (
+              <Cell key={i} fill={b.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-2">
+        {buckets.map((b, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-sm shrink-0" style={{ background: b.color }} />
+            <span className="text-[10px] text-muted-foreground flex-1">{b.label}</span>
+            <span className="text-[10px] font-medium text-foreground mono">{b.skus}</span>
+            <span className="text-[10px] text-muted-foreground/60 mono">{Math.round((b.skus / totalSkus) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────── dead stock top cards ─────────────────────── */
+
+function DeadStock({ items }: { items: any[] }) {
+  if (!items.length) return null;
+
+  const stale = items
+    .filter(i => daysSince(i.lastSeenAt || i.firstSeenAt) >= 90)
+    .map(i => ({
+      ...i,
+      age: daysSince(i.lastSeenAt || i.firstSeenAt),
+      totalValue: (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1),
+    }))
+    .sort((a, b) => b.totalValue - a.totalValue)
+    .slice(0, 6);
+
+  if (!stale.length) return (
+    <div className="stat-card h-full flex items-center justify-center py-8 text-center">
+      <div>
+        <Trophy size={22} className="text-emerald-400/60 mb-2 mx-auto" />
+        <div className="text-xs font-medium text-foreground">No stale stock</div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">All items seen within 90 days</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="stat-card">
+      <SectionHeader title="Stale Stock  ≥ 90d" linkTo="/inventory" />
+      <div className="space-y-1.5 overflow-y-auto max-h-52">
+        {stale.map((item: any) => (
+          <div key={item.id} className="flex items-center gap-2 py-1 border-b border-border/50 last:border-0">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-foreground truncate">{item.productName}</div>
+              <div className="text-[10px] text-muted-foreground flex gap-1.5">
+                {item.game && <span>{item.game}</span>}
+                {item.condition && <span>· {item.condition}</span>}
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-xs font-mono font-semibold text-amber-400">{fmtUSD(item.totalValue)}</div>
+              <div className="text-[10px] text-muted-foreground">{item.age}d old · qty {item.currentQuantity ?? 1}</div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -133,7 +257,6 @@ function VendorPnL({ shows }: { shows: any[] }) {
 
   return (
     <div className="stat-card mb-4">
-      {/* Header */}
       <div className="flex items-center gap-2 mb-4">
         <div className="p-1.5 rounded-md bg-primary/15 text-primary">
           <Store size={14} />
@@ -142,7 +265,6 @@ function VendorPnL({ shows }: { shows: any[] }) {
         <div className="ml-auto text-[10px] text-muted-foreground uppercase tracking-wider">{shows.length} show{shows.length !== 1 ? "s" : ""}</div>
       </div>
 
-      {/* P&L summary row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 pb-4 border-b border-border/60">
         <div>
           <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Total Cash Profit</div>
@@ -174,7 +296,6 @@ function VendorPnL({ shows }: { shows: any[] }) {
         </div>
       </div>
 
-      {/* Best / worst show */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {best && (
           <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2.5">
@@ -211,26 +332,25 @@ function ShowGainChart({ shows }: { shows: any[] }) {
   const chartData = [...shows]
     .sort((a, b) => (a.showDate > b.showDate ? 1 : -1))
     .map(s => {
-      const { cashResult, invEdge, combined } = calcShow(s);
+      const { cashResult, invEdge } = calcShow(s);
       return {
         name: s.showName.length > 12 ? s.showName.slice(0, 12) + "…" : s.showName,
         cashResult: Math.round(cashResult * 100) / 100,
         invEdge: Math.round(invEdge * 100) / 100,
-        combined: Math.round(combined * 100) / 100,
       };
     });
 
   return (
     <div className="stat-card mb-4">
       <SectionHeader title="Show Gain Over Time" linkTo="/shows" />
-      <ResponsiveContainer width="100%" height={160}>
+      <ResponsiveContainer width="100%" height={150}>
         <BarChart data={chartData} barGap={2}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
           <XAxis dataKey="name" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} width={42} />
           <Tooltip content={<CustomTooltip />} />
-          <Bar dataKey="cashResult" name="Cash Profit" fill="hsl(142 71% 45%)" radius={[2, 2, 0, 0]} />
-          <Bar dataKey="invEdge" name="Inv Edge" fill="hsl(199 89% 48%)" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="cashResult" name="Cash Profit $" fill="hsl(142 71% 45%)" radius={[2, 2, 0, 0]} />
+          <Bar dataKey="invEdge" name="Inv Edge $" fill="hsl(199 89% 48%)" radius={[2, 2, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
       <div className="flex gap-4 mt-2">
@@ -341,28 +461,68 @@ function ChannelBreakdown({ transactions }: { transactions: any[] }) {
   );
 }
 
+/* ─────────────────────── price movers ─────────────────────── */
+
+function PriceMovers({ movers, isLoading }: { movers: any[]; isLoading: boolean }) {
+  return (
+    <div className="stat-card">
+      <SectionHeader title="Top Price Movers (7d)" />
+      {isLoading ? (
+        <Skeleton className="h-40 w-full" />
+      ) : movers.length === 0 ? (
+        <div className="h-40 flex items-center justify-center text-muted-foreground text-xs text-center px-4">
+          No price movement data yet
+        </div>
+      ) : (
+        <div className="space-y-1.5 overflow-y-auto max-h-52">
+          {movers.map((m: any) => (
+            <div key={m.id} className="flex items-center gap-2 py-1 border-b border-border/50 last:border-0">
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-foreground truncate">{m.productName}</div>
+                <div className="text-[10px] text-muted-foreground">{m.number}</div>
+              </div>
+              <div className="flex flex-col items-end shrink-0 gap-0.5">
+                <div className="flex items-center gap-1">
+                  {m.pctChange > 0
+                    ? <TrendingUp size={11} className="text-emerald-400" />
+                    : <TrendingDown size={11} className="text-red-400" />}
+                  <span className={`text-xs font-mono font-semibold ${m.pctChange > 0 ? "text-emerald-400" : "text-red-400"}`}>
+                    {m.pctChange > 0 ? "+" : ""}{m.pctChange}%
+                  </span>
+                </div>
+                <div className="text-[10px] text-muted-foreground mono">
+                  {fmtUSD(m.oldPrice)} → {fmtUSD(m.newPrice)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────── page ─────────────────────── */
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
-  const { data: historyRaw, isLoading: histLoading } = useQuery<any>({ queryKey: ["/api/snapshots/history"] });
   const { data: moversRaw, isLoading: moversLoading } = useQuery<any>({ queryKey: ["/api/snapshots/movers"] });
   const { data: showsRaw } = useQuery<any>({ queryKey: ["/api/shows"] });
   const { data: txnsRaw } = useQuery<any>({ queryKey: ["/api/transactions"] });
+  const { data: inventoryRaw, isLoading: invLoading } = useQuery<any>({ queryKey: ["/api/inventory"] });
 
-  const history: any[] = Array.isArray(historyRaw) ? historyRaw : [];
   const movers: any[] = Array.isArray(moversRaw) ? moversRaw : [];
   const shows: any[] = Array.isArray(showsRaw) ? showsRaw : [];
   const transactions: any[] = Array.isArray(txnsRaw) ? txnsRaw : [];
+  const inventory: any[] = Array.isArray(inventoryRaw) ? inventoryRaw : [];
 
-  const chartData = history.map(h => ({
-    date: (() => { try { return format(parseISO(h.date), "M/d"); } catch { return h.date; } })(),
-    value: h.value,
-  }));
+  const staleItems = inventory.filter(i => daysSince(i.lastSeenAt || i.firstSeenAt) >= 90);
+  const staleValue = staleItems.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
+  const deadItems = inventory.filter(i => daysSince(i.lastSeenAt || i.firstSeenAt) >= 180);
+  const deadValue = deadItems.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
 
   const recentShows = shows.slice(0, 3);
 
-  // Reprice queue dollar impact — market value of items pending reprice
   const repriceDollarSub = stats?.repricingPending > 0
     ? `${stats.repricingPending} pending review`
     : "up to date";
@@ -378,14 +538,17 @@ export default function Dashboard() {
 
       {/* ── KPI grid ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3 mb-4 md:mb-6">
-        {statsLoading ? (
+        {statsLoading || invLoading ? (
           Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="stat-card"><Skeleton className="h-14 w-full" /></div>
           ))
         ) : (
           <>
-            <StatCard label="Total SKUs" value={(stats?.totalItems ?? 0).toLocaleString()} icon={Package} />
-            <StatCard label="Total Units" value={(stats?.totalQuantity ?? 0).toLocaleString()} icon={Package} />
+            <StatCard
+              label="Total SKUs"
+              value={(stats?.totalItems ?? 0).toLocaleString()}
+              icon={Package}
+            />
             <StatCard
               label="Market Value"
               value={fmtUSD(stats?.totalMarketValue ?? 0)}
@@ -405,7 +568,20 @@ export default function Dashboard() {
               sub={repriceDollarSub}
               accent={(stats?.repricingPending ?? 0) > 0}
             />
-            <StatCard label="Uploads / Week" value={stats?.uploadsThisWeek ?? 0} icon={Upload} />
+            <StatCard
+              label="Stale ≥ 90d"
+              value={staleItems.length}
+              icon={Clock}
+              sub={staleValue > 0 ? `${fmtUSD(staleValue)} tied up` : "none"}
+              warn={staleItems.length > 0}
+            />
+            <StatCard
+              label="Dead ≥ 180d"
+              value={deadItems.length}
+              icon={AlertTriangle}
+              sub={deadValue > 0 ? `${fmtUSD(deadValue)} at risk` : "none"}
+              warn={deadItems.length > 0}
+            />
           </>
         )}
       </div>
@@ -426,85 +602,19 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Charts row ── */}
+      {/* ── Inventory Health + Price Movers + Channel Breakdown ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 mb-4 md:mb-6">
-        {/* Inventory value chart */}
-        <div className="lg:col-span-2 stat-card">
-          <SectionHeader title="Inventory Value Over Time" />
-          {histLoading ? (
-            <Skeleton className="h-40 w-full" />
-          ) : chartData.length <= 1 ? (
-            <div className="h-40 flex items-center justify-center text-center text-muted-foreground text-xs px-4">
-              {chartData.length === 0
-                ? "No price history yet — upload inventory to start tracking"
-                : "Upload more CSVs over time to see value trends. First snapshot recorded today."}
-            </div>
+        <div className="lg:col-span-1">
+          {invLoading ? (
+            <div className="stat-card"><Skeleton className="h-48 w-full" /></div>
           ) : (
-            <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="valueGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(142 71% 45%)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(142 71% 45%)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="date" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} width={36} />
-                <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="value" name="Market Value" stroke="hsl(142 71% 45%)" fill="url(#valueGrad)" strokeWidth={2} dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <InventoryHealth items={inventory} />
           )}
         </div>
-
-        {/* Price movers */}
-        <div className="stat-card">
-          <SectionHeader title="Top Price Movers (7d)" />
-          {moversLoading ? (
-            <Skeleton className="h-40 w-full" />
-          ) : movers.length === 0 ? (
-            <div className="h-40 flex items-center justify-center text-muted-foreground text-xs text-center px-4">
-              No price movement data yet
-            </div>
-          ) : (
-            <div className="space-y-1.5 overflow-y-auto max-h-44">
-              {movers.map((m: any) => (
-                <div key={m.id} className="flex items-center gap-2 py-1 border-b border-border last:border-0">
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-medium text-foreground truncate">{m.productName}</div>
-                    <div className="text-[10px] text-muted-foreground">{m.number}</div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {m.pctChange > 0
-                      ? <TrendingUp size={11} className="text-emerald-400" />
-                      : <TrendingDown size={11} className="text-red-400" />}
-                    <span className={`text-xs font-mono font-medium ${m.pctChange > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                      {m.pctChange > 0 ? "+" : ""}{m.pctChange}%
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="lg:col-span-1">
+          <PriceMovers movers={movers} isLoading={moversLoading} />
         </div>
-      </div>
-
-      {/* ── Show gain chart + channel breakdown ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 mb-4 md:mb-6">
-        <div className="lg:col-span-2">
-          {shows.length >= 2 ? (
-            <ShowGainChart shows={shows} />
-          ) : (
-            <div className="stat-card h-full flex items-center justify-center py-10 text-center">
-              <div>
-                <BarChart2 size={24} className="text-muted-foreground/40 mb-2 mx-auto" />
-                <div className="text-xs text-muted-foreground">Add 2+ shows to see a gain-per-show chart</div>
-              </div>
-            </div>
-          )}
-        </div>
-        <div>
+        <div className="lg:col-span-1">
           {transactions.length > 0 ? (
             <ChannelBreakdown transactions={transactions} />
           ) : (
@@ -518,14 +628,34 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ── Dead / Stale Stock detail ── */}
+      {inventory.length > 0 && (
+        <div className="mb-4 md:mb-6">
+          <DeadStock items={inventory} />
+        </div>
+      )}
+
+      {/* ── Show gain chart ── */}
+      <div className="mb-4 md:mb-6">
+        {shows.length >= 2 ? (
+          <ShowGainChart shows={shows} />
+        ) : (
+          <div className="stat-card flex items-center justify-center py-10 text-center">
+            <div>
+              <BarChart2 size={24} className="text-muted-foreground/40 mb-2 mx-auto" />
+              <div className="text-xs text-muted-foreground">Add 2+ shows to see a gain-per-show chart</div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── Recent shows table ── */}
       {recentShows.length > 0 && (
         <div className="stat-card">
           <SectionHeader title="Recent Shows" linkTo="/shows" />
-          {/* Mobile: stacked cards */}
           <div className="flex flex-col gap-2 sm:hidden">
             {recentShows.map((show: any) => {
-              const { cashResult, invEdge, combined } = calcShow(show);
+              const { combined } = calcShow(show);
               return (
                 <div key={show.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                   <div>
@@ -542,7 +672,6 @@ export default function Dashboard() {
               );
             })}
           </div>
-          {/* Desktop: table */}
           <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
