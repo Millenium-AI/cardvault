@@ -6,6 +6,8 @@ import { buildLabelCsv } from "./csvHelpers";
 import { resolveProductIds } from "../productIdResolver";
 import { refreshInventoryPrices } from "./uploads";
 import { supabaseAdmin } from "../supabase";
+import { effectivePrice, effectivePrintPrice } from "../../shared/lib/effectivePrice";
+import { evaluateDivergence, getDivergenceBands } from "../tcgplayerSales";
 
 export function registerInventoryRoutes(app: Express) {
   // ── Repair: resolve product ids for existing unpriceable items ────────────
@@ -75,9 +77,29 @@ export function registerInventoryRoutes(app: Express) {
   });
 
   app.get("/api/inventory", async (req: any, res) => {
-    const { game, condition, status, search } = req.query as Record<string, string>;
-    const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });
-    res.json(items.map(item => ({ ...item, tcgplayerUrl: buildTcgplayerUrl(item) })));
+    try {
+      const userId = req.user.id;
+      const { game, condition, status, search } = req.query as Record<string, string>;
+      const items = await storage.listInventoryItems(userId, { game, condition, status, search });
+      const bands = await getDivergenceBands(userId);
+
+      res.json(items.map(item => {
+        const market = item.currentRawMarketPrice ?? 0;
+        const delta = item.adjustedMarketPrice != null ? item.adjustedMarketPrice - market : 0;
+        const verdict = evaluateDivergence(market, item.priceDivergencePct ?? null, delta, bands);
+
+        return {
+          ...item,
+          tcgplayerUrl: buildTcgplayerUrl(item),
+          effectivePrice: effectivePrice(item),
+          effectivePrintPrice: effectivePrintPrice(item),
+          divergenceFlagged: verdict.flagged,
+        };
+      }));
+    } catch (e: any) {
+      console.error("[inventory list]", e);
+      res.status(500).json({ error: e.message });
+    }
   });
 
   app.get("/api/inventory/export", async (req: any, res) => {

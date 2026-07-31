@@ -6,52 +6,6 @@ Handoff document for continuing the TCGplayer last-sale / adjusted-pricing featu
 Each phase below is written as a self-contained prompt. Run them **in order**, one at a
 time, verifying before moving on. Do not attempt all phases in one pass.
 
-
-
-## PHASE 3 — Automatic sweeps and effective pricing
-
-> **Prompt for Claude:**
->
-> Phase 2 exposed the sweep manually. Now run it automatically and make the adjusted price
-> the effective price across the app.
->
-> 1. **Post-approve hook** — in `server/routes/uploads.ts`, inside the `setImmediate`
->    block of `POST /api/uploads/:id/approve` that already runs the JustTCG refresh and the
->    pending-price sweep, append a sales sweep for the same item ids. It must run *after*
->    prices resolve, because divergence needs a market price to compare against. Respect
->    `getSalesCheckSettings`. Never let a sales failure affect the upload result.
->
-> 2. **Daily job** — in `server/jobs/priceRefresh.ts`, after `refreshInventoryPrices`
->    completes for a user, sweep that user's items with
->    `storage.listItemsForSalesSweep(userId, { staleHours: 24 })` so each card is rechecked
->    at most daily.
->
-> 3. **Effective price everywhere.** Add a shared helper — put it in
->    `shared/lib/effectivePrice.ts` so client and server agree:
->    ```ts
->    export function effectivePrice(item): number | null   // §2 resolution order
->    export function effectivePrintPrice(item): number | null  // ceil of the above
->    ```
->    Apply it in:
->    - `storage.getDashboardStats` → `totalMarketValue` uses effective price (still paginated)
->    - `server/routes/inventory.ts` GET `/api/inventory` → add computed `effectivePrice` and
->      `divergenceFlagged` (from `evaluateDivergence` with the user's bands) to each item in
->      the response, alongside the existing `tcgplayerUrl`
->    - `server/routes/inventory.ts` export and `csvHelpers.buildLabelCsv` → print price
->      follows the effective price
->
-> 4. **Settings** — add `sales_check_enabled`, `sales_auto_adjust_enabled`,
->    `sales_check_window_days`, and `sales_divergence_thresholds` to the settings
->    GET/PUT routes so they are editable.
->
-> **Acceptance:** approving an upload results in populated `adjusted_market_price` on items
-> that have sales; the dashboard Market Value shifts to reflect adjusted prices; toggling
-> `sales_auto_adjust_enabled=false` stops price changes but still records divergence.
->
-> Commit as `sales: automatic sweeps and effective-price resolution`.
-
----
-
 ## PHASE 4 — The badge on collapsed cards
 
 > **Prompt for Claude:**

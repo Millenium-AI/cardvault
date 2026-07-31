@@ -843,9 +843,9 @@ class SupabaseStorage {
     // under-reports Total Cards / Market Value); counts use an exact count
     // so they stay correct without pulling rows.
     const [items, newLabels, repricing, recentUploads] = await Promise.all([
-      fetchAllPages<{ current_quantity: number; current_raw_market_price: number | null }>((from, to) =>
+      fetchAllPages<{ current_quantity: number; current_raw_market_price: number | null; adjusted_market_price: number | null; price_locked: boolean }>((from, to) =>
         supabaseAdmin.from('inventory_items')
-          .select('current_quantity,current_raw_market_price')
+          .select('current_quantity,current_raw_market_price,adjusted_market_price,price_locked')
           .eq('user_id', userId).eq('status', 'active')
           .order('id', { ascending: true })
           .range(from, to),
@@ -858,10 +858,16 @@ class SupabaseStorage {
         .eq('user_id', userId).gte('uploaded_at', oneWeekAgo),
     ]);
 
+    // Effective price follows §2 resolution order: locked → adjusted → market
+    const getEffectivePrice = (i: any) => {
+      if (i.price_locked) return i.current_raw_market_price ?? 0;
+      return (i.adjusted_market_price ?? i.current_raw_market_price) ?? 0;
+    };
+
     return {
       totalItems: items.length,
       totalQuantity: items.reduce((s, i) => s + (i.current_quantity || 0), 0),
-      totalMarketValue: items.reduce((s, i) => s + (i.current_raw_market_price || 0) * (i.current_quantity || 0), 0),
+      totalMarketValue: items.reduce((s, i) => s + getEffectivePrice(i) * (i.current_quantity || 0), 0),
       newLabelsPending: newLabels.count ?? 0,
       repricingPending: repricing.count ?? 0,
       uploadsThisWeek: recentUploads.count ?? 0,

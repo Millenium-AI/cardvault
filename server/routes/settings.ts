@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { DEFAULT_COLUMN_ORDER } from "./helpers";
+import { DEFAULT_DIVERGENCE_BANDS } from "../tcgplayerSales";
 
 export function registerSettingsRoutes(app: Express) {
   app.get("/api/settings/inventory-columns", async (req: any, res) => {
@@ -80,6 +81,64 @@ export function registerSettingsRoutes(app: Express) {
       };
       await storage.setSetting(req.user.id, "user_prefs", JSON.stringify(next));
       res.json(next);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/settings/sales-check", async (req: any, res) => {
+    try {
+      const settings = await storage.getSalesCheckSettings(req.user.id);
+      res.json(settings);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/settings/sales-check", async (req: any, res) => {
+    try {
+      const { enabled, autoAdjust, windowDays } = req.body;
+      if (typeof enabled === "boolean") {
+        await storage.setSetting(req.user.id, "sales_check_enabled", String(enabled));
+      }
+      if (typeof autoAdjust === "boolean") {
+        await storage.setSetting(req.user.id, "sales_auto_adjust_enabled", String(autoAdjust));
+      }
+      if (typeof windowDays === "number" && windowDays > 0) {
+        await storage.setSetting(req.user.id, "sales_check_window_days", String(windowDays));
+      }
+      const settings = await storage.getSalesCheckSettings(req.user.id);
+      res.json(settings);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/settings/divergence-bands", async (req: any, res) => {
+    try {
+      const bands = await storage.getSetting(req.user.id, "sales_divergence_thresholds");
+      if (bands) {
+        try {
+          res.json(JSON.parse(bands));
+        } catch {
+          res.json(DEFAULT_DIVERGENCE_BANDS);
+        }
+      } else {
+        res.json(DEFAULT_DIVERGENCE_BANDS);
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/settings/divergence-bands", async (req: any, res) => {
+    try {
+      const bands = req.body;
+      if (!Array.isArray(bands)) {
+        return res.status(400).json({ error: "bands must be an array" });
+      }
+      await storage.setSetting(req.user.id, "sales_divergence_thresholds", JSON.stringify(bands));
+      res.json(bands);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

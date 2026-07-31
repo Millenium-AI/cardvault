@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { storage } from "../storage";
 import { verifyToken } from "../supabase";
+import { effectivePrintPrice } from "../../shared/lib/effectivePrice";
 
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 if (!ADMIN_EMAIL) {
@@ -62,7 +63,16 @@ export async function enrichLabelItems(userId: string, queueType: string) {
   const invMap = new Map(allInventory.map(i => [i.id, i]));
   return items.map(item => {
     const inv = invMap.get(item.inventoryItemId);
-    return { ...item, productName: inv?.productName, number: inv?.number, condition: inv?.condition, game: inv?.game };
+    // Use the effective print price so labels reflect adjusted prices
+    const effectivePrint = inv ? effectivePrintPrice(inv) : item.roundedPrintPrice;
+    return {
+      ...item,
+      productName: inv?.productName,
+      number: inv?.number,
+      condition: inv?.condition,
+      game: inv?.game,
+      roundedPrintPrice: effectivePrint ?? item.roundedPrintPrice,
+    };
   });
 }
 

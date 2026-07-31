@@ -7,6 +7,7 @@ import { batchFetchPrices } from "../justtcg";
 import { resolveProductIds } from "../productIdResolver";
 import { parseCSV, mapCsvRow, checkRepricingThreshold, upgradeTcgPlayerImageUrl } from "./csvHelpers";
 import { pendingJobs, sendProgress } from "./helpers";
+import { sweepSalesForItems, getDivergenceBands } from "../tcgplayerSales";
 
 const csvFilter = (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const ok =
@@ -829,6 +830,26 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
             }
           } catch (e: any) {
             console.error("[approve_upload] pending price sweep failed:", e.message);
+          }
+
+          // Sales sweep: cross-check against TCGplayer sales data after prices resolve
+          try {
+            const salesSettings = await storage.getSalesCheckSettings(userId);
+            if (salesSettings.enabled) {
+              const sweepItems = await storage.listItemsForSalesSweep(userId, { ids: allToPrice });
+              if (sweepItems.length) {
+                console.log(`[approve_upload] Running sales sweep for ${sweepItems.length} item(s) from upload ${uploadId}`);
+                const bands = await getDivergenceBands(userId);
+                const sweepSummary = await sweepSalesForItems(userId, sweepItems, {
+                  windowDays: salesSettings.windowDays,
+                  autoAdjust: salesSettings.autoAdjust,
+                  bands,
+                });
+                console.log(`[approve_upload] Sales sweep: ${sweepSummary.productsChecked} products, ${sweepSummary.itemsUpdated} items updated`);
+              }
+            }
+          } catch (e: any) {
+            console.error("[approve_upload] sales sweep failed:", e.message);
           }
         });
       }

@@ -1,5 +1,7 @@
 import { supabaseAdmin } from '../supabase';
+import { storage } from '../storage';
 import { refreshInventoryPrices } from '../routes/uploads';
+import { sweepSalesForItems, getDivergenceBands } from '../tcgplayerSales';
 
 export async function runDailyPriceRefresh() {
   try {
@@ -43,6 +45,7 @@ export async function runDailyPriceRefresh() {
 
     let processedUsers = 0;
     let actuallyPricedItems = 0;
+    let salesSweptUsers = 0;
 
     for (const [userId, itemIds] of userMap.entries()) {
       try {
@@ -50,6 +53,26 @@ export async function runDailyPriceRefresh() {
         const pricedCount = await refreshInventoryPrices(userId, itemIds, 'all');
         processedUsers++;
         actuallyPricedItems += pricedCount;
+
+        try {
+          const salesSettings = await storage.getSalesCheckSettings(userId);
+          if (salesSettings.enabled) {
+            console.log(`[Price Refresh Job] Running sales sweep for user ${userId}`);
+            const sweepItems = await storage.listItemsForSalesSweep(userId, { staleHours: 24 });
+            if (sweepItems.length) {
+              const bands = await getDivergenceBands(userId);
+              const sweepSummary = await sweepSalesForItems(userId, sweepItems, {
+                windowDays: salesSettings.windowDays,
+                autoAdjust: salesSettings.autoAdjust,
+                bands,
+              });
+              console.log(`[Price Refresh Job] Sales sweep for user ${userId}: ${sweepSummary.productsChecked} products checked, ${sweepSummary.itemsUpdated} items updated`);
+              salesSweptUsers++;
+            }
+          }
+        } catch (e: any) {
+          console.error(`[Price Refresh Job] Sales sweep failed for user ${userId}:`, e.message);
+        }
       } catch (e: any) {
         console.error(
           `[Price Refresh Job] Failed to refresh items for user ${userId}:`,
@@ -59,7 +82,7 @@ export async function runDailyPriceRefresh() {
     }
 
     console.log(
-      `[Price Refresh Job] Complete: ${processedUsers} users, ${actuallyPricedItems} items priced (${staleItems.length} attempted)`
+      `[Price Refresh Job] Complete: ${processedUsers} users, ${actuallyPricedItems} items priced (${staleItems.length} attempted), ${salesSweptUsers} users swept for sales`
     );
   } catch (err: any) {
     console.error('[Price Refresh Job] Fatal error:', err.message);
