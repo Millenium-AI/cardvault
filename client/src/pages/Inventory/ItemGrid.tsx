@@ -1,5 +1,6 @@
 import { CheckSquare, Square } from "lucide-react";
 import { ConditionBadge } from "@/components/ConditionBadge";
+import { PriceDivergenceBadge } from "@/components/PriceDivergenceBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
@@ -42,6 +43,11 @@ export function InventoryGridCard({
               : <Square size={13} className="text-muted-foreground" />}
           </div>
         )}
+
+        {/* Divergence badge */}
+        <div className="absolute top-1.5 right-1.5 z-10">
+          <PriceDivergenceBadge item={item} />
+        </div>
 
         {/* Portrait image — 3/4 aspect ratio */}
         <div className="relative w-full" style={{ aspectRatio: "3/4" }}>
@@ -91,6 +97,11 @@ export function InventoryGridCard({
             : <Square size={15} className="text-muted-foreground" />}
         </div>
       )}
+
+      {/* Divergence badge */}
+      <div className="absolute top-2 right-2 z-10">
+        <PriceDivergenceBadge item={item} />
+      </div>
 
       {/* Portrait image — 3/4 aspect ratio, full card face */}
       <div className="relative w-full" style={{ aspectRatio: "3/4" }}>

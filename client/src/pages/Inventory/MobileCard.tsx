@@ -1,6 +1,7 @@
 import { ChevronRight, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConditionBadge } from "@/components/ConditionBadge";
+import { PriceDivergenceBadge } from "@/components/PriceDivergenceBadge";
 import { LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 
@@ -100,7 +101,7 @@ export function MobileInventoryCard({
           </div>
 
           {/* Price row */}
-          <div className="flex items-center gap-3 mt-1.5">
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Qty</span>
               <span className="text-xs font-mono font-medium text-foreground">
@@ -112,6 +113,7 @@ export function MobileInventoryCard({
               <span className="text-xs font-mono text-foreground">
                 ${item.currentRawMarketPrice?.toFixed(2) ?? "—"}
               </span>
+              <PriceDivergenceBadge item={item} />
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Print</span>

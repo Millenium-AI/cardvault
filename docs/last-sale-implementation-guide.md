@@ -6,48 +6,6 @@ Handoff document for continuing the TCGplayer last-sale / adjusted-pricing featu
 Each phase below is written as a self-contained prompt. Run them **in order**, one at a
 time, verifying before moving on. Do not attempt all phases in one pass.
 
-## PHASE 4 — The badge on collapsed cards
-
-> **Prompt for Claude:**
->
-> Build `client/src/components/PriceDivergenceBadge.tsx` and place it in the three
-> collapsed inventory views. **This is the highest-value phase for the user** — they want
-> the warning visible without expanding anything.
->
-> **Component API:** `{ item }` where item carries `priceDivergencePct`, `adjustedMarketPrice`,
-> `lastSaleCount`, `lastSaleMatch`, `lastSaleFetchedAt`, `divergenceFlagged`, `priceLocked`.
->
-> **States:**
->
-> | Condition | Rendering |
-> |---|---|
-> | No `priceDivergencePct` | Render nothing |
-> | Within threshold | Neutral grey chip, e.g. `+3%` — visible but quiet |
-> | Flagged, positive | **Amber** chip with up arrow — sells above your price |
-> | Flagged, negative | **Red** chip with down arrow — sells below your price |
-> | `lastSaleMatch === 'condition_only'` | Outline/hollow variant — weaker evidence |
-> | `lastSaleFetchedAt` older than 7 days | Dimmed (`opacity-50`) |
-> | `priceLocked` | Small pin icon next to the chip |
->
-> Tooltip: `Avg of {lastSaleCount} {condition} / {printing} sales · ${adjustedMarketPrice} · most recent {date}`.
->
-> **Placement:**
-> - `client/src/pages/Inventory/ItemRow.tsx` — inside the existing `market` `<td>`, to the
->   right of the price. Must not break the column layout or wrap
-> - `client/src/pages/Inventory/ItemGrid.tsx` — corner of the tile
-> - `client/src/pages/Inventory/MobileCard.tsx` — in the stats row beside the market price
->
-> The badge must be small enough not to disturb existing density. Check all three at
-> narrow widths — text wrapping in a table cell is the most likely defect here.
->
-> **Acceptance:** every card with sales data shows a percentage regardless of size;
-> only cards past their band threshold get colour; no layout shift or wrapped text in any
-> of the three views.
->
-> Commit as `inventory: price divergence badge on collapsed views`.
-
----
-
 ## PHASE 5 — Recent sales in the expanded views
 
 > **Prompt for Claude:**

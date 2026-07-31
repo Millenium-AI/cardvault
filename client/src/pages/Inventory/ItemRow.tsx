@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CheckSquare, Square, ChevronDown } from "lucide-react";
 import { ConditionBadge } from "@/components/ConditionBadge";
+import { PriceDivergenceBadge } from "@/components/PriceDivergenceBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { cn } from "@/lib/utils";
 import { LabelStatusBadge } from "./DetailPanel";
@@ -77,7 +78,10 @@ export function InventoryRow({
       );
       case "market": return (
         <td key="market" className="px-4 py-3 text-right whitespace-nowrap">
-          <span className="text-sm font-mono tabular-nums text-muted-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+          <div className="flex items-center justify-end gap-1.5">
+            <span className="text-sm font-mono tabular-nums text-muted-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+            <PriceDivergenceBadge item={item} />
+          </div>
         </td>
       );
       case "print": return (
