@@ -209,6 +209,29 @@ async function dbOp<T>(
   return toCamel<T>(data!);
 }
 
+/**
+ * PostgREST caps every SELECT at 1000 rows (Supabase default). Any list query
+ * that can exceed that MUST page through with .range() or it silently truncates —
+ * which quietly under-reports inventory totals and, worse, makes the upload
+ * matcher miss existing cards and create duplicates. Pass a builder that applies
+ * the range to a fresh query.
+ */
+const PAGE_SIZE = 1000;
+
+async function fetchAllPages<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await build(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const batch = data || [];
+    out.push(...(batch as T[]));
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
 // ─── Storage ──────────────────────────────────────────────────────────────────
 class SupabaseStorage {
 
@@ -242,13 +265,34 @@ class SupabaseStorage {
 
   // ── parsed rows ────────────────────────────────────────────────────────────
   async createParsedRows(userId: string, rows: Omit<ParsedRow, 'userId'>[]): Promise<void> {
-    const { error } = await supabaseAdmin.from('parsed_rows').insert(rows.map(r => toSnake({ ...r, userId })));
-    if (error) throw new Error(error.message);
+    if (!rows.length) return;
+
+    // Insert in chunks: a single request with several hundred rows (each carrying
+    // a full source_payload) has failed outright in production on large uploads.
+    const CHUNK = 200;
+    let inserted = 0;
+
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK).map(r => toSnake({ ...r, userId }));
+      const { data, error } = await supabaseAdmin.from('parsed_rows').insert(chunk).select('id');
+      if (error) throw new Error(`parsed_rows insert failed at row ${i}: ${error.message}`);
+      inserted += data?.length ?? 0;
+    }
+
+    if (inserted !== rows.length) {
+      throw new Error(`parsed_rows insert incomplete: wrote ${inserted} of ${rows.length} rows`);
+    }
   }
 
   async getParsedRowsByUpload(userId: string, uploadId: string): Promise<ParsedRow[]> {
-    const { data } = await supabaseAdmin.from('parsed_rows').select('id, user_id, upload_id, row_index, game, product_name, number, condition, raw_market_price, rounded_print_price, add_to_quantity, normalized_match_key, source_product_id, source_tcgplayer_sku_id, source_product_line, source_set_name, source_printing, source_rarity, source_payload, parse_flags, match_status, matched_inventory_id').eq('upload_id', uploadId).eq('user_id', userId);
-    return (data || []).map(toCamel<ParsedRow>);
+    const rows = await fetchAllPages<Record<string, any>>((from, to) =>
+      supabaseAdmin.from('parsed_rows')
+        .select('id, user_id, upload_id, row_index, game, product_name, number, condition, raw_market_price, rounded_print_price, add_to_quantity, normalized_match_key, source_product_id, source_tcgplayer_sku_id, source_product_line, source_set_name, source_printing, source_rarity, source_payload, parse_flags, match_status, matched_inventory_id')
+        .eq('upload_id', uploadId).eq('user_id', userId)
+        .order('row_index', { ascending: true })
+        .range(from, to),
+    );
+    return rows.map(toCamel<ParsedRow>);
   }
 
   async updateParsedRow(userId: string, id: string, data: Partial<ParsedRow>): Promise<void> {
@@ -293,19 +337,21 @@ class SupabaseStorage {
     byTcgplayerId: Map<string, InventoryItem>;
     byMatchKey: Map<string, InventoryItem>;
   }> {
-    const { data, error } = await supabaseAdmin
-      .from('inventory_items')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active');
-
-    if (error) throw new Error(error.message);
+    const rows = await fetchAllPages<Record<string, any>>((from, to) =>
+      supabaseAdmin
+        .from('inventory_items')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .order('id', { ascending: true })
+        .range(from, to),
+    );
 
     const byProductId = new Map<string, InventoryItem>();
     const byTcgplayerId = new Map<string, InventoryItem>();
     const byMatchKey = new Map<string, InventoryItem>();
 
-    for (const raw of data || []) {
+    for (const raw of rows) {
       const item = toCamel<InventoryItem>(raw);
       if (item.sourceProductId) byProductId.set(item.sourceProductId, item);
       if (item.sourceTcgplayerId) byTcgplayerId.set(item.sourceTcgplayerId, item);
@@ -316,17 +362,21 @@ class SupabaseStorage {
   }
 
   async listInventoryItems(userId: string, filters?: { game?: string; condition?: string; status?: string; search?: string; labelStatuses?: string[] }): Promise<InventoryItem[]> {
-    let query = supabaseAdmin.from('inventory_items').select('*')
-      .eq('user_id', userId)
-      .eq('status', filters?.status || 'active')
-      .order('last_seen_at', { ascending: false });
+    const rows = await fetchAllPages<Record<string, any>>((from, to) => {
+      let query = supabaseAdmin.from('inventory_items').select('*')
+        .eq('user_id', userId)
+        .eq('status', filters?.status || 'active')
+        .order('last_seen_at', { ascending: false })
+        .order('id', { ascending: true });
 
-    if (filters?.game) query = query.eq('game', filters.game);
-    if (filters?.condition) query = query.eq('condition', filters.condition);
-    if (filters?.labelStatuses?.length) query = query.in('label_status', filters.labelStatuses);
+      if (filters?.game) query = query.eq('game', filters.game);
+      if (filters?.condition) query = query.eq('condition', filters.condition);
+      if (filters?.labelStatuses?.length) query = query.in('label_status', filters.labelStatuses);
 
-    const { data } = await query;
-    let items = (data || []).map(toCamel<InventoryItem>);
+      return query.range(from, to);
+    });
+
+    let items = rows.map(toCamel<InventoryItem>);
 
     if (filters?.search) {
       const s = filters.search.toLowerCase();
@@ -381,9 +431,13 @@ class SupabaseStorage {
   }
 
   async getSnapshotsByItem(userId: string, inventoryItemId: string): Promise<PriceSnapshot[]> {
-    const { data } = await supabaseAdmin.from('price_snapshots').select('*')
-      .eq('inventory_item_id', inventoryItemId).eq('user_id', userId).order('snapshot_date', { ascending: false });
-    return (data || []).map(toCamel<PriceSnapshot>);
+    const rows = await fetchAllPages<Record<string, any>>((from, to) =>
+      supabaseAdmin.from('price_snapshots').select('*')
+        .eq('inventory_item_id', inventoryItemId).eq('user_id', userId)
+        .order('snapshot_date', { ascending: false })
+        .range(from, to),
+    );
+    return rows.map(toCamel<PriceSnapshot>);
   }
 
   async getLatestSnapshot(userId: string, inventoryItemId: string): Promise<PriceSnapshot | undefined> {
@@ -401,12 +455,22 @@ class SupabaseStorage {
     const result = new Map<string, PriceSnapshot>();
     if (!inventoryItemIds.length) return result;
 
-    const { data } = await supabaseAdmin.from('price_snapshots').select('*')
-      .eq('user_id', userId)
-      .in('inventory_item_id', inventoryItemIds)
-      .order('snapshot_date', { ascending: false });
+    // Chunk the id filter (long URLs fail) and page each chunk.
+    const ID_CHUNK = 100;
+    const rows: Record<string, any>[] = [];
+    for (let i = 0; i < inventoryItemIds.length; i += ID_CHUNK) {
+      const idChunk = inventoryItemIds.slice(i, i + ID_CHUNK);
+      const page = await fetchAllPages<Record<string, any>>((from, to) =>
+        supabaseAdmin.from('price_snapshots').select('*')
+          .eq('user_id', userId)
+          .in('inventory_item_id', idChunk)
+          .order('snapshot_date', { ascending: false })
+          .range(from, to),
+      );
+      rows.push(...page);
+    }
 
-    for (const row of data || []) {
+    for (const row of rows) {
       const snap = toCamel<PriceSnapshot>(row);
       if (!result.has(snap.inventoryItemId)) result.set(snap.inventoryItemId, snap);
     }
@@ -446,6 +510,7 @@ class SupabaseStorage {
     latestSnapshot: PriceSnapshot | undefined,
     result: { rawMarketPrice: number; roundedPrintPrice: number; quantityAfterMerge: number },
     now: Date = new Date(),
+    uploadId: string | null = null,
   ): Promise<PriceSnapshot | null> {
     const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -456,7 +521,9 @@ class SupabaseStorage {
 
     return this.createPriceSnapshot(userId, {
       inventoryItemId,
-      uploadId: null,
+      // Set for snapshots born from a CSV merge so price history stays
+      // attributable to the upload that created the item.
+      uploadId,
       snapshotDate: now.toISOString(),
       rawMarketPrice: result.rawMarketPrice,
       roundedPrintPrice: result.roundedPrintPrice,
@@ -489,11 +556,15 @@ class SupabaseStorage {
   }
 
   async listLabelQueueItems(userId: string, queueType?: string, exportStatus?: string): Promise<LabelQueueItem[]> {
-    let query = supabaseAdmin.from('label_queue_items').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    if (queueType) query = query.eq('queue_type', queueType);
-    if (exportStatus) query = query.eq('export_status', exportStatus);
-    const { data } = await query;
-    return (data || []).map(toCamel<LabelQueueItem>);
+    const rows = await fetchAllPages<Record<string, any>>((from, to) => {
+      let query = supabaseAdmin.from('label_queue_items').select('*').eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true });
+      if (queueType) query = query.eq('queue_type', queueType);
+      if (exportStatus) query = query.eq('export_status', exportStatus);
+      return query.range(from, to);
+    });
+    return rows.map(toCamel<LabelQueueItem>);
   }
 
   async getLabelQueueItem(userId: string, id: string): Promise<LabelQueueItem | undefined> {
@@ -575,14 +646,18 @@ class SupabaseStorage {
   }
 
   async listTransactions(userId: string, filters?: { type?: string; channel?: string; showId?: string; attached?: boolean }): Promise<Transaction[]> {
-    let query = supabaseAdmin.from('transactions').select('*').eq('user_id', userId).order('occurred_at', { ascending: false });
-    if (filters?.type) query = query.eq('type', filters.type);
-    if (filters?.channel) query = query.eq('channel', filters.channel);
-    if (filters?.showId) query = query.eq('show_id', filters.showId);
-    if (filters?.attached === true) query = query.not('show_id', 'is', null);
-    if (filters?.attached === false) query = query.is('show_id', null);
-    const { data } = await query;
-    return (data || []).map(toCamel<Transaction>);
+    const rows = await fetchAllPages<Record<string, any>>((from, to) => {
+      let query = supabaseAdmin.from('transactions').select('*').eq('user_id', userId)
+        .order('occurred_at', { ascending: false })
+        .order('id', { ascending: true });
+      if (filters?.type) query = query.eq('type', filters.type);
+      if (filters?.channel) query = query.eq('channel', filters.channel);
+      if (filters?.showId) query = query.eq('show_id', filters.showId);
+      if (filters?.attached === true) query = query.not('show_id', 'is', null);
+      if (filters?.attached === false) query = query.is('show_id', null);
+      return query.range(from, to);
+    });
+    return rows.map(toCamel<Transaction>);
   }
 
   async updateTransaction(userId: string, id: string, data: Partial<Transaction>): Promise<Transaction | undefined> {
@@ -638,20 +713,33 @@ class SupabaseStorage {
     newLabelsPending: number; repricingPending: number; uploadsThisWeek: number;
   }> {
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const [{ data: items }, { data: newLabels }, { data: repricing }, { data: recentUploads }] = await Promise.all([
-      supabaseAdmin.from('inventory_items').select('current_quantity,current_raw_market_price').eq('user_id', userId).eq('status', 'active'),
-      supabaseAdmin.from('label_queue_items').select('id').eq('user_id', userId).eq('queue_type', 'new').eq('export_status', 'pending'),
-      supabaseAdmin.from('label_queue_items').select('id').eq('user_id', userId).eq('queue_type', 'reprice').eq('export_status', 'pending'),
-      supabaseAdmin.from('uploads').select('id').eq('user_id', userId).gte('uploaded_at', oneWeekAgo),
+
+    // Totals must page (a plain select stops at 1000 rows and silently
+    // under-reports Total Cards / Market Value); counts use an exact count
+    // so they stay correct without pulling rows.
+    const [items, newLabels, repricing, recentUploads] = await Promise.all([
+      fetchAllPages<{ current_quantity: number; current_raw_market_price: number | null }>((from, to) =>
+        supabaseAdmin.from('inventory_items')
+          .select('current_quantity,current_raw_market_price')
+          .eq('user_id', userId).eq('status', 'active')
+          .order('id', { ascending: true })
+          .range(from, to),
+      ),
+      supabaseAdmin.from('label_queue_items').select('id', { count: 'exact', head: true })
+        .eq('user_id', userId).eq('queue_type', 'new').eq('export_status', 'pending'),
+      supabaseAdmin.from('label_queue_items').select('id', { count: 'exact', head: true })
+        .eq('user_id', userId).eq('queue_type', 'reprice').eq('export_status', 'pending'),
+      supabaseAdmin.from('uploads').select('id', { count: 'exact', head: true })
+        .eq('user_id', userId).gte('uploaded_at', oneWeekAgo),
     ]);
 
     return {
-      totalItems: items?.length || 0,
-      totalQuantity: (items || []).reduce((s, i: any) => s + (i.current_quantity || 0), 0),
-      totalMarketValue: (items || []).reduce((s, i: any) => s + (i.current_raw_market_price || 0) * (i.current_quantity || 0), 0),
-      newLabelsPending: newLabels?.length || 0,
-      repricingPending: repricing?.length || 0,
-      uploadsThisWeek: recentUploads?.length || 0,
+      totalItems: items.length,
+      totalQuantity: items.reduce((s, i) => s + (i.current_quantity || 0), 0),
+      totalMarketValue: items.reduce((s, i) => s + (i.current_raw_market_price || 0) * (i.current_quantity || 0), 0),
+      newLabelsPending: newLabels.count ?? 0,
+      repricingPending: repricing.count ?? 0,
+      uploadsThisWeek: recentUploads.count ?? 0,
     };
   }
 }

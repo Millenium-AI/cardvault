@@ -31,6 +31,7 @@ export async function refreshInventoryPrices(
   userId: string,
   itemIdsToPrice: string[],
   game: string,
+  uploadId: string | null = null,
 ) {
   try {
     if (!itemIdsToPrice.length) return 0;
@@ -190,6 +191,7 @@ export async function refreshInventoryPrices(
             latestSnap,
             { rawMarketPrice: priceResult.price, roundedPrintPrice: Math.ceil(priceResult.price), quantityAfterMerge: item.currentQuantity ?? 0 },
             now,
+            uploadId,
           );
         }
       }
@@ -367,7 +369,18 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         .filter(r => Object.values(r).some(v => v))
         .map((r, i) => mapCsvRow(r, game, i, uploadId));
 
-      await storage.createParsedRows(userId, parsedRowData);
+      try {
+        await storage.createParsedRows(userId, parsedRowData);
+      } catch (e: any) {
+        // Never leave an upload sitting at "pending" after a failed row write —
+        // that is what made the last bad merge look successful.
+        await storage.updateUpload(userId, uploadId, { parseStatus: "error" });
+        if (progressToken) {
+          const job = pendingJobs.get(progressToken);
+          if (job) { job.status = "error"; job.error = e.message; }
+        }
+        return res.status(500).json({ error: `Failed to save parsed rows: ${e.message}` });
+      }
 
       progress("Loading inventory…", 40);
 
@@ -441,6 +454,10 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
         ambiguousItems: ambiguousItems.length,
         totalParsed: validRows.length,
         totalRaw: rawRows.length,
+        // Visibility so a row can never go missing without a number to point at.
+        rowsSaved: parsedRowData.length,
+        rowsSkippedUnknown: parsedRowData.length - validRows.length,
+        rowsMissingProductId: validRows.filter(r => !r.sourceProductId).length,
       };
       await storage.updateUpload(userId, uploadId, { summaryJson: JSON.stringify(summary), parseStatus: "success" });
 
@@ -593,13 +610,43 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
       const allToPrice = [...newItemIds, ...matchedItemIds];
 
       if (allToPrice.length > 0) {
-        setImmediate(() => {
-          withRetry(
-            () => refreshInventoryPrices(userId, allToPrice, "all"),
+        setImmediate(async () => {
+          await withRetry(
+            () => refreshInventoryPrices(userId, allToPrice, "all", uploadId),
             2,
             30_000,
             "JustTCG post-approve price refresh",
           );
+
+          // Sweep: anything still unpriced after the first pass gets one more try
+          // (JustTCG rate limits and the PokeWallet/BerryWallet fallback quota are
+          // both transient). Whatever is still pending after this is picked up by
+          // the daily refresh job, which also targets price_source = 'pending'.
+          try {
+            const { data: stillPending } = await supabaseAdmin
+              .from("inventory_items")
+              .select("id")
+              .eq("user_id", userId)
+              .eq("latest_upload_id", uploadId)
+              .eq("price_source", "pending");
+
+            const pendingIds = (stillPending ?? []).map(r => r.id as string);
+            if (pendingIds.length > 0) {
+              console.warn(`[approve_upload] ${pendingIds.length} item(s) unpriced after first pass — retrying`);
+              const priced = await refreshInventoryPrices(userId, pendingIds, "all", uploadId);
+              const left = pendingIds.length - priced;
+              if (left > 0) {
+                console.warn(
+                  `[approve_upload] ${left} item(s) from upload ${uploadId} remain unpriced ` +
+                  `(no JustTCG/PokeWallet match or missing source_product_id) — daily job will retry`,
+                );
+              }
+            } else {
+              console.log(`[approve_upload] all ${allToPrice.length} item(s) priced for upload ${uploadId}`);
+            }
+          } catch (e: any) {
+            console.error("[approve_upload] pending price sweep failed:", e.message);
+          }
         });
       }
 
