@@ -9,6 +9,8 @@ export interface Upload {
   originalFilename: string;
   uploadedAt: string;
   rawFileContent?: string | null;
+  /** Key of the retained original file in the private `csv-uploads` bucket. */
+  rawFileStorageKey?: string | null;
   totalRows: number;
   parseStatus: string;
   summaryJson?: string | null;
@@ -297,6 +299,41 @@ class SupabaseStorage {
 
   async updateParsedRow(userId: string, id: string, data: Partial<ParsedRow>): Promise<void> {
     await supabaseAdmin.from('parsed_rows').update(toSnake(stripMeta(data as any))).eq('id', id).eq('user_id', userId);
+  }
+
+  /**
+   * Write back TCGplayer identifiers recovered by the product-id resolver.
+   * Runs in small parallel batches — these are per-row updates by primary key.
+   */
+  async patchParsedRowIdentifiers(
+    userId: string,
+    patches: { id: string; sourceProductId: string; sourceTcgplayerSkuId: string | null; parseFlags?: string }[],
+  ): Promise<number> {
+    if (!patches.length) return 0;
+    const BATCH = 20;
+    let updated = 0;
+
+    for (let i = 0; i < patches.length; i += BATCH) {
+      const batch = patches.slice(i, i + BATCH);
+      const results = await Promise.all(batch.map(async p => {
+        const patch: Record<string, any> = {
+          source_product_id: p.sourceProductId,
+          updated_at: new Date().toISOString(),
+        };
+        if (p.sourceTcgplayerSkuId) patch.source_tcgplayer_sku_id = p.sourceTcgplayerSkuId;
+        if (p.parseFlags) patch.parse_flags = p.parseFlags;
+
+        const { error } = await supabaseAdmin.from('parsed_rows')
+          .update(patch).eq('id', p.id).eq('user_id', userId);
+        if (error) {
+          console.error(`[resolver] failed to patch parsed row ${p.id}: ${error.message}`);
+          return false;
+        }
+        return true;
+      }));
+      updated += results.filter(Boolean).length;
+    }
+    return updated;
   }
 
   // ── inventory ──────────────────────────────────────────────────────────────

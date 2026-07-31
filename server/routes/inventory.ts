@@ -3,8 +3,77 @@ import * as XLSX from "xlsx";
 import { storage } from "../storage";
 import { enrichLabelItems, resolveInventoryItem, buildTcgplayerUrl, CONDITION_SHORT } from "./helpers";
 import { buildLabelCsv } from "./csvHelpers";
+import { resolveProductIds } from "../productIdResolver";
+import { refreshInventoryPrices } from "./uploads";
+import { supabaseAdmin } from "../supabase";
 
 export function registerInventoryRoutes(app: Express) {
+  // ── Repair: resolve product ids for existing unpriceable items ────────────
+  // Items with no source_product_id can never be priced. Recover the id from
+  // name + set + number, then immediately price whatever was recovered.
+  app.post("/api/inventory/resolve-product-ids", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const items = (await storage.listInventoryItems(userId)).filter(i => !i.sourceProductId);
+
+      if (!items.length) {
+        return res.json({ candidates: 0, resolved: 0, unresolved: 0, priced: 0, message: "Every item already has a product ID" });
+      }
+
+      const { results, summary } = await resolveProductIds(
+        items.map(i => {
+          const meta = (() => {
+            const v: any = (i as any).matchMetadataJson;
+            if (!v) return {};
+            if (typeof v === "object") return v;
+            try { return JSON.parse(v); } catch { return {}; }
+          })();
+          return {
+            id: i.id,
+            productName: i.productName,
+            number: i.number ?? null,
+            setName: meta.sourceSetName ?? null,
+            game: i.game ?? null,
+            condition: i.condition ?? null,
+            printing: meta.sourcePrinting ?? null,
+          };
+        }),
+      );
+
+      const resolvedIds: string[] = [];
+      for (const [itemId, hit] of Array.from(results.entries())) {
+        const patch: Record<string, any> = {
+          source_product_id: hit.sourceProductId,
+          updated_at: new Date().toISOString(),
+        };
+        if (hit.sourceTcgplayerSkuId) patch.source_tcgplayer_sku_id = hit.sourceTcgplayerSkuId;
+
+        const { error } = await supabaseAdmin.from("inventory_items")
+          .update(patch).eq("id", itemId).eq("user_id", userId);
+
+        if (error) {
+          console.error(`[resolver] failed to patch inventory item ${itemId}: ${error.message}`);
+          continue;
+        }
+        resolvedIds.push(itemId);
+      }
+
+      const priced = resolvedIds.length
+        ? await refreshInventoryPrices(userId, resolvedIds, "all")
+        : 0;
+
+      res.json({
+        candidates: items.length,
+        resolved: resolvedIds.length,
+        unresolved: summary.unresolved + summary.skippedOverCap,
+        priced,
+      });
+    } catch (e: any) {
+      console.error("[inventory resolve-product-ids]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   app.get("/api/inventory", async (req: any, res) => {
     const { game, condition, status, search } = req.query as Record<string, string>;
     const items = await storage.listInventoryItems(req.user.id, { game, condition, status, search });

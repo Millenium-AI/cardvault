@@ -9,8 +9,8 @@ export const uploads = pgTable("uploads", {
   game: text("game").notNull().default("pokemon"),
   originalFilename: text("original_filename").notNull(),
   uploadedAt: text("uploaded_at").notNull(),
-  rawFilePath: text("raw_file_path"),
-  rawFileContent: text("raw_file_content"), // stored CSV text
+  rawFileContent: text("raw_file_content"), // legacy inline CSV text (no longer written)
+  rawFileStorageKey: text("raw_file_storage_key"), // key in the private csv-uploads bucket — enables replay
   totalRows: integer("total_rows").notNull().default(0),
   parseStatus: text("parse_status").notNull().default("pending"), // pending|parsed|failed|merged|rejected
   summaryJson: text("summary_json"), // JSON string

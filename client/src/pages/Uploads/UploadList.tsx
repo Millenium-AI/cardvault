@@ -1,4 +1,4 @@
-import { FileText, Clock, Trash2 } from "lucide-react";
+import { FileText, Clock, Trash2, RotateCcw, Download } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { gameLabel } from "@shared/gameLabels";
@@ -19,6 +19,8 @@ interface Upload {
   game: string;
   totalRows: number;
   uploadedAt: string;
+  /** Present when the original file was retained and the upload can be replayed. */
+  rawFileStorageKey?: string | null;
 }
 
 interface UploadListProps {
@@ -29,6 +31,10 @@ interface UploadListProps {
   deleteMutVariables: string | undefined;
   onSelectUpload: (uploadId: string) => void;
   onDeleteUpload: (uploadId: string, filename: string) => void;
+  onReplayUpload: (uploadId: string, filename: string) => void;
+  onDownloadUpload: (uploadId: string) => void;
+  replayMutPending?: boolean;
+  replayMutVariables?: string;
 }
 
 export function UploadList({
@@ -39,6 +45,10 @@ export function UploadList({
   deleteMutVariables,
   onSelectUpload,
   onDeleteUpload,
+  onReplayUpload,
+  onDownloadUpload,
+  replayMutPending,
+  replayMutVariables,
 }: UploadListProps) {
   const formatDate = (d: string) => {
     try { return format(parseISO(d), "M/d/yy HH:mm"); } catch { return d; }
@@ -81,6 +91,33 @@ export function UploadList({
                   <span className="flex items-center gap-0.5"><Clock size={9} />{formatDate(u.uploadedAt)}</span>
                 </div>
               </button>
+
+              {u.rawFileStorageKey && (
+                <>
+                  <button
+                    aria-label="Download original file"
+                    title="Download the original file"
+                    onClick={e => { e.stopPropagation(); onDownloadUpload(u.id); }}
+                    className="shrink-0 mt-0.5 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    <Download size={13} />
+                  </button>
+                  <button
+                    aria-label="Replay upload"
+                    title="Re-parse the original file into a new upload"
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (confirm(`Replay "${u.originalFilename}"? This re-parses the original file into a new pending upload. Nothing is overwritten.`)) {
+                        onReplayUpload(u.id, u.originalFilename);
+                      }
+                    }}
+                    disabled={replayMutPending && replayMutVariables === u.id}
+                    className="shrink-0 mt-0.5 p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+                  >
+                    <RotateCcw size={13} />
+                  </button>
+                </>
+              )}
 
               <button
                 aria-label="Delete upload"

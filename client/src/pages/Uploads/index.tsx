@@ -118,6 +118,42 @@ export default function Uploads() {
     onError: (e: any) => toast({ title: "Delete failed", description: e.message, variant: "destructive" }),
   });
 
+  // Replay: re-parse the retained original file into a brand-new pending upload.
+  const replayMut = useMutation({
+    mutationFn: async (uploadId: string) => {
+      const res = await apiRequest("POST", `/api/uploads/${uploadId}/replay`, {});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Replay failed");
+      return data;
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/uploads"] });
+      if (data?.upload?.id) {
+        setSelectedUploadId(data.upload.id);
+        setShowReview(true);
+      }
+      const s = data?.summary;
+      toast({
+        title: "Upload replayed",
+        description: s
+          ? `${s.rowsSaved} rows re-parsed · ${s.newItems} new · ${s.matchedItems} matched—review and approve when ready.`
+          : "Re-parsed into a new pending upload.",
+      });
+    },
+    onError: (e: any) => toast({ title: "Replay failed", description: e.message, variant: "destructive" }),
+  });
+
+  const downloadOriginal = async (uploadId: string) => {
+    try {
+      const res = await apiRequest("GET", `/api/uploads/${uploadId}/file`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not get file");
+      window.open(data.url, "_blank");
+    } catch (e: any) {
+      toast({ title: "Download failed", description: e.message, variant: "destructive" });
+    }
+  };
+
   return (
     <div>
 
@@ -147,6 +183,10 @@ export default function Uploads() {
               setShowReview(true);
             }}
             onDeleteUpload={(uploadId) => deleteMut.mutate(uploadId)}
+            onReplayUpload={(uploadId) => replayMut.mutate(uploadId)}
+            onDownloadUpload={downloadOriginal}
+            replayMutPending={replayMut.isPending}
+            replayMutVariables={replayMut.variables}
           />
         </div>
 

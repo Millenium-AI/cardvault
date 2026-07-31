@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { storage, type InventoryItem } from "../storage";
 import { supabaseAdmin } from "../supabase";
 import { batchFetchPrices } from "../justtcg";
+import { resolveProductIds } from "../productIdResolver";
 import { parseCSV, mapCsvRow, checkRepricingThreshold, upgradeTcgPlayerImageUrl } from "./csvHelpers";
 import { pendingJobs, sendProgress } from "./helpers";
 
@@ -231,6 +232,267 @@ async function withRetry<T>(
   return undefined;
 }
 
+// ─── CSV retention ────────────────────────────────────────────────────────────
+// Every uploaded file is kept in the private `csv-uploads` bucket so a merge can
+// be replayed later. Without this, a failed merge is unrecoverable: parsed_rows
+// is the only trace and it gets deleted with the upload.
+const CSV_BUCKET = "csv-uploads";
+
+function storageKeyFor(userId: string, uploadId: string, filename: string): string {
+  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
+  return `${userId}/${uploadId}/${safe}`;
+}
+
+async function retainRawFile(
+  userId: string,
+  uploadId: string,
+  filename: string,
+  buffer: Buffer,
+  mimeType: string,
+): Promise<string | null> {
+  const key = storageKeyFor(userId, uploadId, filename);
+  const { error } = await supabaseAdmin.storage
+    .from(CSV_BUCKET)
+    .upload(key, buffer, { contentType: mimeType || "text/csv", upsert: true });
+
+  if (error) {
+    // Retention failing must not block the import, but it must be loud.
+    console.error(`[upload] CSV retention FAILED for upload ${uploadId}: ${error.message}`);
+    return null;
+  }
+  return key;
+}
+
+interface PipelineArgs {
+  userId: string;
+  buffer: Buffer;
+  originalFilename: string;
+  mimeType: string;
+  game: string;
+  sourceType: string;
+  progressToken?: string;
+  /** Set when this run is a replay of an earlier upload. */
+  replayOfUploadId?: string | null;
+}
+
+/**
+ * Parse a CSV/XLSX buffer into parsed_rows + a pending merge review.
+ * Shared by POST /api/uploads and POST /api/uploads/:id/replay.
+ */
+export async function runUploadPipeline(args: PipelineArgs) {
+  const { userId, buffer, originalFilename, mimeType, game, sourceType, progressToken } = args;
+
+  const progress = (label: string, pct: number) => {
+    if (progressToken) sendProgress(progressToken, label, pct);
+  };
+
+  const fail = (message: string, httpStatus = 500) => {
+    const err: any = new Error(message);
+    err.httpStatus = httpStatus;
+    return err;
+  };
+
+  const isXlsx =
+    originalFilename.toLowerCase().endsWith(".xlsx") ||
+    mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  progress("Parsing file…", 10);
+
+  let rawRows: Record<string, string>[];
+  try {
+    if (isXlsx) {
+      const wb = XLSX.read(buffer, { type: "buffer" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "" });
+      rawRows = rows.map(row => {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(row)) out[k] = String(v);
+        return out;
+      });
+    } else {
+      rawRows = parseCSV(buffer.toString("utf-8"));
+    }
+  } catch (e: any) {
+    throw fail(e.message, 400);
+  }
+
+  progress("Saving rows…", 25);
+
+  const now = new Date().toISOString();
+  const newUpload = await storage.createUpload(userId, {
+    sourceType, game,
+    originalFilename,
+    uploadedAt: now,
+    rawFileContent: null,
+    totalRows: rawRows.length,
+    parseStatus: "pending",
+    summaryJson: null,
+  });
+
+  const uploadId = newUpload.id;
+
+  // Retain the raw file before doing anything destructive, so the import is
+  // always replayable even if the rest of this run dies.
+  const storageKey = await retainRawFile(userId, uploadId, originalFilename, buffer, mimeType);
+  if (storageKey) {
+    await storage.updateUpload(userId, uploadId, { rawFileStorageKey: storageKey });
+  }
+
+  const parsedRowData = rawRows
+    .filter(r => Object.values(r).some(v => v))
+    .map((r, i) => mapCsvRow(r, game, i, uploadId));
+
+  try {
+    await storage.createParsedRows(userId, parsedRowData);
+  } catch (e: any) {
+    // Never leave an upload sitting at "pending" after a failed row write —
+    // that is what made the last bad merge look successful.
+    await storage.updateUpload(userId, uploadId, { parseStatus: "error" });
+    throw fail(`Failed to save parsed rows: ${e.message}`);
+  }
+
+  const validRows = parsedRowData.filter(r => r.productName !== "(unknown)");
+
+  // ── Recover missing TCGplayer product ids by name + set ────────────────────
+  // A row without one can never be priced by JustTCG, PokéWallet or BerryWallet.
+  const missingIdRows = validRows.filter(r => !r.sourceProductId);
+  let resolverSummary = { attempted: 0, resolved: 0, unresolved: 0, skippedOverCap: 0 };
+
+  if (missingIdRows.length > 0) {
+    progress(`Resolving ${missingIdRows.length} missing product IDs…`, 32);
+    try {
+      const { results, summary } = await resolveProductIds(
+        missingIdRows.map(r => ({
+          id: r.id,
+          productName: r.productName,
+          number: r.number ?? null,
+          setName: (r as any).sourceSetName ?? null,
+          game: r.game ?? game,
+          condition: r.condition ?? null,
+          printing: (r as any).sourcePrinting ?? null,
+        })),
+      );
+      resolverSummary = summary;
+
+      const patches = missingIdRows
+        .map(row => {
+          const hit = results.get(row.id);
+          if (!hit) return null;
+          // Patch in memory so matching and the review use the recovered id.
+          (row as any).sourceProductId = hit.sourceProductId;
+          if (hit.sourceTcgplayerSkuId) (row as any).sourceTcgplayerSkuId = hit.sourceTcgplayerSkuId;
+          return {
+            id: row.id,
+            sourceProductId: hit.sourceProductId,
+            sourceTcgplayerSkuId: hit.sourceTcgplayerSkuId,
+            parseFlags: JSON.stringify([
+              "product_id_resolved",
+              `resolver:${hit.provider}`,
+              `confidence:${hit.confidence}`,
+            ]),
+          };
+        })
+        .filter(Boolean) as {
+          id: string; sourceProductId: string; sourceTcgplayerSkuId: string | null; parseFlags: string;
+        }[];
+
+      if (patches.length) await storage.patchParsedRowIdentifiers(userId, patches);
+    } catch (e: any) {
+      // Resolution is best-effort; an unresolved row still imports, just unpriced.
+      console.error("[upload] product id resolution failed:", e.message);
+    }
+  }
+
+  progress("Loading inventory…", 40);
+
+  const newItems: any[] = [];
+  const matchedItems: any[] = [];
+  const ambiguousItems: any[] = [];
+
+  const lookupMaps = await storage.getInventoryLookupMaps(userId);
+  const { byProductId, byMatchKey } = lookupMaps;
+
+  progress("Matching rows…", 55);
+
+  for (const row of validRows) {
+    const existing =
+      (row.sourceProductId && byProductId.get(row.sourceProductId)) ||
+      (row.normalizedMatchKey && byMatchKey.get(row.normalizedMatchKey)) ||
+      undefined;
+
+    if (!existing) {
+      newItems.push(row);
+    } else {
+      const csvQty = row.addToQuantity || 1;
+      const existingQty = existing.currentQuantity || 0;
+      const qtyDelta = csvQty !== existingQty ? csvQty - existingQty : 0;
+
+      matchedItems.push({ row, existingItem: existing, qtyDelta, csvQty, existingQty });
+    }
+  }
+
+  progress("Building review…", 80);
+
+  const matchedNoChangeCount = matchedItems.filter(m => m.qtyDelta === 0).length;
+
+  const reviewPayload = JSON.stringify({
+    newItems: newItems.map(r => ({
+      id: r.id, game: r.game, productName: r.productName, number: r.number,
+      condition: r.condition,
+      addToQuantity: r.addToQuantity,
+    })),
+    matchedItems: matchedItems.map(({ row, existingItem, qtyDelta, csvQty, existingQty }) => ({
+      rowId: row.id, game: row.game, productName: row.productName, number: row.number,
+      condition: row.condition,
+      csvQty, existingQty, qtyDelta,
+      existingId: existingItem.id, existingPrice: existingItem.currentRawMarketPrice,
+    })),
+    ambiguousItems,
+    repricingCandidates: [],
+  });
+
+  const review = await storage.createMergeReview(userId, {
+    uploadId, status: "pending",
+    newItemCount: newItems.length,
+    matchedItemCount: matchedItems.filter(m => m.qtyDelta !== 0).length,
+    repricingCandidateCount: 0,
+    duplicateWarningCount: ambiguousItems.length,
+    reviewPayload, reviewedAt: null, reviewedBy: null,
+  });
+
+  const summary = {
+    newItems: newItems.length,
+    matchedItems: matchedItems.length,
+    matchedNoChangeCount,
+    repricingCandidates: 0,
+    ambiguousItems: ambiguousItems.length,
+    totalParsed: validRows.length,
+    totalRaw: rawRows.length,
+    // Visibility so a row can never go missing without a number to point at.
+    rowsSaved: parsedRowData.length,
+    rowsSkippedUnknown: parsedRowData.length - validRows.length,
+    rowsMissingProductId: validRows.filter(r => !r.sourceProductId).length,
+    productIdsResolved: resolverSummary.resolved,
+    productIdsUnresolved: resolverSummary.unresolved + resolverSummary.skippedOverCap,
+    rawFileRetained: !!storageKey,
+    replayOfUploadId: args.replayOfUploadId ?? null,
+  };
+  await storage.updateUpload(userId, uploadId, { summaryJson: JSON.stringify(summary), parseStatus: "success" });
+
+  const result = { upload: { ...newUpload, rawFileStorageKey: storageKey }, review, summary };
+
+  if (progressToken) {
+    const job = pendingJobs.get(progressToken);
+    if (job) {
+      job.steps.push({ label: "Done!", pct: 100 });
+      job.result = result;
+      job.status = "done";
+    }
+  }
+
+  return result;
+}
+
 export function registerUploadsRoutes(_httpServer: Server, app: Express) {
   app.get("/api/uploads", async (req: any, res) => {
     try {
@@ -309,176 +571,97 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
   app.post("/api/uploads", (req: any, res: any, next: any) => {
     upload.single("file")(req, res, (err: any) => {
       if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE")
-        return res.status(400).json({ error: "File too large — maximum size is 10 MB" });
+        return res.status(400).json({ error: "File too large \u2014 maximum size is 10 MB" });
       if (err) return res.status(400).json({ error: err.message });
       next();
     });
   }, async (req: any, res: any) => {
+    const progressToken = req.body?.progressToken;
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-      const userId = req.user.id;
-      const { game = "unknown", sourceType = "tcgplayer", progressToken } = req.body;
+      const { game = "unknown", sourceType = "tcgplayer" } = req.body;
 
-      const progress = (label: string, pct: number) => {
-        if (progressToken) sendProgress(progressToken, label, pct);
-      };
-
-      const isXlsx =
-        req.file.originalname.toLowerCase().endsWith(".xlsx") ||
-        req.file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-      progress("Parsing file…", 10);
-
-      let rawRows: Record<string, string>[];
-      try {
-        if (isXlsx) {
-          const wb = XLSX.read(req.file.buffer, { type: "buffer" });
-          const sheet = wb.Sheets[wb.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json<Record<string, any>>(sheet, { defval: "" });
-          rawRows = rows.map(row => {
-            const out: Record<string, string> = {};
-            for (const [k, v] of Object.entries(row)) out[k] = String(v);
-            return out;
-          });
-        } else {
-          rawRows = parseCSV(req.file.buffer.toString("utf-8"));
-        }
-      } catch (e: any) {
-        if (progressToken) {
-          const job = pendingJobs.get(progressToken);
-          if (job) { job.status = "error"; job.error = e.message; }
-        }
-        return res.status(400).json({ error: e.message });
-      }
-
-      progress("Saving rows…", 25);
-
-      const now = new Date().toISOString();
-      const newUpload = await storage.createUpload(userId, {
-        sourceType, game,
+      const result = await runUploadPipeline({
+        userId: req.user.id,
+        buffer: req.file.buffer,
         originalFilename: req.file.originalname,
-        uploadedAt: now,
-        rawFileContent: null,
-        totalRows: rawRows.length,
-        parseStatus: "pending",
-        summaryJson: null,
+        mimeType: req.file.mimetype,
+        game,
+        sourceType,
+        progressToken,
       });
-
-      const uploadId = newUpload.id;
-      const parsedRowData = rawRows
-        .filter(r => Object.values(r).some(v => v))
-        .map((r, i) => mapCsvRow(r, game, i, uploadId));
-
-      try {
-        await storage.createParsedRows(userId, parsedRowData);
-      } catch (e: any) {
-        // Never leave an upload sitting at "pending" after a failed row write —
-        // that is what made the last bad merge look successful.
-        await storage.updateUpload(userId, uploadId, { parseStatus: "error" });
-        if (progressToken) {
-          const job = pendingJobs.get(progressToken);
-          if (job) { job.status = "error"; job.error = e.message; }
-        }
-        return res.status(500).json({ error: `Failed to save parsed rows: ${e.message}` });
-      }
-
-      progress("Loading inventory…", 40);
-
-      const validRows = parsedRowData.filter(r => r.productName !== "(unknown)");
-      const newItems: any[] = [];
-      const matchedItems: any[] = [];
-      const ambiguousItems: any[] = [];
-
-      const [lookupMaps] = await Promise.all([
-        storage.getInventoryLookupMaps(userId),
-      ]);
-      const { byProductId, byTcgplayerId, byMatchKey } = lookupMaps;
-
-      progress("Matching rows…", 55);
-
-      for (const row of validRows) {
-        let existing =
-          (row.sourceProductId && byProductId.get(row.sourceProductId)) ||
-          (row.normalizedMatchKey && byMatchKey.get(row.normalizedMatchKey)) ||
-          undefined;
-
-        if (!existing) {
-          newItems.push(row);
-        } else {
-          const csvQty = row.addToQuantity || 1;
-          const existingQty = existing.currentQuantity || 0;
-          const qtyDelta = csvQty !== existingQty ? csvQty - existingQty : 0;
-
-          matchedItems.push({ row, existingItem: existing, qtyDelta, csvQty, existingQty });
-        }
-      }
-
-      progress("Building review…", 80);
-
-      const matchedNoChangeCount = matchedItems.filter(m => m.qtyDelta === 0).length;
-
-      const reviewPayload = JSON.stringify({
-        newItems: newItems.map(r => ({
-          id: r.id, game: r.game, productName: r.productName, number: r.number,
-          condition: r.condition,
-          rawMarketPrice: null,
-          roundedPrintPrice: null,
-          addToQuantity: r.addToQuantity,
-        })),
-        matchedItems: matchedItems.map(({ row, existingItem, qtyDelta, csvQty, existingQty }) => ({
-          rowId: row.id, game: row.game, productName: row.productName, number: row.number,
-          condition: row.condition,
-          rawMarketPrice: null,
-          roundedPrintPrice: null,
-          csvQty, existingQty, qtyDelta,
-          existingId: existingItem.id, existingPrice: existingItem.currentRawMarketPrice,
-        })),
-        ambiguousItems,
-        repricingCandidates: [],
-      });
-
-      const review = await storage.createMergeReview(userId, {
-        uploadId, status: "pending",
-        newItemCount: newItems.length,
-        matchedItemCount: matchedItems.filter(m => m.qtyDelta !== 0).length,
-        repricingCandidateCount: 0,
-        duplicateWarningCount: ambiguousItems.length,
-        reviewPayload, reviewedAt: null, reviewedBy: null,
-      });
-
-      const summary = {
-        newItems: newItems.length,
-        matchedItems: matchedItems.length,
-        matchedNoChangeCount,
-        repricingCandidates: 0,
-        ambiguousItems: ambiguousItems.length,
-        totalParsed: validRows.length,
-        totalRaw: rawRows.length,
-        // Visibility so a row can never go missing without a number to point at.
-        rowsSaved: parsedRowData.length,
-        rowsSkippedUnknown: parsedRowData.length - validRows.length,
-        rowsMissingProductId: validRows.filter(r => !r.sourceProductId).length,
-      };
-      await storage.updateUpload(userId, uploadId, { summaryJson: JSON.stringify(summary), parseStatus: "success" });
-
-      const result = { upload: newUpload, review, summary };
-
-      if (progressToken) {
-        const job = pendingJobs.get(progressToken);
-        if (job) {
-          job.steps.push({ label: "Done!", pct: 100 });
-          job.result = result;
-          job.status = "done";
-        }
-      }
 
       res.json(result);
     } catch (e: any) {
-      console.error(e);
-      if (req.body?.progressToken) {
-        const job = pendingJobs.get(req.body.progressToken);
+      console.error("[upload]", e);
+      if (progressToken) {
+        const job = pendingJobs.get(progressToken);
         if (job) { job.status = "error"; job.error = e.message; }
       }
+      res.status(e.httpStatus ?? 500).json({ error: e.message });
+    }
+  });
+
+  // ── Replay a retained upload ──────────────────────────────────────────
+  // Re-parses the original file from storage into a NEW upload + pending review.
+  // The original upload row is left untouched so nothing is lost on a bad replay.
+  app.post("/api/uploads/:id/replay", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const original = await storage.getUpload(userId, req.params.id);
+      if (!original) return res.status(404).json({ error: "Upload not found" });
+
+      if (!original.rawFileStorageKey) {
+        return res.status(409).json({
+          error: "This upload has no retained file — it predates CSV retention and cannot be replayed. Re-upload the file instead.",
+        });
+      }
+
+      const { data: blob, error: dlError } = await supabaseAdmin.storage
+        .from(CSV_BUCKET)
+        .download(original.rawFileStorageKey);
+
+      if (dlError || !blob) {
+        return res.status(500).json({ error: `Could not read retained file: ${dlError?.message ?? "missing"}` });
+      }
+
+      const buffer = Buffer.from(await blob.arrayBuffer());
+      const { game, sourceType, progressToken } = req.body ?? {};
+
+      const result = await runUploadPipeline({
+        userId,
+        buffer,
+        originalFilename: original.originalFilename,
+        mimeType: blob.type || "text/csv",
+        game: game || original.game,
+        sourceType: sourceType || original.sourceType,
+        progressToken,
+        replayOfUploadId: original.id,
+      });
+
+      res.json({ ...result, replayedFrom: original.id });
+    } catch (e: any) {
+      console.error("[upload replay]", e);
+      res.status(e.httpStatus ?? 500).json({ error: e.message });
+    }
+  });
+
+  // ── Download the retained original file (signed, 5 min) ───────────────────
+  app.get("/api/uploads/:id/file", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const u = await storage.getUpload(userId, req.params.id);
+      if (!u) return res.status(404).json({ error: "Upload not found" });
+      if (!u.rawFileStorageKey) return res.status(404).json({ error: "No retained file for this upload" });
+
+      const { data, error } = await supabaseAdmin.storage
+        .from(CSV_BUCKET)
+        .createSignedUrl(u.rawFileStorageKey, 300);
+
+      if (error || !data) return res.status(500).json({ error: error?.message ?? "Could not sign URL" });
+      res.json({ url: data.signedUrl, filename: u.originalFilename, expiresInSeconds: 300 });
+    } catch (e: any) {
+      console.error("[upload file]", e);
       res.status(500).json({ error: e.message });
     }
   });
@@ -672,6 +855,11 @@ export function registerUploadsRoutes(_httpServer: Server, app: Express) {
 
       const u = await storage.getUpload(userId, uploadId);
       if (!u) return res.status(404).json({ error: "Not found" });
+
+      if (u.rawFileStorageKey) {
+        const { error: rmError } = await supabaseAdmin.storage.from(CSV_BUCKET).remove([u.rawFileStorageKey]);
+        if (rmError) console.warn(`[delete upload] could not remove retained file: ${rmError.message}`);
+      }
 
       await storage.deleteUpload(userId, uploadId);
 
