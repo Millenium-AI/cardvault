@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  Package, Tag, RefreshCcw, DollarSign,
+  Package, RefreshCcw, DollarSign,
   TrendingUp, TrendingDown, Trophy, AlertCircle, Store,
-  BarChart2, ArrowRight, Clock, AlertTriangle,
+  BarChart2, ArrowRight, Clock, AlertTriangle, Wallet,
+  ArrowDownRight, ArrowUpRight, Boxes,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -38,6 +39,101 @@ function calcShow(show: any) {
     (show.startingInventoryMarketValue || 0);
   const combined = cashResult + invEdge;
   return { cashResult, invEdge, invDelta, combined };
+}
+
+/* ── monthly cashflow ──
+ * Full-picture monthly result: real cash in/out plus the market value of
+ * inventory that moved in or out during the month.
+ *
+ * Cash in    = direct (non-show) transaction cash + show ledger cashSalesIn
+ * Cash out   = show cashSpentOnBuys + otherCashOut + expensesTotal
+ *              + cash paid on non-show trade-ins (cashAmount < 0)
+ * Inv in     = show purchasedInventoryMarketValue + trade-in market value
+ * Inv out    = allocated price of outgoing items on all transactions
+ * Net cash   = cash in - cash out
+ * Total      = net cash + (inv in - inv out)
+ *
+ * Transactions attached to a show are excluded from cash so they are not
+ * double counted against that show's ledger totals.
+ */
+function monthBounds(ref = new Date()) {
+  const start = new Date(ref.getFullYear(), ref.getMonth(), 1);
+  const end = new Date(ref.getFullYear(), ref.getMonth() + 1, 1);
+  return { start, end };
+}
+
+function inMonth(dateStr: string | null | undefined, start: Date, end: Date) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  return d >= start && d < end;
+}
+
+function calcMonthlyCashflow(transactions: any[], shows: any[], ref = new Date()) {
+  const { start, end } = monthBounds(ref);
+
+  const monthTxns = transactions.filter(t => inMonth(t.occurredAt, start, end));
+  const monthShows = shows.filter(s => inMonth(s.showDate, start, end));
+
+  let salesCashIn = 0;
+  let tradeCashOut = 0;
+  let invInTrades = 0;
+  let invOut = 0;
+  let tradeCreditIssued = 0;
+  let cardsSold = 0;
+
+  for (const t of monthTxns) {
+    const cash = Number(t.cashAmount || 0);
+    // show-attached cash rolls up through the show ledger instead
+    if (!t.showId) {
+      if (cash > 0) salesCashIn += cash;
+      else if (cash < 0) tradeCashOut += Math.abs(cash);
+    }
+    for (const it of (t.items || [])) {
+      const qty = Number(it.quantity || 1);
+      invOut += Number(it.allocatedPrice || 0) * qty;
+      cardsSold += qty;
+    }
+    for (const it of (t.incomingItems || [])) {
+      if (it.status === "rejected") continue;
+      const qty = Number(it.quantity || 1);
+      invInTrades += Number(it.cachedMarketPrice || 0) * qty;
+      tradeCreditIssued += Number(it.tradeCreditValue || 0);
+    }
+  }
+
+  let showCashIn = 0;
+  let showBuys = 0;
+  let showOtherOut = 0;
+  let showExpenses = 0;
+  let invInShows = 0;
+
+  for (const s of monthShows) {
+    showCashIn += Number(s.cashSalesIn || 0);
+    showBuys += Number(s.cashSpentOnBuys || 0);
+    showOtherOut += Number(s.otherCashOut || 0);
+    showExpenses += Number(s.expensesTotal || 0);
+    invInShows += Number(s.purchasedInventoryMarketValue || 0);
+  }
+
+  const cashIn = salesCashIn + showCashIn;
+  const cashOut = showBuys + showOtherOut + showExpenses + tradeCashOut;
+  const netCash = cashIn - cashOut;
+  const invIn = invInShows + invInTrades;
+  const invNet = invIn - invOut;
+
+  return {
+    monthLabel: start.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+    cashIn, salesCashIn, showCashIn,
+    cashOut, showBuys, showOtherOut, showExpenses, tradeCashOut,
+    netCash,
+    invIn, invInShows, invInTrades, invOut, invNet,
+    tradeCreditIssued,
+    cardsSold,
+    total: netCash + invNet,
+    txnCount: monthTxns.length,
+    showCount: monthShows.length,
+  };
 }
 
 /** Days since a date string */
@@ -502,6 +598,107 @@ function PriceMovers({ movers, isLoading }: { movers: any[]; isLoading: boolean 
   );
 }
 
+function CashRow({ label, value, negative = false, muted = false }: {
+  label: string; value: number; negative?: boolean; muted?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between py-1.5 border-b border-border/40 last:border-0">
+      <span className={`text-xs ${muted ? "text-muted-foreground/70" : "text-muted-foreground"}`}>{label}</span>
+      <span className={`text-xs mono font-medium ${negative ? "text-red-400" : "text-foreground"}`}>
+        {negative ? "-" : ""}{fmtUSD(Math.abs(value))}
+      </span>
+    </div>
+  );
+}
+
+function MonthlyCashflow({ cf }: { cf: ReturnType<typeof calcMonthlyCashflow> }) {
+  const hasData = cf.txnCount > 0 || cf.showCount > 0;
+
+  if (!hasData) {
+    return (
+      <div className="stat-card flex flex-col items-center py-8 text-center">
+        <Wallet size={28} className="text-muted-foreground/40 mb-2" />
+        <div className="text-sm text-muted-foreground font-medium">No activity in {cf.monthLabel}</div>
+        <div className="text-xs text-muted-foreground/60 mt-1">
+          Log a transaction or show to start tracking monthly cashflow.
+        </div>
+        <Link href="/transactions">
+          <a className="mt-3 text-xs text-primary hover:underline flex items-center gap-1">
+            Go to Transactions <ArrowRight size={11} />
+          </a>
+        </Link>
+      </div>
+    );
+  }
+
+  const headline = [
+    { label: "Cash In", value: cf.cashIn, icon: ArrowDownRight, cls: "text-emerald-400" },
+    { label: "Cash Out", value: -cf.cashOut, icon: ArrowUpRight, cls: "text-red-400" },
+    { label: "Net Cash", value: cf.netCash, icon: Wallet, cls: cf.netCash >= 0 ? "text-emerald-400" : "text-red-400" },
+    { label: "Inventory Δ", value: cf.invNet, icon: Boxes, cls: cf.invNet >= 0 ? "text-emerald-400" : "text-red-400" },
+    { label: "Total Result", value: cf.total, icon: TrendingUp, cls: cf.total >= 0 ? "text-emerald-400" : "text-red-400" },
+  ];
+
+  return (
+    <div className="stat-card">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="text-sm font-semibold text-foreground">Monthly Cashflow</div>
+          <div className="text-[11px] text-muted-foreground">
+            {cf.monthLabel} · {cf.txnCount} txn{cf.txnCount === 1 ? "" : "s"} · {cf.showCount} show{cf.showCount === 1 ? "" : "s"}
+          </div>
+        </div>
+        <Link href="/transactions">
+          <a className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+            View all <ArrowRight size={11} />
+          </a>
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3 mb-4">
+        {headline.map(h => (
+          <div key={h.label} className="bg-accent/40 rounded-lg px-3 py-2.5">
+            <div className="flex items-center gap-1.5 mb-1">
+              <h.icon size={11} className={h.cls} />
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{h.label}</span>
+            </div>
+            <div className={`text-base font-bold mono leading-none ${h.cls}`}>{fmt(h.value)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-1">
+        <div>
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Cash In</div>
+          <CashRow label="Direct sales" value={cf.salesCashIn} />
+          <CashRow label="Show sales" value={cf.showCashIn} />
+        </div>
+        <div>
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Cash Out</div>
+          <CashRow label="Buys at shows" value={cf.showBuys} negative />
+          <CashRow label="Cash paid on trades" value={cf.tradeCashOut} negative />
+          <CashRow label="Expenses" value={cf.showExpenses} negative />
+          <CashRow label="Other cash out" value={cf.showOtherOut} negative />
+        </div>
+        <div>
+          <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Inventory</div>
+          <CashRow label="Value acquired" value={cf.invIn} />
+          <CashRow label="Value sold / traded out" value={cf.invOut} negative />
+          <CashRow label="Trade credit issued" value={cf.tradeCreditIssued} muted />
+          <div className="flex items-center justify-between py-1.5">
+            <span className="text-xs text-muted-foreground/70">Cards out</span>
+            <span className="text-xs mono font-medium text-muted-foreground">{cf.cardsSold.toLocaleString()}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="text-[10px] text-muted-foreground/60 mt-3 pt-2 border-t border-border/40">
+        Total Result = net cash + inventory value change. Show-attached transactions are counted through the show ledger to avoid double counting.
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────────────── page ─────────────────────── */
 
 export default function Dashboard() {
@@ -522,6 +719,7 @@ export default function Dashboard() {
   const deadValue = deadItems.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
 
   const recentShows = shows.slice(0, 3);
+  const cashflow = calcMonthlyCashflow(transactions, shows);
 
   const repriceDollarSub = stats?.repricingPending > 0
     ? `${stats.repricingPending} pending review`
@@ -545,9 +743,10 @@ export default function Dashboard() {
         ) : (
           <>
             <StatCard
-              label="Total SKUs"
-              value={(stats?.totalItems ?? 0).toLocaleString()}
+              label="Total Cards"
+              value={(stats?.totalQuantity ?? 0).toLocaleString()}
               icon={Package}
+              sub={`${(stats?.totalItems ?? 0).toLocaleString()} SKUs`}
             />
             <StatCard
               label="Market Value"
@@ -556,10 +755,12 @@ export default function Dashboard() {
               accent
             />
             <StatCard
-              label="New Labels"
-              value={stats?.newLabelsPending ?? 0}
-              icon={Tag}
-              sub="pending export"
+              label="Monthly Cashflow"
+              value={fmt(cashflow.netCash)}
+              icon={Wallet}
+              sub={`${fmt(cashflow.total)} incl. inventory`}
+              accent={cashflow.netCash >= 0}
+              warn={cashflow.netCash < 0}
             />
             <StatCard
               label="Reprice Queue"
@@ -601,6 +802,11 @@ export default function Dashboard() {
           </Link>
         </div>
       )}
+
+      {/* ── Monthly cashflow ── */}
+      <div className="mb-4 md:mb-6">
+        <MonthlyCashflow cf={cashflow} />
+      </div>
 
       {/* ── Inventory Health + Price Movers + Channel Breakdown ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 mb-4 md:mb-6">

@@ -414,9 +414,9 @@ export default function Inventory() {
 
         {subTab === "inventory" && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-            <span className="font-mono">{items.length.toLocaleString()} SKUs</span>
+            <span className="font-mono">{totalUnits.toLocaleString()} cards</span>
             <span>·</span>
-            <span className="font-mono">{totalUnits.toLocaleString()} units</span>
+            <span className="font-mono">{items.length.toLocaleString()} SKUs</span>
             <span>·</span>
             <span className="font-mono text-primary font-medium">
               ${totalValue.toLocaleString("en-US", {
