@@ -3,7 +3,7 @@ import multer from "multer";
 import * as XLSX from "xlsx";
 import { storage, type InventoryItem } from "../storage";
 import { supabaseAdmin } from "../supabase";
-import { batchFetchPrices } from "../justtcg";
+import { batchFetchPrices, getJustTcgLimits } from "../justtcg";
 import { resolveProductIds } from "../productIdResolver";
 import { parseCSV, mapCsvRow, checkRepricingThreshold, upgradeTcgPlayerImageUrl } from "./csvHelpers";
 import { pendingJobs, sendProgress } from "./helpers";
@@ -87,11 +87,15 @@ export async function refreshInventoryPrices(
     }
 
     const thr = await storage.getRepricingThresholds(userId);
-    const BATCH = 20;
     let pricedCount = 0;
 
-    for (let i = 0; i < itemsToPrice.length; i += BATCH) {
-      const chunk = itemsToPrice.slice(i, i + BATCH);
+    // Batch size and spacing come from the JustTCG plan (Free 20, Starter/Pro 100,
+    // Enterprise 200) and are re-read each pass, because the first response is
+    // what teaches us which plan this key is on.
+    for (let i = 0; i < itemsToPrice.length; ) {
+      const { batchSize, delayMs } = getJustTcgLimits();
+      const chunk = itemsToPrice.slice(i, i + batchSize);
+      i += batchSize;
 
       const priceRequests = chunk.map(item => {
         const metadata = (() => {
@@ -197,12 +201,16 @@ export async function refreshInventoryPrices(
         }
       }
 
-      if (i + BATCH < itemsToPrice.length) {
-        await new Promise(r => setTimeout(r, 6000));
+      if (i < itemsToPrice.length) {
+        await new Promise(r => setTimeout(r, delayMs));
       }
     }
 
-    console.log(`[JustTCG] Priced ${pricedCount}/${itemsToPrice.length} items`);
+    const plan = getJustTcgLimits();
+    console.log(
+      `[JustTCG] Priced ${pricedCount}/${itemsToPrice.length} items ` +
+      `(plan=${plan.plan}, batch=${plan.batchSize}, delay=${plan.delayMs}ms)`,
+    );
     return pricedCount;
   } catch (err: any) {
     console.error("[JustTCG] refreshInventoryPrices error:", err.message);
