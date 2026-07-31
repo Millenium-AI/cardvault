@@ -3,6 +3,11 @@ import { storage } from "../storage";
 import { supabaseAdmin } from "../supabase";
 import { batchFetchPrices, fetchSinglePrice, JUSTTCG_BATCH_SIZE } from "../justtcg";
 import { checkRepricingThreshold } from "./csvHelpers";
+import {
+  sweepSalesForItems,
+  salesBreakerStatus,
+  getDivergenceBands,
+} from "../tcgplayerSales";
 
 const BASE_URL = "https://api.justtcg.com/v1";
 
@@ -253,6 +258,36 @@ export function registerPricesRoutes(app: Express) {
       res.json(result);
     } catch (e: any) {
       console.error("[prices/live]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // ── POST /api/prices/check-sales ────────────────────────────────────────
+  app.post("/api/prices/check-sales", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { itemIds, minValue } = (req.body ?? {}) as { itemIds?: string[]; minValue?: number };
+
+      const settings = await storage.getSalesCheckSettings(userId);
+      if (!settings.enabled) {
+        return res.json({ skipped: "disabled" });
+      }
+
+      const items = await storage.listItemsForSalesSweep(userId, { ids: itemIds, minValue });
+      if (!items.length) {
+        return res.json({ summary: { productsChecked: 0, productsWithSales: 0, itemsUpdated: 0, pricesAdjusted: 0, flagged: 0, relabelQueued: 0, errors: 0, skipped: "no items to sweep" }, breaker: salesBreakerStatus() });
+      }
+
+      const bands = await getDivergenceBands(userId);
+      const summary = await sweepSalesForItems(userId, items, {
+        windowDays: settings.windowDays,
+        autoAdjust: settings.autoAdjust,
+        bands,
+      });
+
+      res.json({ summary, breaker: salesBreakerStatus() });
+    } catch (e: any) {
+      console.error("[prices/check-sales]", e);
       res.status(500).json({ error: e.message });
     }
   });

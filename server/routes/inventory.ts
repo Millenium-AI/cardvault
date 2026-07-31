@@ -143,7 +143,7 @@ export function registerInventoryRoutes(app: Express) {
     const item = await resolveInventoryItem(req.user.id, req.params.id, res);
     if (!item) return;
 
-    const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes", "productName", "game", "status"];
+    const allowed = ["currentQuantity", "currentRawMarketPrice", "currentRoundedPrintPrice", "condition", "notes", "productName", "game", "status", "priceLocked"];
     const patch: Record<string, any> = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) patch[key] = req.body[key];
@@ -182,6 +182,33 @@ export function registerInventoryRoutes(app: Express) {
       res.json({ success: true });
     } catch (e: any) {
       console.error("[delete inventory]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get("/api/inventory/:id/sales", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+
+      const item = await resolveInventoryItem(userId, id, res);
+      if (!item) return;
+
+      if (!item.sourceProductId) {
+        return res.json({ sales: [] });
+      }
+
+      const sales = await storage.listProductSales(userId, item.sourceProductId);
+      res.json({
+        sales,
+        lastSaleMatch: item.lastSaleMatch ?? null,
+        lastSaleCount: item.lastSaleCount ?? 0,
+        lastSaleOutliers: item.lastSaleOutliers ?? 0,
+        adjustedMarketPrice: item.adjustedMarketPrice ?? null,
+        priceDivergencePct: item.priceDivergencePct ?? null,
+      });
+    } catch (e: any) {
+      console.error("[inventory/:id/sales]", e);
       res.status(500).json({ error: e.message });
     }
   });
