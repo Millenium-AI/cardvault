@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { supabaseAdmin } from "../supabase";
-import { batchFetchPrices, fetchSinglePrice, getJustTcgLimits } from "../justtcg";
+import { batchFetchPrices, fetchSinglePrice, JUSTTCG_BATCH_SIZE } from "../justtcg";
 import { checkRepricingThreshold } from "./csvHelpers";
 
 const BASE_URL = "https://api.justtcg.com/v1";
@@ -176,12 +176,8 @@ export function registerPricesRoutes(app: Express) {
 
       let updated = 0;
 
-      // Plan-driven batching: Free 20, Starter/Professional 100, Enterprise 200,
-      // learned from the usage metadata JustTCG returns on every response.
-      for (let i = 0; i < toRefresh.length; ) {
-        const { batchSize, delayMs } = getJustTcgLimits();
-        const chunk = toRefresh.slice(i, i + batchSize);
-        i += batchSize;
+      for (let i = 0; i < toRefresh.length; i += JUSTTCG_BATCH_SIZE) {
+        const chunk = toRefresh.slice(i, i + JUSTTCG_BATCH_SIZE);
 
         const priceMap = await batchFetchPrices(
           chunk.map(item => {
@@ -234,19 +230,13 @@ export function registerPricesRoutes(app: Express) {
           updated++;
         }
 
-        // Spacing is derived from the plan's requests-per-minute rather than a
-        // hardcoded Free-tier 6s.
-        if (i < toRefresh.length) {
-          await new Promise(r => setTimeout(r, delayMs));
+        // Fix: was 1000ms (60 req/min) — corrected to 6000ms for Free tier (10 req/min)
+        if (i + JUSTTCG_BATCH_SIZE < toRefresh.length) {
+          await new Promise(r => setTimeout(r, 6000));
         }
       }
 
-      const plan = getJustTcgLimits();
-      res.json({
-        updated,
-        total: toRefresh.length,
-        justtcg: { plan: plan.plan, batchSize: plan.batchSize, ratePerMin: plan.ratePerMin, dailyRemaining: plan.dailyRemaining },
-      });
+      res.json({ updated, total: toRefresh.length });
     } catch (e: any) {
       console.error("[prices/refresh]", e);
       res.status(500).json({ error: e.message });

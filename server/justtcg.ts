@@ -2,83 +2,7 @@ import { supabaseAdmin } from './supabase.js';
 
 const BASE_URL = 'https://api.justtcg.com/v1';
 
-// ─── Plan-aware batching ───────────────────────────────────────────────
-// JustTCG caps batch size by plan: Free 20, Starter/Professional 100,
-// Enterprise 200. Exceeding the cap returns 403, so we start conservative and
-// raise the ceiling once a response tells us which plan the key is on. Every
-// response carries `usage` metadata (apiPlan, apiRateLimit, daily remaining).
-const PLAN_BATCH_CAPS: Record<string, number> = {
-  free: 20,
-  starter: 100,
-  professional: 100,
-  pro: 100,
-  enterprise: 200,
-};
-
-const FALLBACK_BATCH_SIZE = 20;
-const FALLBACK_RATE_PER_MIN = 10;
-
-/** Hard ceiling from env, if the operator wants to pin it. */
-const ENV_BATCH_CAP = process.env.JUSTTCG_BATCH_SIZE
-  ? parseInt(process.env.JUSTTCG_BATCH_SIZE, 10)
-  : null;
-
-interface JustTcgLimits {
-  plan: string;
-  batchSize: number;
-  /** Spacing between batches derived from the plan's requests-per-minute. */
-  delayMs: number;
-  ratePerMin: number;
-  dailyRemaining: number | null;
-  learned: boolean;
-}
-
-let limits: JustTcgLimits = {
-  plan: 'unknown',
-  batchSize: ENV_BATCH_CAP ?? FALLBACK_BATCH_SIZE,
-  delayMs: Math.ceil(60_000 / FALLBACK_RATE_PER_MIN),
-  ratePerMin: FALLBACK_RATE_PER_MIN,
-  dailyRemaining: null,
-  learned: false,
-};
-
-export function getJustTcgLimits(): JustTcgLimits {
-  return { ...limits };
-}
-
-/** Learn plan limits from the `usage` block returned on every response. */
-function recordUsage(usage: any): void {
-  if (!usage) return;
-
-  const planName = String(usage.apiPlan ?? '').toLowerCase().trim();
-  const planCap = PLAN_BATCH_CAPS[planName];
-  const ratePerMin = Number(usage.apiRateLimit) > 0 ? Number(usage.apiRateLimit) : limits.ratePerMin;
-
-  const batchSize = ENV_BATCH_CAP
-    ? Math.min(ENV_BATCH_CAP, planCap ?? ENV_BATCH_CAP)
-    : planCap ?? limits.batchSize;
-
-  const changed = batchSize !== limits.batchSize || planName !== limits.plan;
-
-  limits = {
-    plan: planName || limits.plan,
-    batchSize,
-    ratePerMin,
-    delayMs: Math.max(1_000, Math.ceil(60_000 / ratePerMin)),
-    dailyRemaining: usage.apiDailyRequestsRemaining ?? limits.dailyRemaining,
-    learned: !!planCap,
-  };
-
-  if (changed) {
-    console.log(
-      `[JustTCG] plan=${limits.plan} batchSize=${limits.batchSize} ` +
-      `rate=${limits.ratePerMin}/min delay=${limits.delayMs}ms`,
-    );
-  }
-}
-
-/** Back-compat export; now reflects the learned plan cap. */
-export const JUSTTCG_BATCH_SIZE = limits.batchSize;
+export const JUSTTCG_BATCH_SIZE = parseInt(process.env.JUSTTCG_BATCH_SIZE ?? '20', 10);
 
 function apiKey(): string {
   const key = process.env.JUSTTCG_API_KEY;
@@ -131,27 +55,13 @@ async function postBatchCards(
   });
 
   if (res.status === 429) throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
-
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
-
-    // 403 on an oversized batch means we guessed the plan cap too high.
-    // Drop back to the free-tier size so the retry (and everything after) fits.
-    if (res.status === 403 && requests.length > FALLBACK_BATCH_SIZE) {
-      console.warn(
-        `[JustTCG] 403 on a ${requests.length}-item batch — lowering batch size to ${FALLBACK_BATCH_SIZE}`,
-      );
-      limits = { ...limits, batchSize: FALLBACK_BATCH_SIZE, learned: true };
-    }
-
-    throw Object.assign(new Error(`JustTCG API ${res.status}: ${text}`), { status: res.status });
+    throw new Error(`JustTCG API ${res.status}: ${text}`);
   }
 
   const json = await res.json();
-  const usage = json?.usage ?? json?._metadata ?? json?.meta;
-  recordUsage(usage);
-
-  const remaining = usage?.apiDailyRequestsRemaining;
+  const remaining = json?.usage?.apiDailyRequestsRemaining;
   if (remaining !== undefined) {
     console.log(`[JustTCG] Daily calls remaining: ${remaining}`);
     if (remaining < 10) console.warn('[JustTCG] ⚠️  Approaching daily API limit!');
