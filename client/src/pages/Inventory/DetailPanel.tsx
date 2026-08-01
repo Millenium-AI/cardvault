@@ -185,8 +185,10 @@ export function PriceChartWithSelector({
 export function PriceHistory({
   item, itemId: itemIdProp, height = 150,
 }: { item?: any; itemId?: string; height?: number }) {
-  const [activeWindow, setActiveWindow] = useState<HistoryWindow>("30d");
+  // PRICE HISTORY DISABLED: All code below is kept for future re-enablement
+  // Remove the "return null" at the end to restore the full UI
 
+  const [activeWindow, setActiveWindow] = useState<HistoryWindow>("30d");
   const resolvedItem = item ?? null;
   const resolvedId   = itemIdProp ?? item?.id ?? null;
   const hasIdentifier = !!(resolvedItem?.justtcgVariantUuid || resolvedItem?.sourceProductId) || !!itemIdProp;
@@ -208,12 +210,12 @@ export function PriceHistory({
     ?? normalizedStats?.["7d"]
     ?? null;
 
+  return null; // Price history UI disabled
+
+  // eslint-disable-next-line unreachable-code
   return (
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Price History</div>
-
-      {/* Window-selector buttons — min-h-10 (40px) meets the standard
-          touch-target minimum; these were 34-36px tall before. */}
       <div className="flex items-center gap-1 mb-3">
         {WINDOWS.map(w => {
           const chg = data ? resolveChange(w.key, data) : null;
@@ -241,45 +243,17 @@ export function PriceHistory({
           );
         })}
       </div>
-
-      {/* Loading / error states now match PriceChartWithSelector's styling
-          so the two surfaces feel like the same component family. */}
       {isFetching && (
         <div className="flex items-center gap-2 py-2">
           <div className="h-3 w-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           <span className="text-xs text-muted-foreground">Loading…</span>
         </div>
       )}
-
       {isError && !isFetching && (
         <p className="text-xs text-red-400">Failed to load history. Try again.</p>
       )}
-
       {data && !isFetching && (
         <div className="space-y-3">
-          {/* CHART DISABLED: Kept for future implementation when integrated with sales data
-          {data.history?.length >= 2 ? (
-            <div className="rounded-lg border border-border bg-muted/20 px-2 pt-2 pb-1">
-              <Chart
-                points={data.history}
-                stats={chartStats}
-                showStats={false}
-                height={height}
-              />
-            </div>
-          ) : (
-            <div className="rounded-lg border border-border/40 bg-muted/10 px-4 py-6 text-center">
-              <p className="text-xs text-muted-foreground">Not enough data points for this window.</p>
-            </div>
-          )}
-          */}
-
-          {/* History — quick "where has this card been" view across all 5
-              windows at once, sitting right under the chart with no
-              border/background box around it. Uses PriceChangeTiles, which
-              was already built for exactly this but never wired in
-              anywhere — it's a static glance-view, not a selector, so it's
-              separate from the interactive window buttons above. */}
           <div>
             <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">History</div>
             <PriceChangeTiles
@@ -293,14 +267,9 @@ export function PriceHistory({
               }}
             />
           </div>
-
           {normalizedStats && Object.keys(normalizedStats).length > 0 && (
             <div>
               <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Statistics</div>
-              {/* Real grid instead of flex-wrap — on narrow mobile widths
-                  flex-wrap was producing a ragged 2-up layout; grid-cols-2
-                  keeps it tidy at any width, expanding to 4-up when there's
-                  room. */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                 {["7d", "30d", "90d", "alltime"].map(key => {
                   const stat = normalizedStats[key];
@@ -318,7 +287,6 @@ export function PriceHistory({
               </div>
             </div>
           )}
-
           {(data.condition || data.printing) && (
             <p className="text-[10px] text-muted-foreground">{[data.condition, data.printing].filter(Boolean).join(" · ")}</p>
           )}
