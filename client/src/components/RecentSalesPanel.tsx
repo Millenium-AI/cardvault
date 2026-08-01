@@ -102,9 +102,10 @@ export function RecentSalesPanel({ item }: { item: any }) {
   }
 
   // Calculate stats
+  const printingLower = printing.toLowerCase().trim();
   const includedSales = sales.filter((s: any) => !s.isOutlier);
   const otherConditionCount = includedSales.filter(
-    (s: any) => standardizeCondition(s.condition) !== condition || (s.variant ?? "Normal") !== printing
+    (s: any) => standardizeCondition(s.condition) !== condition || (s.variant ?? "Normal").toLowerCase().trim() !== printingLower
   ).length;
 
   return (
@@ -180,7 +181,9 @@ export function RecentSalesPanel({ item }: { item: any }) {
                 {sales.map((sale: any, idx: number) => {
                   const isOutlier = sale.isOutlier;
                   const saleCondition = standardizeCondition(sale.condition);
-                  const isOtherCondition = saleCondition !== condition || (sale.variant ?? "Normal") !== printing;
+                  const saleVariant = (sale.variant ?? "Normal").toLowerCase().trim();
+                  const printingLower = printing.toLowerCase().trim();
+                  const isOtherCondition = saleCondition !== condition || saleVariant !== printingLower;
                   const saleDate = new Date(sale.orderDate);
                   const dateStr = saleDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
