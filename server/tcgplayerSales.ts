@@ -239,6 +239,20 @@ function norm(v: string | null | undefined): string {
   return (v ?? '').toLowerCase().trim();
 }
 
+// Map user shorthand conditions to standard TCGplayer condition names
+function standardizeCondition(condition: string | null | undefined): string {
+  if (!condition) return '';
+  const c = norm(condition);
+  const conditionMap: Record<string, string> = {
+    'nm': 'near mint',
+    'lp': 'lightly played',
+    'mp': 'moderately played',
+    'hp': 'heavily played',
+    'dmg': 'damaged',
+  };
+  return conditionMap[c] || c;
+}
+
 /**
  * Pick the sales that describe THIS item. Averaging every condition together
  * drags a Near Mint price down with played copies, so exact condition+printing
@@ -248,7 +262,8 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
   const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
   const inWindow = sales.filter(s => new Date(s.orderDate).getTime() >= cutoff);
 
-  const sameCondition = inWindow.filter(s => norm(s.condition) === norm(item.condition));
+  const itemCondition = standardizeCondition(item.condition);
+  const sameCondition = inWindow.filter(s => standardizeCondition(s.condition) === itemCondition);
   const exact = item.printing
     ? sameCondition.filter(s => norm(s.variant) === norm(item.printing))
     : sameCondition;

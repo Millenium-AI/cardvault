@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Check, Save, RotateCcw, AlertTriangle, Play } from "lucide-react";
@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/AuthContext";
 import { useUserPrefs, DEFAULT_CONDITION_COLORS, ConditionColors } from "@/lib/useUserPrefs";
 import { cn } from "@/lib/utils";
+import { Progress } from "@/components/ui/progress";
 
 // ── Condition color swatches ────────────────────────────────────────────────
 const COLOR_SWATCHES = [
@@ -205,9 +206,61 @@ function SalesCrossCheckSettings() {
     refetchInterval: 5000,
   });
 
+  const [checkProgress, setCheckProgress] = useState(0);
+  const [checkLabel, setCheckLabel] = useState("");
+  const checkTimerRef = useRef<NodeJS.Timeout>();
+
   const currentSettings = settingsDraft ?? settings;
   const currentBands = bandsDraft ?? bands;
   const isDirty = settingsDraft !== null || bandsDraft !== null;
+
+  // Update checkMut to track progress
+  const checkMutWithProgress = useMutation({
+    mutationFn: async () => {
+      setCheckProgress(0);
+      setCheckLabel("Checking sales data... (do not refresh)");
+      const startTime = Date.now();
+
+      checkTimerRef.current = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const pct = Math.min(90, (elapsed / 15000) * 100);
+        setCheckProgress(pct);
+      }, 100);
+
+      try {
+        const result = await apiRequest("POST", "/api/prices/check-sales", {});
+        return result;
+      } finally {
+        if (checkTimerRef.current) clearInterval(checkTimerRef.current);
+      }
+    },
+    onSuccess: (result: any) => {
+      setCheckProgress(100);
+      setCheckLabel("Complete!");
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      const summary = result?.summary;
+      toast({
+        title: "Sales check complete",
+        description: `${summary?.itemsUpdated} items updated, ${summary?.pricesAdjusted} prices adjusted`,
+      });
+      setTimeout(() => {
+        setCheckProgress(0);
+        setCheckLabel("");
+      }, 2000);
+    },
+    onError: (e: any) => {
+      if (checkTimerRef.current) clearInterval(checkTimerRef.current);
+      setCheckProgress(0);
+      setCheckLabel("");
+      toast({ title: "Check failed", description: e.message, variant: "destructive" });
+    },
+  });
+
+  useEffect(() => {
+    return () => {
+      if (checkTimerRef.current) clearInterval(checkTimerRef.current);
+    };
+  }, []);
 
   if (settingsLoading || bandsLoading || !currentSettings || !currentBands) {
     return <div className="text-xs text-muted-foreground">Loading…</div>;
@@ -328,24 +381,35 @@ function SalesCrossCheckSettings() {
       </div>
 
       {/* Save and Run Check buttons */}
-      <div className="flex items-center gap-2 pt-3 border-t border-border">
-        <Button
-          onClick={() => saveMut.mutate()}
-          disabled={!isDirty || saveMut.isPending}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 h-8 text-sm"
-        >
-          <Save size={13} className="mr-1.5" />
-          {saveMut.isPending ? "Saving…" : "Save Settings"}
-        </Button>
-        <Button
-          onClick={() => checkMut.mutate()}
-          disabled={!currentSettings.enabled || checkMut.isPending}
-          variant="outline"
-          className="h-8 text-sm"
-        >
-          <Play size={13} className="mr-1.5" />
-          {checkMut.isPending ? "Running…" : "Run check now"}
-        </Button>
+      <div className="space-y-2 pt-3 border-t border-border">
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => saveMut.mutate()}
+            disabled={!isDirty || saveMut.isPending}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 h-8 text-sm"
+          >
+            <Save size={13} className="mr-1.5" />
+            {saveMut.isPending ? "Saving…" : "Save Settings"}
+          </Button>
+          <Button
+            onClick={() => checkMutWithProgress.mutate()}
+            disabled={!currentSettings.enabled || checkMutWithProgress.isPending}
+            variant="outline"
+            className="h-8 text-sm"
+          >
+            <Play size={13} className="mr-1.5" />
+            {checkMutWithProgress.isPending ? "Running…" : "Run check now"}
+          </Button>
+        </div>
+        {checkProgress > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">{checkLabel}</span>
+              <span className="text-muted-foreground">{Math.round(checkProgress)}%</span>
+            </div>
+            <Progress value={checkProgress} className="h-1.5" />
+          </div>
+        )}
       </div>
     </div>
   );

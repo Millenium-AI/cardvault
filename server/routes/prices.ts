@@ -164,24 +164,33 @@ export function registerPricesRoutes(app: Express) {
   app.post("/api/prices/refresh", async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { ids } = (req.body ?? {}) as { ids?: string[] };
+      const { ids, salesOnly } = (req.body ?? {}) as { ids?: string[]; salesOnly?: boolean };
 
       const allItems = await storage.listInventoryItems(userId);
 
-      const toRefresh = ids
-        ? allItems.filter(i => ids.includes(i.id) && i.sourceProductId)
-        : allItems.filter(i => {
-            if (!i.sourceProductId) return false;
-            if (!i.priceLastFetchedAt) return true;
-            const staleMs = Date.now() - new Date(i.priceLastFetchedAt).getTime();
-            return staleMs > 6 * 60 * 60 * 1000;
-          });
+      let toRefresh: typeof allItems = [];
 
-      if (!toRefresh.length) return res.json({ updated: 0, total: 0, message: "All prices are fresh", salesSweep: null });
+      if (!salesOnly) {
+        toRefresh = ids
+          ? allItems.filter(i => ids.includes(i.id) && i.sourceProductId)
+          : allItems.filter(i => {
+              if (!i.sourceProductId) return false;
+              if (!i.priceLastFetchedAt) return true;
+              const staleMs = Date.now() - new Date(i.priceLastFetchedAt).getTime();
+              return staleMs > 6 * 60 * 60 * 1000;
+            });
+      }
+
+      if (!toRefresh.length && !salesOnly) {
+        // Skip price refresh but still do sales sweep
+        toRefresh = [];
+      }
 
       let updated = 0;
 
-      for (let i = 0; i < toRefresh.length; i += JUSTTCG_BATCH_SIZE) {
+      // Only do price refresh if there are items to refresh
+      if (toRefresh.length) {
+        for (let i = 0; i < toRefresh.length; i += JUSTTCG_BATCH_SIZE) {
         const chunk = toRefresh.slice(i, i + JUSTTCG_BATCH_SIZE);
 
         const priceMap = await batchFetchPrices(
@@ -238,6 +247,7 @@ export function registerPricesRoutes(app: Express) {
         // Fix: was 1000ms (60 req/min) — corrected to 6000ms for Free tier (10 req/min)
         if (i + JUSTTCG_BATCH_SIZE < toRefresh.length) {
           await new Promise(r => setTimeout(r, 6000));
+        }
         }
       }
 

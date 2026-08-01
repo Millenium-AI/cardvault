@@ -232,8 +232,17 @@ export default function Inventory() {
     }, 100);
 
     try {
-      const res = await apiRequest("POST", "/api/prices/refresh", {});
+      const res = await apiRequest("POST", "/api/prices/refresh", { salesOnly: false });
       const data = await res.json();
+
+      // If prices are fresh, re-run with salesOnly=true to check sales anyway
+      if (data.total === 0 && data.updated === 0) {
+        const res2 = await apiRequest("POST", "/api/prices/refresh", { salesOnly: true });
+        const data2 = await res2.json();
+        if (data2.salesSweep) {
+          data.salesSweep = data2.salesSweep;
+        }
+      }
 
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
 
