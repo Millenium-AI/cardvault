@@ -12,6 +12,7 @@
 
 import { supabaseAdmin } from './supabase';
 import { storage } from './storage';
+import { standardizeCondition } from '../shared/lib/conditionStandardizer';
 
 const SALES_URL = (productId: string) =>
   `https://mpapi.tcgplayer.com/v2/product/${productId}/latestsales`;
@@ -237,20 +238,6 @@ export interface ItemPricing {
 
 function norm(v: string | null | undefined): string {
   return (v ?? '').toLowerCase().trim();
-}
-
-// Map user shorthand conditions to standard TCGplayer condition names
-function standardizeCondition(condition: string | null | undefined): string {
-  if (!condition) return '';
-  const c = norm(condition);
-  const conditionMap: Record<string, string> = {
-    'nm': 'near mint',
-    'lp': 'lightly played',
-    'mp': 'moderately played',
-    'hp': 'heavily played',
-    'dmg': 'damaged',
-  };
-  return conditionMap[c] || c;
 }
 
 /**

@@ -242,7 +242,7 @@ function InventoryHealth({ items }: { items: any[] }) {
       const age = daysSince(item.lastSeenAt || item.firstSeenAt);
       return age >= b.min && age <= b.max;
     });
-    const value = matches.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
+    const value = matches.reduce((s, i) => s + (i.effectivePrice || i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
     return { label: b.label, skus: matches.length, value: Math.round(value * 100) / 100, color: b.color };
   });
 
@@ -288,7 +288,7 @@ function DeadStock({ items }: { items: any[] }) {
     .map(i => ({
       ...i,
       age: daysSince(i.lastSeenAt || i.firstSeenAt),
-      totalValue: (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1),
+      totalValue: (i.effectivePrice || i.currentRawMarketPrice || 0) * (i.currentQuantity || 1),
     }))
     .sort((a, b) => b.totalValue - a.totalValue)
     .slice(0, 6);
@@ -714,9 +714,9 @@ export default function Dashboard() {
   const inventory: any[] = Array.isArray(inventoryRaw) ? inventoryRaw : [];
 
   const staleItems = inventory.filter(i => daysSince(i.lastSeenAt || i.firstSeenAt) >= 90);
-  const staleValue = staleItems.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
+  const staleValue = staleItems.reduce((s, i) => s + (i.effectivePrice || i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
   const deadItems = inventory.filter(i => daysSince(i.lastSeenAt || i.firstSeenAt) >= 180);
-  const deadValue = deadItems.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
+  const deadValue = deadItems.reduce((s, i) => s + (i.effectivePrice || i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
   const mismatchItems = inventory.filter(i => i.divergenceFlagged);
   const mismatchValue = mismatchItems.reduce((s, i) => s + Math.abs((i.adjustedMarketPrice || i.currentRawMarketPrice || 0) - (i.currentRawMarketPrice || 0)) * (i.currentQuantity || 1), 0);
 

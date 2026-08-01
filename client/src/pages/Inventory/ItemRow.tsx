@@ -103,7 +103,7 @@ export function InventoryRow({
       case "total": return (
         <td key="total" className="px-4 py-3 text-right whitespace-nowrap">
           <span className="text-xs font-mono tabular-nums text-muted-foreground/50">
-            ${((item.currentRawMarketPrice || 0) * item.currentQuantity).toFixed(2)}
+            ${((item.effectivePrice || item.currentRawMarketPrice || 0) * item.currentQuantity).toFixed(2)}
           </span>
         </td>
       );

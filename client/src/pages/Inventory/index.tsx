@@ -339,8 +339,8 @@ export default function Inventory() {
     }
     if (sortBy === "value") {
       return (
-        (b.currentRawMarketPrice || 0) * b.currentQuantity -
-        (a.currentRawMarketPrice || 0) * a.currentQuantity
+        (b.effectivePrice || b.currentRawMarketPrice || 0) * b.currentQuantity -
+        (a.effectivePrice || a.currentRawMarketPrice || 0) * a.currentQuantity
       );
     }
     if (sortBy === "name") {
@@ -367,7 +367,7 @@ export default function Inventory() {
     labelCounts.needs_label + labelCounts.needs_repricing;
 
   const totalValue = items.reduce(
-    (s: number, i: any) => s + (i.currentRawMarketPrice || 0) * i.currentQuantity,
+    (s: number, i: any) => s + (i.effectivePrice || i.currentRawMarketPrice || 0) * i.currentQuantity,
     0
   );
   const totalUnits = items.reduce(
