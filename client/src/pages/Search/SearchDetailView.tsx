@@ -244,9 +244,12 @@ export function SearchDetailModal({
   const { toast } = useToast();
 
   const { data: salesData, isLoading: salesLoading } = useQuery({
-    queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition],
+    queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition, variant?.printing],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales?condition=${encodeURIComponent(condition)}`);
+      const params = new URLSearchParams();
+      if (condition) params.append("condition", condition);
+      if (variant?.printing) params.append("printing", variant.printing);
+      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales?${params.toString()}`);
       return res.json();
     },
     enabled: !!card?.tcgplayerId,
@@ -420,41 +423,8 @@ export function SearchDetailModal({
           </div>
 
           {/* Right: Recent sales */}
-          <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto space-y-4">
-            {!salesLoading && salesData?.avgPrice ? (
-              <div className="space-y-3">
-                <div className="text-sm font-semibold text-foreground">TCG Player Sales</div>
-                <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-3">
-                  <div>
-                    <div className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1">Average Price</div>
-                    <div className="text-2xl font-mono font-bold text-emerald-400">
-                      ${salesData.avgPrice.toFixed(2)}
-                    </div>
-                  </div>
-                  {salesData.salePrices && (
-                    <div className="space-y-1.5 pt-2 border-t border-border/30">
-                      <div className="flex justify-between">
-                        <span className="text-[10px] text-muted-foreground">High</span>
-                        <span className="text-sm font-mono font-semibold text-emerald-400">${Math.max(...salesData.salePrices).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-[10px] text-muted-foreground">Low</span>
-                        <span className="text-sm font-mono font-semibold text-red-400">${Math.min(...salesData.salePrices).toFixed(2)}</span>
-                      </div>
-                    </div>
-                  )}
-                  <div className="text-[9px] text-muted-foreground/60 pt-1">
-                    Based on {salesData.priceCount} recent sales
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-center">
-                <p className="text-xs text-muted-foreground">
-                  {salesLoading ? "Loading sales data…" : "No recent sales data available"}
-                </p>
-              </div>
-            )}
+          <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto">
+            <SearchRecentSalesPanel salesData={salesData} isLoading={salesLoading} variant={variant} />
           </div>
         </div>
       </DialogContent>
@@ -501,9 +471,12 @@ export function SearchDetailDrawer({
 
   // Fetch recent sales data
   const { data: salesData, isLoading: salesLoading } = useQuery({
-    queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition],
+    queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition, variant?.printing],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales?condition=${encodeURIComponent(condition)}`);
+      const params = new URLSearchParams();
+      if (condition) params.append("condition", condition);
+      if (variant?.printing) params.append("printing", variant.printing);
+      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales?${params.toString()}`);
       return res.json();
     },
     enabled: !!card?.tcgplayerId,
@@ -692,7 +665,7 @@ export function SearchDetailDrawer({
               </TabsContent>
 
               <TabsContent value="sales" className="space-y-3 mt-0 px-4 pt-3 pb-2">
-                <SearchRecentSalesPanel salesData={salesData} isLoading={salesLoading} />
+                <SearchRecentSalesPanel salesData={salesData} isLoading={salesLoading} variant={variant} />
               </TabsContent>
             </div>
           </Tabs>

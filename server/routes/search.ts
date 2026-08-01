@@ -4,6 +4,7 @@ import { pokeWalletSearchCards, berryWalletSearchCards } from "../pokewallet";
 import { storage } from "../storage";
 import { parseProductName } from "../../shared/lib/parseProductName";
 import { supabaseAdmin } from "../supabase";
+import { matchSalesToItem, rejectOutliers, ensureLiveSalesFetched, computeWindowedAverage } from "../tcgplayerSales";
 
 const searchCache = new Map<string, { data: SearchResultCard[]; expiresAt: number }>();
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -204,54 +205,59 @@ export function registerSearchRoutes(app: Express) {
     }
   });
 
-  // Fetch recent sales data for a TCGplayer product filtered by condition
+  // Fetch recent sales data for a TCGplayer product filtered by condition + printing
   app.get("/api/search/:tcgplayerId/sales", async (req: any, res) => {
     try {
       const { tcgplayerId } = req.params;
-      const { condition } = req.query;
+      const { condition, printing } = req.query;
       if (!tcgplayerId) return res.status(400).json({ error: "tcgplayerId is required" });
 
-      // Fetch sales for this product from our product_sales table
-      let query = supabaseAdmin
-        .from("product_sales")
-        .select("*")
-        .eq("source_product_id", tcgplayerId);
+      // Ensure fresh sales data exists — if nothing was fetched in the last 6h,
+      // fetch live from TCGplayer and store it to the shared product_sales table.
+      // Fails soft if the circuit breaker is open or the fetch errors.
+      await ensureLiveSalesFetched(tcgplayerId);
 
-      // Filter by condition if provided
-      if (condition) {
-        query = query.eq("condition", condition);
+      // Fetch all sales for this product
+      const rawSales = await storage.listProductSales(tcgplayerId);
+      if (!rawSales || rawSales.length === 0) {
+        return res.json({ sales: [], salePrices: [], avgPrice: null, priceCount: 0 });
       }
 
-      const { data: sales, error } = await query
-        .order("order_date", { ascending: false })
-        .limit(100);
-
-      if (error) throw new Error(error.message);
-
-      // Calculate stats if we have sales
-      if (!sales || sales.length === 0) {
-        return res.json({ sales: [], salePrices: [] });
+      // Match sales by condition (and printing if provided) using the canonical matching logic
+      const { matched } = matchSalesToItem(rawSales, condition || null, printing || null);
+      if (!matched.length) {
+        return res.json({ sales: [], salePrices: [], avgPrice: null, priceCount: 0, calculationMethod: 'No matching sales' });
       }
 
-      // Filter out outliers and calculate average price
-      const validSales = sales.filter((s: any) => !s.is_outlier);
-      if (validSales.length === 0) {
-        return res.json({ sales, salePrices: [] });
-      }
+      // Compute windowed average: most recent 7 with 2 outliers removed (or 3 if < 5 total)
+      const { avgPrice, priceCount, calculationMethod, excludedSales } = computeWindowedAverage(matched);
 
-      const prices = validSales.map((s: any) => s.purchase_price);
-      const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
+      // Mark which sales are outliers based on the windowed average calculation
+      // Create a reference set using sale date + price + quantity to uniquely identify excluded sales
+      const excludedSet = new Set(
+        excludedSales.map(s => `${s.orderDate}|${s.purchasePrice}|${s.quantity}`)
+      );
+      const matchedWithOutlierFlag = matched.map(s => ({
+        ...s,
+        isOutlier: excludedSet.has(`${s.orderDate}|${s.purchasePrice}|${s.quantity}`),
+      }));
+
+      // Get the prices that were used in the average (non-excluded)
+      const salePrices = matchedWithOutlierFlag
+        .filter(s => !s.isOutlier)
+        .map(s => s.purchasePrice);
 
       res.json({
-        sales,
-        salePrices: prices,
-        avgPrice,
-        priceCount: prices.length,
+        sales: matchedWithOutlierFlag,
+        salePrices,
+        avgPrice: avgPrice > 0 ? avgPrice : null,
+        priceCount,
+        calculationMethod,
       });
     } catch (e: any) {
       console.error("[search/sales]", e);
       // Don't error — just return empty sales if lookup fails
-      res.json({ sales: [], salePrices: [] });
+      res.json({ sales: [], salePrices: [], avgPrice: null, priceCount: 0 });
     }
   });
 }

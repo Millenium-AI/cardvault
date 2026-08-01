@@ -4,9 +4,9 @@ const BASE_URL = 'https://api.justtcg.com/v1';
 
 export const JUSTTCG_BATCH_SIZE = parseInt(process.env.JUSTTCG_BATCH_SIZE ?? '20', 10);
 
-function apiKey(): string {
-  const key = process.env.JUSTTCG_API_KEY;
-  if (!key) throw new Error('JUSTTCG_API_KEY env var is not set');
+function apiKey(keyIndex: 1 | 2 = 1): string {
+  const key = keyIndex === 1 ? process.env.JUSTTCG_API_KEY : process.env.JUSTTCG_API_KEY2;
+  if (!key) throw new Error(`JUSTTCG_API_KEY${keyIndex} env var is not set`);
   return key;
 }
 
@@ -444,9 +444,21 @@ export async function searchCards(params: SearchCardsParams): Promise<SearchResu
   if (justTcgGame) search.set('game', justTcgGame);
   if (set?.trim()) search.set('set', set.trim());
 
-  const res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
-    headers: { 'x-api-key': apiKey() },
+  let res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
+    headers: { 'x-api-key': apiKey(1) },
   });
+
+  // If first API key fails with 401, try the fallback key
+  if (res.status === 401) {
+    try {
+      res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
+        headers: { 'x-api-key': apiKey(2) },
+      });
+    } catch {
+      // Fallback key error — let route-level fallback (pokewallet/berry) handle it
+      throw Object.assign(new Error('JustTCG search API 401'), { status: 401 });
+    }
+  }
 
   if (res.status === 429) throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
   if (!res.ok) {

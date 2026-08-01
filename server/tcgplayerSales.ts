@@ -138,6 +138,76 @@ export function rejectOutliers(values: number[]): { kept: number[]; dropped: num
   return { kept, dropped };
 }
 
+/**
+ * Windowed average with fixed outlier removal: average the 5 most recent sales
+ * after removing the 2 most extreme values. If less than 5 sales total, use the
+ * 3 most recent instead.
+ */
+export interface WindowedAverageResult {
+  avgPrice: number;
+  priceCount: number;
+  calculationMethod: string;
+  excludedSales: Sale[];
+}
+
+export function computeWindowedAverage(sales: Sale[]): WindowedAverageResult {
+  if (sales.length === 0) {
+    return {
+      avgPrice: 0,
+      priceCount: 0,
+      calculationMethod: 'No sales data',
+      excludedSales: [],
+    };
+  }
+
+  // Sort by most recent first
+  const sorted = [...sales].sort((a, b) =>
+    new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()
+  );
+
+  // Determine window size: 7 if 5+ sales, otherwise 3
+  const windowSize = sorted.length >= 5 ? 7 : 3;
+  const inWindow = sorted.slice(0, Math.min(windowSize, sorted.length));
+  const prices = inWindow.map(s => s.purchasePrice);
+
+  if (prices.length < 3) {
+    // Not enough sales even for the fallback window
+    const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+    return {
+      avgPrice: Number(avg.toFixed(2)),
+      priceCount: prices.length,
+      calculationMethod: `Average of ${prices.length} ${prices.length === 1 ? 'sale' : 'sales'}`,
+      excludedSales: [],
+    };
+  }
+
+  // Find 2 most extreme values by distance from median
+  const med = median(prices);
+  const deviations = prices.map((p, i) => ({
+    price: p,
+    index: i,
+    deviation: Math.abs(p - med),
+  }));
+
+  // Sort by deviation (largest first), take indices of 2 most extreme
+  deviations.sort((a, b) => b.deviation - a.deviation);
+  const outliersToRemove = new Set(deviations.slice(0, Math.min(2, prices.length - 1)).map(d => d.index));
+  const excludedSales = inWindow.filter((_, i) => outliersToRemove.has(i));
+
+  // Average the remaining
+  const remaining = prices.filter((_, i) => !outliersToRemove.has(i));
+  const avgPrice = remaining.length > 0
+    ? remaining.reduce((a, b) => a + b, 0) / remaining.length
+    : 0;
+
+  return {
+    avgPrice: Number(avgPrice.toFixed(2)),
+    priceCount: remaining.length,
+    calculationMethod: `Average of ${remaining.length} ${remaining.length === 1 ? 'sale' : 'sales'} from most recent ${windowSize} (2 outliers excluded)`,
+    excludedSales,
+  };
+}
+
 /* ─────────────────────── thresholds ─────────────────────── */
 
 export interface DivergenceBand {
@@ -235,6 +305,7 @@ export interface ItemPricing {
   lastSaleMatch: 'exact' | 'condition_only' | 'none';
   priceDivergencePct: number | null;
   outlierPrices: number[];
+  calculationMethod: string;
 }
 
 function norm(v: string | null | undefined): string {
@@ -286,12 +357,17 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
     return {
       adjustedMarketPrice: null, lastSaleDate: null, lastSaleCount: 0,
       lastSaleOutliers: 0, lastSaleMatch: 'none', priceDivergencePct: null, outlierPrices: [],
+      calculationMethod: 'No matching sales',
     };
   }
 
+  // Use windowed average: most recent 7 with 2 outliers removed (or 3 if < 5 total)
+  const { avgPrice, priceCount, calculationMethod } = computeWindowedAverage(matched);
+  const adjusted = avgPrice;
+
+  // Also compute traditional outliers for display purposes
   const prices = matched.map(s => s.purchasePrice);
-  const { kept, dropped } = rejectOutliers(prices);
-  const adjusted = kept.reduce((a, b) => a + b, 0) / kept.length;
+  const { dropped } = rejectOutliers(prices);
 
   const market = item.currentRawMarketPrice ?? null;
   const divergence = market && market > 0 ? ((adjusted - market) / market) * 100 : null;
@@ -305,25 +381,37 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
     adjustedMarketPrice: Number(adjusted.toFixed(2)),
     lastSaleDate,
     lastSaleCount: matched.length,
-    lastSaleOutliers: dropped.length,
+    lastSaleOutliers: Math.min(2, dropped.length),
     lastSaleMatch: match,
     priceDivergencePct: divergence == null ? null : Number(divergence.toFixed(2)),
     outlierPrices: dropped,
+    calculationMethod,
   };
 }
 
 /* ─────────────────────── persistence ─────────────────────── */
 
-async function getFreshSales(productId: string): Promise<Sale[] | null> {
+async function checkFreshSalesExist(productId: string): Promise<boolean> {
   const cutoff = new Date(Date.now() - SALES_FRESHNESS_MS).toISOString();
   const { data, error } = await supabaseAdmin
     .from('product_sales')
-    .select('condition, variant, language, quantity, purchase_price, order_date')
+    .select('id')
     .eq('source_product_id', productId)
     .gte('fetched_at', cutoff)
     .limit(1);
 
-  if (error || !data?.length) return null;
+  return !error && !!data?.length;
+}
+
+async function getAllProductSales(productId: string): Promise<Sale[]> {
+  const { data, error } = await supabaseAdmin
+    .from('product_sales')
+    .select('condition, variant, language, quantity, purchase_price, order_date')
+    .eq('source_product_id', productId)
+    .order('order_date', { ascending: false })
+    .limit(200);
+
+  if (error || !data?.length) return [];
   return data.map(row => ({
     condition: row.condition || null,
     variant: row.variant || null,
@@ -334,20 +422,24 @@ async function getFreshSales(productId: string): Promise<Sale[] | null> {
   }));
 }
 
-async function storeSales(productId: string, sales: Sale[], outlierPrices: Set<number>) {
+async function storeSales(productId: string, sales: Sale[], outlierMap: Map<string, { price: number; condition: string; variant: string }>) {
   if (!sales.length) return;
 
-  const rows = sales.map(s => ({
-    source_product_id: productId,
-    condition: s.condition ?? '',
-    variant: s.variant ?? '',
-    language: s.language,
-    quantity: s.quantity,
-    purchase_price: s.purchasePrice,
-    order_date: s.orderDate,
-    is_outlier: outlierPrices.has(s.purchasePrice),
-    fetched_at: new Date().toISOString(),
-  }));
+  const rows = sales.map(s => {
+    const key = `${s.purchasePrice}|${standardizeCondition(s.condition)}|${norm(s.variant)}`;
+    const isOutlier = outlierMap.has(key);
+    return {
+      source_product_id: productId,
+      condition: s.condition ?? '',
+      variant: s.variant ?? '',
+      language: s.language,
+      quantity: s.quantity,
+      purchase_price: s.purchasePrice,
+      order_date: s.orderDate,
+      is_outlier: isOutlier,
+      fetched_at: new Date().toISOString(),
+    };
+  });
 
   // Insert; duplicates on the dedupe index are ignored. The index uses COALESCE
   // so we normalize empty strings above to match.
@@ -511,9 +603,9 @@ export async function sweepSalesForItems(
       let sales: Sale[] = [];
 
       try {
-        const freshSales = await getFreshSales(productId);
-        if (freshSales) {
-          sales = freshSales;
+        const hasFreshData = await checkFreshSalesExist(productId);
+        if (hasFreshData) {
+          sales = await getAllProductSales(productId);
         } else {
           sales = await fetchLatestSales(productId);
         }
@@ -524,7 +616,7 @@ export async function sweepSalesForItems(
 
       if (sales.length) summary.productsWithSales++;
 
-      const allOutliers = new Set<number>();
+      const allOutliers = new Map<string, { price: number; condition: string; variant: string }>();
       const updates: { item: SweepItem; pricing: ItemPricing }[] = [];
 
       for (const item of byProduct.get(productId)!) {
@@ -538,7 +630,15 @@ export async function sweepSalesForItems(
         }
 
         const pricing = computeItemPricing(item, sales, windowDays);
-        pricing.outlierPrices.forEach(p => allOutliers.add(p));
+        // Track outliers by (price, condition, variant) so flags don't cross condition boundaries
+        pricing.outlierPrices.forEach(price => {
+          // Find the matching sale(s) in this condition group to extract their condition+variant
+          const matchedSale = sales.find(s => s.purchasePrice === price && standardizeCondition(s.condition) === standardizeCondition(item.condition));
+          if (matchedSale) {
+            const key = `${price}|${standardizeCondition(item.condition)}|${norm(matchedSale.variant)}`;
+            allOutliers.set(key, { price, condition: matchedSale.condition ?? '', variant: matchedSale.variant ?? '' });
+          }
+        });
         updates.push({ item, pricing });
       }
 
@@ -675,4 +775,43 @@ async function purgeOldSales() {
     .delete()
     .lt('order_date', cutoff);
   if (error) console.warn(`[TCGsales] purge failed: ${error.message}`);
+}
+
+/**
+ * Ensure fresh sales data exists for a product: if nothing was fetched in the
+ * last 6 hours, fetch live from TCGplayer and store it to the shared product_sales
+ * table. Fails soft — if the fetch errors or circuit breaker is open, leaves existing
+ * data as-is. Safe to call from any route.
+ */
+export async function ensureLiveSalesFetched(productId: string): Promise<void> {
+  if (await checkFreshSalesExist(productId)) return;
+
+  let sales: Sale[];
+  try {
+    sales = await fetchLatestSales(productId);
+  } catch {
+    return;
+  }
+  if (!sales.length) return;
+
+  // Group by (condition, variant) and reject outliers per group, same as the
+  // sweep loop's per-item grouping, but without an owning item context.
+  const groups = new Map<string, Sale[]>();
+  for (const s of sales) {
+    const key = `${standardizeCondition(s.condition)}|${norm(s.variant)}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(s);
+  }
+
+  const outlierMap = new Map<string, { price: number; condition: string; variant: string }>();
+  for (const group of groups.values()) {
+    const { dropped } = rejectOutliers(group.map(s => s.purchasePrice));
+    for (const s of group) {
+      if (dropped.includes(s.purchasePrice)) {
+        const key = `${s.purchasePrice}|${standardizeCondition(s.condition)}|${norm(s.variant)}`;
+        outlierMap.set(key, { price: s.purchasePrice, condition: s.condition ?? '', variant: s.variant ?? '' });
+      }
+    }
+  }
+
+  await storeSales(productId, sales, outlierMap);
 }

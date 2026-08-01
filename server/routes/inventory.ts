@@ -7,7 +7,7 @@ import { resolveProductIds } from "../productIdResolver";
 import { refreshInventoryPrices } from "./uploads";
 import { supabaseAdmin } from "../supabase";
 import { effectivePrice, effectivePrintPrice } from "../../shared/lib/effectivePrice";
-import { evaluateDivergence, getDivergenceBands, matchSalesToItem } from "../tcgplayerSales";
+import { evaluateDivergence, getDivergenceBands, matchSalesToItem, computeWindowedAverage } from "../tcgplayerSales";
 
 export function registerInventoryRoutes(app: Express) {
   // ── Repair: resolve product ids for existing unpriceable items ────────────
@@ -231,7 +231,18 @@ export function registerInventoryRoutes(app: Express) {
       const printing = meta.sourcePrinting ?? null;
 
       const { matched } = matchSalesToItem(rawSales, item.condition, printing);
-      const filteredSales = matched.slice(0, 25);
+      const { calculationMethod, excludedSales } = computeWindowedAverage(matched);
+
+      // Mark which sales are outliers based on the windowed average calculation
+      // Create a reference set using sale date + price + quantity to uniquely identify excluded sales
+      const excludedSet = new Set(
+        excludedSales.map(s => `${s.orderDate}|${s.purchasePrice}|${s.quantity}`)
+      );
+      const matchedWithOutlierFlag = matched.map(s => ({
+        ...s,
+        isOutlier: excludedSet.has(`${s.orderDate}|${s.purchasePrice}|${s.quantity}`),
+      }));
+      const filteredSales = matchedWithOutlierFlag.slice(0, 25);
 
       res.json({
         sales: filteredSales,
@@ -240,6 +251,7 @@ export function registerInventoryRoutes(app: Express) {
         lastSaleOutliers: item.lastSaleOutliers ?? 0,
         adjustedMarketPrice: item.adjustedMarketPrice ?? null,
         priceDivergencePct: item.priceDivergencePct ?? null,
+        calculationMethod,
       });
     } catch (e: any) {
       console.error("[inventory/:id/sales]", e);

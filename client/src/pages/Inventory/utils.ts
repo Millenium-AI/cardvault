@@ -25,7 +25,8 @@ export function getPricingSummary(item: any): PricingSummary {
   const raw = item.currentRawMarketPrice;
   const adjusted = item.adjustedMarketPrice;
   const print = item.currentRoundedPrintPrice;
-  const isAdjusted = adjusted != null;
+  // Only show adjusted price if it exists AND the item is not price-locked
+  const isAdjusted = adjusted != null && !item.priceLocked;
   const rawFormatted = raw?.toFixed(2) ?? "—";
   const total = (item.effectivePrice || raw || 0) * qty;
 

@@ -53,7 +53,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
 
   if (!salesData) return null;
 
-  const { sales, lastSaleMatch, lastSaleCount, lastSaleOutliers, adjustedMarketPrice, priceDivergencePct } = salesData;
+  const { sales, lastSaleMatch, lastSaleCount, lastSaleOutliers, adjustedMarketPrice, priceDivergencePct, calculationMethod } = salesData;
 
   // Parse metadata for condition and printing
   const meta = (() => {
@@ -101,27 +101,8 @@ export function RecentSalesPanel({ item }: { item: any }) {
     );
   }
 
-  // Calculate stats - match backend's two-tier logic (exact match + condition-only fallback)
-  const printingLower = printing.toLowerCase().trim();
+  // All returned sales are already condition-matched server-side (via matchSalesToItem)
   const includedSales = sales.filter((s: any) => !s.isOutlier);
-
-  // Check if we have exact matches (both condition and printing/variant match)
-  const exactMatches = includedSales.filter((s: any) => {
-    const saleCondition = standardizeCondition(s.condition);
-    const saleVariant = (s.variant || "").toLowerCase().trim(); // Handle empty string from DB
-    return saleCondition === condition && saleVariant === printingLower;
-  });
-
-  // If we have exact matches, other sales are "other condition"
-  // If we have no exact matches but have condition matches, those become the matching set (condition-only)
-  const hasExactMatches = exactMatches.length > 0;
-  const otherConditionCount = hasExactMatches
-    ? includedSales.filter((s: any) => {
-        const saleCondition = standardizeCondition(s.condition);
-        const saleVariant = (s.variant || "").toLowerCase().trim();
-        return saleCondition === condition && saleVariant !== printingLower;
-      }).length
-    : 0; // If condition-only match, don't mark any as "other condition"
 
   return (
     <div className="space-y-4">
@@ -179,7 +160,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
       {sales.length > 0 && (
         <div className="space-y-2">
           <div className="text-xs font-semibold text-muted-foreground px-1">
-            Sales ({lastSaleCount} matching)
+            Sales history ({sales.length} total)
           </div>
           <div className="border border-border rounded-lg overflow-hidden">
             <table className="w-full text-xs">
@@ -195,12 +176,6 @@ export function RecentSalesPanel({ item }: { item: any }) {
               <tbody>
                 {sales.map((sale: any, idx: number) => {
                   const isOutlier = sale.isOutlier;
-                  const saleCondition = standardizeCondition(sale.condition);
-                  const saleVariant = (sale.variant || "").toLowerCase().trim(); // Handle empty string from DB
-                  const printingLower = printing.toLowerCase().trim();
-                  // Match backend logic: mark as "other condition" only if condition doesn't match
-                  // Variant mismatch is "condition-only" match, not "other condition"
-                  const isOtherCondition = saleCondition !== condition;
                   const saleDate = new Date(sale.orderDate);
                   const dateStr = saleDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
@@ -208,26 +183,22 @@ export function RecentSalesPanel({ item }: { item: any }) {
                     <tr
                       key={idx}
                       className={`border-b border-border/50 last:border-b-0 ${
-                        isOutlier || isOtherCondition
+                        isOutlier
                           ? "bg-muted/15 text-muted-foreground/60"
                           : "hover:bg-muted/10"
                       }`}
                     >
                       <td className="px-2 py-1.5">{dateStr}</td>
-                      <td className={`text-right px-2 py-1.5 font-mono ${isOutlier || isOtherCondition ? "line-through" : ""}`}>
+                      <td className={`text-right px-2 py-1.5 font-mono ${isOutlier ? "line-through" : ""}`}>
                         ${sale.purchasePrice.toFixed(2)}
                       </td>
                       <td className="px-2 py-1.5">{sale.condition ?? "—"}</td>
                       <td className="px-2 py-1.5">{sale.variant ?? "Normal"}</td>
                       <td className="text-center px-2 py-1.5">{sale.quantity}</td>
-                      {(isOutlier || isOtherCondition) && (
+                      {isOutlier && (
                         <td className="px-2 py-1.5">
-                          <span className={`inline-block text-[9px] px-1.5 py-0.5 rounded ${
-                            isOutlier
-                              ? "bg-amber-500/15 text-amber-400"
-                              : "bg-muted/50 text-muted-foreground"
-                          }`}>
-                            {isOutlier ? "outlier" : "other condition"}
+                          <span className="inline-block text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400">
+                            outlier
                           </span>
                         </td>
                       )}
@@ -243,9 +214,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
       {/* Footer */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground/70">
-          Average of {lastSaleCount} {condition}{printing !== "Normal" ? ` / ${printing}` : ""} sales
-          {lastSaleOutliers > 0 && ` · ${lastSaleOutliers} outliers excluded`}
-          {otherConditionCount > 0 && ` · ${otherConditionCount} other condition${otherConditionCount > 1 ? "s" : ""}`}
+          {calculationMethod || `Price average from ${lastSaleCount} ${condition}${printing !== "Normal" ? ` / ${printing}` : ""} sales`}
         </p>
       </div>
 
