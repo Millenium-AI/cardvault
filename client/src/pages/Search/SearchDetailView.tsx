@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { PlusCircle, Minus, Plus, ExternalLink } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -20,6 +20,16 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
   const [quantity, setQuantity] = useState(1);
 
   const variant = variants[variantIndex] ?? null;
+
+  // Fetch recent sales data if available
+  const { data: salesData, isLoading: salesLoading } = useQuery({
+    queryKey: [`/api/search/${card.tcgplayerId}/sales`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/search/${card.tcgplayerId}/sales`);
+      return res.json();
+    },
+    enabled: !!card.tcgplayerId,
+  });
 
   // Build TCGplayer URL from tcgplayerId if available
   const tcgplayerUrl = card.tcgplayerId
@@ -99,6 +109,18 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
               </div>
             </div>
           </div>
+          {/* Recent sales average if available */}
+          {!salesLoading && salesData?.avgPrice && (
+            <div className="pt-2 border-t border-border/30">
+              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1">Recent Sales Avg</div>
+              <div className="text-lg font-mono font-bold text-emerald-400 tabular-nums">
+                ${salesData.avgPrice.toFixed(2)}
+              </div>
+              <div className="text-[9px] text-muted-foreground/60 mt-1">
+                From {salesData.priceCount} TCGplayer sales
+              </div>
+            </div>
+          )}
         </div>
       )}
 

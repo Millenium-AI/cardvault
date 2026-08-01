@@ -203,4 +203,47 @@ export function registerSearchRoutes(app: Express) {
       res.status(500).json({ error: e.message ?? "Failed to add item" });
     }
   });
+
+  // Fetch recent sales data for a TCGplayer product (preview in search detail)
+  app.get("/api/search/:tcgplayerId/sales", async (req: any, res) => {
+    try {
+      const { tcgplayerId } = req.params;
+      if (!tcgplayerId) return res.status(400).json({ error: "tcgplayerId is required" });
+
+      // Fetch sales for this product from our product_sales table
+      const { data: sales, error } = await supabaseAdmin
+        .from("product_sales")
+        .select("*")
+        .eq("product_id", parseInt(tcgplayerId, 10))
+        .order("orderDate", { ascending: false })
+        .limit(100);
+
+      if (error) throw new Error(error.message);
+
+      // Calculate stats if we have sales
+      if (!sales || sales.length === 0) {
+        return res.json({ sales: [], salePrices: [] });
+      }
+
+      // Filter out outliers and calculate average price
+      const validSales = sales.filter((s: any) => !s.isOutlier);
+      if (validSales.length === 0) {
+        return res.json({ sales, salePrices: [] });
+      }
+
+      const prices = validSales.map((s: any) => s.purchasePrice);
+      const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
+
+      res.json({
+        sales,
+        salePrices: prices,
+        avgPrice,
+        priceCount: prices.length,
+      });
+    } catch (e: any) {
+      console.error("[search/sales]", e);
+      // Don't error — just return empty sales if lookup fails
+      res.json({ sales: [], salePrices: [] });
+    }
+  });
 }
