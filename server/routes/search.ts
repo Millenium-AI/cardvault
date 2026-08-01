@@ -204,18 +204,26 @@ export function registerSearchRoutes(app: Express) {
     }
   });
 
-  // Fetch recent sales data for a TCGplayer product (preview in search detail)
+  // Fetch recent sales data for a TCGplayer product filtered by condition
   app.get("/api/search/:tcgplayerId/sales", async (req: any, res) => {
     try {
       const { tcgplayerId } = req.params;
+      const { condition } = req.query;
       if (!tcgplayerId) return res.status(400).json({ error: "tcgplayerId is required" });
 
       // Fetch sales for this product from our product_sales table
-      const { data: sales, error } = await supabaseAdmin
+      let query = supabaseAdmin
         .from("product_sales")
         .select("*")
-        .eq("product_id", parseInt(tcgplayerId, 10))
-        .order("orderDate", { ascending: false })
+        .eq("source_product_id", tcgplayerId);
+
+      // Filter by condition if provided
+      if (condition) {
+        query = query.eq("condition", condition);
+      }
+
+      const { data: sales, error } = await query
+        .order("order_date", { ascending: false })
         .limit(100);
 
       if (error) throw new Error(error.message);
@@ -226,12 +234,12 @@ export function registerSearchRoutes(app: Express) {
       }
 
       // Filter out outliers and calculate average price
-      const validSales = sales.filter((s: any) => !s.isOutlier);
+      const validSales = sales.filter((s: any) => !s.is_outlier);
       if (validSales.length === 0) {
         return res.json({ sales, salePrices: [] });
       }
 
-      const prices = validSales.map((s: any) => s.purchasePrice);
+      const prices = validSales.map((s: any) => s.purchase_price);
       const avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
 
       res.json({

@@ -153,7 +153,7 @@ export function MobileDetailDrawer({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("price");
+  const [activeTab, setActiveTab] = useState("overview");
   const [snap, setSnap] = useState<number | string | null>(0.92);
 
   const meta = (() => {
@@ -164,12 +164,12 @@ export function MobileDetailDrawer({
     }
   })();
 
-  // Always re-open at the max snap point on the Price tab, even if a
+  // Always re-open at the max snap point on the Overview tab, even if a
   // previous open was left dragged down or on a different tab.
   useEffect(() => {
     if (open) {
       setSnap(0.92);
-      setActiveTab("price");
+      setActiveTab("overview");
     }
   }, [open]);
 
@@ -264,7 +264,7 @@ export function MobileDetailDrawer({
 
             {/* Scrollable tab body */}
             <div
-              className="flex-1 overflow-y-auto"
+              className="flex-1 overflow-y-auto modal-scroll-area"
               style={{
                 paddingBottom:
                   "calc(env(safe-area-inset-bottom, 0px) + 1rem)",

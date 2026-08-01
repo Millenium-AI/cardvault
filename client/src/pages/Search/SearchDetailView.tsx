@@ -12,6 +12,7 @@ import { Drawer } from "vaul";
 import { gameLabel } from "@shared/gameLabels";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 import { Chip } from "@/pages/Inventory/DetailPanel";
+import { SearchRecentSalesPanel } from "@/components/SearchRecentSalesPanel";
 
 function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; onAdded: () => void }) {
   const { toast } = useToast();
@@ -242,9 +243,9 @@ export function SearchDetailModal({
   const { toast } = useToast();
 
   const { data: salesData, isLoading: salesLoading } = useQuery({
-    queryKey: [`/api/search/${card?.tcgplayerId}/sales`],
+    queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales`);
+      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales?condition=${encodeURIComponent(condition)}`);
       return res.json();
     },
     enabled: !!card?.tcgplayerId,
@@ -464,6 +465,7 @@ export function SearchDetailDrawer({
   card, game, open, onClose,
 }: { card: any; game: string; open: boolean; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState("card");
+  const [snap, setSnap] = useState<number | string | null>(0.92);
   const { toast } = useToast();
   const variants = card?.variants ?? [];
   const [variantIndex, setVariantIndex] = useState(0);
@@ -471,11 +473,19 @@ export function SearchDetailDrawer({
   const [quantity, setQuantity] = useState(1);
   const variant = variants[variantIndex] ?? null;
 
+  // Reset to overview/card tab and full snap when opening
+  useEffect(() => {
+    if (open) {
+      setSnap(0.92);
+      setActiveTab("card");
+    }
+  }, [open]);
+
   // Fetch recent sales data
   const { data: salesData, isLoading: salesLoading } = useQuery({
-    queryKey: [`/api/search/${card?.tcgplayerId}/sales`],
+    queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales`);
+      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales?condition=${encodeURIComponent(condition)}`);
       return res.json();
     },
     enabled: !!card?.tcgplayerId,
@@ -504,39 +514,41 @@ export function SearchDetailDrawer({
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  // Auto-select sales tab when condition changes
-  useEffect(() => {
-    setActiveTab("sales");
-  }, [condition]);
-
   if (!card) return null;
 
   return (
-    <Drawer.Root open={open} onOpenChange={v => !v && onClose()} snapPoints={[0.75]} activeSnapPoint={0.75}>
+    <Drawer.Root open={open} onOpenChange={v => !v && onClose()} snapPoints={[0.6, 0.92]} activeSnapPoint={snap} setActiveSnapPoint={setSnap}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/50" />
         <Drawer.Content
           className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl bg-card border-t border-border focus:outline-none"
-          style={{ height: "75dvh", maxHeight: "75dvh" }}
+          style={{ height: "92dvh", maxHeight: "92dvh" }}
         >
+          {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 shrink-0">
             <div className="w-10 h-1 rounded-full bg-border" />
           </div>
-          <div className="px-4 pt-2 pb-0 border-b border-border/50 shrink-0">
-            <div className="text-base font-semibold text-foreground leading-tight mb-3">{card.name}</div>
+
+          {/* Header */}
+          <div className="px-4 pt-2 pb-3 border-b border-border/50 shrink-0">
+            <div className="text-base font-semibold text-foreground leading-tight">{card.name}</div>
           </div>
-          <div
-            className="flex-1 overflow-y-auto px-4 pt-3"
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)" }}
-          >
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full flex flex-col">
-              <TabsList className="w-full grid grid-cols-2 h-9 -mx-4 -mt-3 mb-3 rounded-none px-4 pt-3">
-                <TabsTrigger value="card" className="text-xs">Price</TabsTrigger>
-                <TabsTrigger value="sales" className="text-xs">TCG Player Sales</TabsTrigger>
-              </TabsList>
-              <TabsContent value="card" className="space-y-3 mt-0">
+
+          {/* Tabs */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
+            <TabsList className="shrink-0 mx-4 mt-3 mb-1 grid grid-cols-2 h-9 bg-muted/50">
+              <TabsTrigger value="card" className="text-xs">Overview</TabsTrigger>
+              <TabsTrigger value="sales" className="text-xs">TCG Player Sales</TabsTrigger>
+            </TabsList>
+
+            {/* Scrollable tab body */}
+            <div
+              className="flex-1 overflow-y-auto modal-scroll-area"
+              style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)" }}
+            >
+              <TabsContent value="card" className="space-y-3 mt-0 px-4 pt-3 pb-2">
                 {/* Image */}
-                <div className="flex justify-center rounded-lg bg-muted/30 py-3">
+                <div className="flex justify-center rounded-lg bg-muted/30 py-2">
                   <CardImagePlaceholder photoUrl={card.imageUrl} size="md" className="max-h-40 max-w-[70%] rounded-lg object-contain" />
                 </div>
 
@@ -635,36 +647,11 @@ export function SearchDetailDrawer({
                 </Button>
               </TabsContent>
 
-              <TabsContent value="sales" className="space-y-3 mt-0">
-                {/* TCG Player sales data */}
-                {!salesLoading && salesData?.avgPrice ? (
-                  <div className="space-y-3">
-                    <div className="rounded-lg border border-border/50 bg-muted/20 p-3">
-                      <div className="text-[10px] text-muted-foreground font-semibold uppercase mb-2">TCG Player Sales</div>
-                      <div className="text-2xl font-mono font-bold text-emerald-400">
-                        ${salesData.avgPrice.toFixed(2)}
-                      </div>
-                      <div className="text-[9px] text-muted-foreground/60 mt-1">
-                        Average of {salesData.priceCount} recent sales
-                      </div>
-                    </div>
-                    {salesData.salePrices && (
-                      <div className="text-[10px] text-muted-foreground space-y-1">
-                        <div>High: <span className="text-emerald-400 font-mono">${Math.max(...salesData.salePrices).toFixed(2)}</span></div>
-                        <div>Low: <span className="text-red-400 font-mono">${Math.min(...salesData.salePrices).toFixed(2)}</span></div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-center">
-                    <p className="text-xs text-muted-foreground">
-                      {salesLoading ? "Loading sales data…" : "No recent sales data available"}
-                    </p>
-                  </div>
-                )}
+              <TabsContent value="sales" className="space-y-3 mt-0 px-4 pt-3 pb-2">
+                <SearchRecentSalesPanel salesData={salesData} isLoading={salesLoading} />
               </TabsContent>
-            </Tabs>
-          </div>
+            </div>
+          </Tabs>
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
