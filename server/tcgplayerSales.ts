@@ -246,30 +246,20 @@ function norm(v: string | null | undefined): string {
  * wins, condition-only is the fallback, and anything else scores as no match.
  */
 export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: number): ItemPricing {
-  console.log(`[TCGsales] computeItemPricing: item=${item.id}, sales=${sales.length}, condition=${item.condition}, printing=${item.printing}`);
-
   const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
-  const inWindow = sales.filter(s => new Date(s.orderDate).getTime() >= cutoff);
+  let inWindow = sales.filter(s => new Date(s.orderDate).getTime() >= cutoff);
+
+  // Fallback: if no recent sales (illiquid cards), use ALL sales data
+  if (inWindow.length === 0 && sales.length > 0) {
+    console.log(`[TCGsales] item ${item.id}: no sales in ${windowDays}d window, falling back to all ${sales.length} sales`);
+    inWindow = sales;
+  }
 
   const itemCondition = standardizeCondition(item.condition);
-  console.log(`[TCGsales] item ${item.id}: itemCondition="${itemCondition}", inWindow=${inWindow.length}, samples:`, inWindow.slice(0, 2).map(s => ({ condition: s.condition, variant: s.variant, date: s.orderDate })));
-
   const sameCondition = inWindow.filter(s => standardizeCondition(s.condition) === itemCondition);
   const exact = item.printing
     ? sameCondition.filter(s => norm(s.variant) === norm(item.printing))
     : sameCondition;
-
-  console.log(`[TCGsales] item ${item.id}: sameCondition=${sameCondition.length}, exact=${exact.length}`);
-
-  // Debug logging for items without matches
-  if (sameCondition.length === 0 && inWindow.length > 0) {
-    const sampleSaleCondition = inWindow[0]?.condition;
-    console.log(`[TCGsales] DEBUG item ${item.id}: condition mismatch - item="${itemCondition}" vs sale="${sampleSaleCondition}" (standardized: "${standardizeCondition(sampleSaleCondition)}")`);
-  }
-  if (exact.length === 0 && sameCondition.length > 0 && item.printing) {
-    const sampleVariant = sameCondition[0]?.variant;
-    console.log(`[TCGsales] DEBUG item ${item.id}: printing mismatch - item="${item.printing}" vs sale="${sampleVariant}"`);
-  }
 
   let matched = exact;
   let match: ItemPricing['lastSaleMatch'] = 'exact';
@@ -279,9 +269,6 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
     match = 'condition_only';
   }
   if (!matched.length) {
-    if (inWindow.length > 0) {
-      console.log(`[TCGsales] item ${item.id}: NO MATCHES - inWindow=${inWindow.length}, sameCondition=${sameCondition.length}, exact=${exact.length}`);
-    }
     return {
       adjustedMarketPrice: null, lastSaleDate: null, lastSaleCount: 0,
       lastSaleOutliers: 0, lastSaleMatch: 'none', priceDivergencePct: null, outlierPrices: [],
@@ -299,10 +286,6 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
     .map(s => s.orderDate)
     .sort()
     .reverse()[0] ?? null;
-
-  if (matched.length > 0) {
-    console.log(`[TCGsales] item ${item.id}: found ${matched.length} ${match} matches (avg $${adjusted.toFixed(2)})`);
-  }
 
   return {
     adjustedMarketPrice: Number(adjusted.toFixed(2)),
