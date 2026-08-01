@@ -22,7 +22,7 @@ const UA =
 
 const CONCURRENCY = 4;
 const INTER_BATCH_MS = 100;
-const FETCH_LIMIT = 25;
+const FETCH_LIMIT = 100; // Increased from 25 to capture more sales data for condition-only matching
 const ABORT_ERROR_RATE = 0.25;
 const MIN_PRODUCTS_BEFORE_ABORT = 12;
 const BREAKER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -251,7 +251,6 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
 
   // Fallback: if no recent sales (illiquid cards), use ALL sales data
   if (inWindow.length === 0 && sales.length > 0) {
-    console.log(`[TCGsales] item ${item.id}: no sales in ${windowDays}d window, falling back to all ${sales.length} sales`);
     inWindow = sales;
   }
 
