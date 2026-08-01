@@ -765,15 +765,13 @@ export default function Dashboard() {
               warn={cashflow.netCash < 0}
             />
             <Link href="/inventory?mismatch=1">
-              <a className="stat-card no-underline hover:opacity-80 transition-opacity">
-                <StatCard
-                  label="Price Mismatch"
-                  value={mismatchItems.length}
-                  icon={AlertCircle}
-                  sub={mismatchValue > 0 ? `${fmtUSD(mismatchValue)} impact` : "none"}
-                  warn={mismatchItems.length > 0}
-                />
-              </a>
+              <StatCard
+                label="Price Mismatch"
+                value={mismatchItems.length}
+                icon={AlertCircle}
+                sub={mismatchValue > 0 ? `${fmtUSD(mismatchValue)} impact` : "none"}
+                warn={mismatchItems.length > 0}
+              />
             </Link>
             <StatCard
               label="Stale ≥ 90d"

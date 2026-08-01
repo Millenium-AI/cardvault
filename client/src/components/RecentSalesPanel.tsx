@@ -11,8 +11,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
   const { data: salesData, isLoading, isFetching } = useQuery({
     queryKey: [`/api/inventory/${item.id}/sales`],
     queryFn: async () => {
-      const res = await fetch(`/api/inventory/${item.id}/sales`);
-      if (!res.ok) throw new Error("Failed to fetch sales");
+      const res = await apiRequest("GET", `/api/inventory/${item.id}/sales`);
       return res.json();
     },
   });
