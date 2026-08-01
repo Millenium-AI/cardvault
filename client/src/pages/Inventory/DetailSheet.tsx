@@ -39,7 +39,7 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
           gated by the parent, so no responsive stacking fallback is needed here. */}
       <div className="flex gap-0 h-full">
         {/* Left col: image + meta + stats */}
-        <div className="w-[220px] shrink-0 border-r border-border/40 flex flex-col">
+        <div className="w-[300px] shrink-0 border-r border-border/40 flex flex-col">
           <div className="w-full bg-muted/30 flex items-center justify-center py-5 px-4">
             <CardImagePlaceholder
               photoUrl={item.photoUrl}
@@ -109,6 +109,23 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
                     TCGplayer <ExternalLink size={11} />
                   </div>
                 )}
+                {/* eBay sold listings link */}
+                {(() => {
+                  const parts = [item.productName, item.condition]
+                    .filter(Boolean)
+                    .map((v) => String(v).trim())
+                    .filter((v) => v.length > 0);
+                  const query = parts.join(" ");
+                  if (!query) return null;
+                  const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+                  return (
+                    <button
+                      onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}
+                      className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-amber-500/40 px-3 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/60 transition-colors">
+                      eBay Sold Listings <ExternalLink size={11} />
+                    </button>
+                  );
+                })()}
               </div>
             )}
           </div>

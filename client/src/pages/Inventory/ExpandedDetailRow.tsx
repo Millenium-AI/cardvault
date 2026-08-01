@@ -149,7 +149,7 @@ export function ExpandedDetail({
                   onClick={handleDelete}>
                   <Trash2 size={12} /> {deleteMut.isPending ? "Deleting\u2026" : "Delete"}
                 </Button>
-                <div className="border-t border-border/30 pt-2 mt-1">
+                <div className="border-t border-border/30 pt-2 mt-1 space-y-2">
                   {item.tcgplayerUrl ? (
                     <a
                       href={item.tcgplayerUrl}
@@ -163,6 +163,27 @@ export function ExpandedDetail({
                       TCGplayer <ExternalLink size={11} />
                     </div>
                   )}
+
+                  {/* eBay sold listings link */}
+                  {(() => {
+                    const parts = [item.productName, item.condition]
+                      .filter(Boolean)
+                      .map((v) => String(v).trim())
+                      .filter((v) => v.length > 0);
+                    const query = parts.join(" ");
+                    if (!query) return null;
+                    const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+                    return (
+                      <button
+                        onClick={e => {
+                          e.stopPropagation();
+                          window.open(ebayUrl, "_blank", "noopener,noreferrer");
+                        }}
+                        className="flex items-center justify-center gap-1.5 w-full rounded-md border border-amber-500/40 px-3 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/60 transition-colors">
+                        eBay Sold Listings <ExternalLink size={11} />
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             )}

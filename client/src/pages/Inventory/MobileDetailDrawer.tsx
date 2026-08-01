@@ -109,6 +109,25 @@ function OverviewTab({
         </div>
       )}
 
+      {/* eBay sold listings link */}
+      {(() => {
+        const parts = [item.productName, item.condition]
+          .filter(Boolean)
+          .map((v) => String(v).trim())
+          .filter((v) => v.length > 0);
+        const query = parts.join(" ");
+        if (!query) return null;
+        const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+        return (
+          <button
+            onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}
+            className="flex items-center justify-center gap-2 w-full rounded-xl border border-amber-500/40 px-4 py-3 text-sm font-medium text-amber-400 hover:bg-amber-500/10 transition-colors"
+          >
+            Search eBay Sold Listings <ExternalLink size={14} />
+          </button>
+        );
+      })()}
+
       {/* Delete */}
       <Button
         variant="outline"
