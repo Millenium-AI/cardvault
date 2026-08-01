@@ -68,9 +68,18 @@ export function InventoryGridCard({
             <LabelStatusBadge status={item.labelStatus} />
           </div>
           <div className="flex items-center justify-between mt-0.5">
-            <span className="text-[9px] text-muted-foreground font-mono">
-              ${item.currentRawMarketPrice?.toFixed(2) ?? "—"}
-            </span>
+            <div className="flex flex-col items-start gap-0.5">
+              <span className={`text-[9px] font-mono font-medium ${
+                item.adjustedMarketPrice != null ? 'text-primary' : 'text-muted-foreground'
+              }`}>
+                ${item.adjustedMarketPrice != null ? item.adjustedMarketPrice.toFixed(2) : (item.currentRawMarketPrice?.toFixed(2) ?? "—")}
+              </span>
+              {item.adjustedMarketPrice != null && (
+                <span className="text-[8px] text-muted-foreground/40 font-mono">
+                  was ${item.currentRawMarketPrice?.toFixed(2)}
+                </span>
+              )}
+            </div>
             <span className="text-[9px] font-mono font-bold text-primary">
               ${item.currentRoundedPrintPrice ?? "—"}
             </span>
@@ -139,7 +148,18 @@ export function InventoryGridCard({
         <div className="mt-1 space-y-0.5">
           <div className="flex justify-between text-[10px]">
             <span className="text-muted-foreground">Market</span>
-            <span className="font-mono text-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className={`font-mono font-medium ${
+                item.adjustedMarketPrice != null ? 'text-primary' : 'text-foreground'
+              }`}>
+                ${item.adjustedMarketPrice != null ? item.adjustedMarketPrice.toFixed(2) : (item.currentRawMarketPrice?.toFixed(2) ?? "—")}
+              </span>
+              {item.adjustedMarketPrice != null && (
+                <span className="text-[8px] text-muted-foreground/40 font-mono">
+                  was ${item.currentRawMarketPrice?.toFixed(2)}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex justify-between text-[10px]">
             <span className="text-muted-foreground">Print</span>

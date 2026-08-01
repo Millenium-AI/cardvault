@@ -79,7 +79,18 @@ export function InventoryRow({
       case "market": return (
         <td key="market" className="px-4 py-3 text-right whitespace-nowrap">
           <div className="flex items-center justify-end gap-1.5">
-            <span className="text-sm font-mono tabular-nums text-muted-foreground">${item.currentRawMarketPrice?.toFixed(2) ?? "—"}</span>
+            <div className="flex flex-col items-end gap-0.5">
+              <span className={`text-sm font-mono tabular-nums font-medium ${
+                item.adjustedMarketPrice != null ? 'text-primary' : 'text-muted-foreground'
+              }`}>
+                ${item.adjustedMarketPrice != null ? item.adjustedMarketPrice.toFixed(2) : (item.currentRawMarketPrice?.toFixed(2) ?? "—")}
+              </span>
+              {item.adjustedMarketPrice != null && (
+                <span className="text-[10px] text-muted-foreground/50 tabular-nums">
+                  was ${item.currentRawMarketPrice?.toFixed(2)}
+                </span>
+              )}
+            </div>
             <PriceDivergenceBadge item={item} />
           </div>
         </td>

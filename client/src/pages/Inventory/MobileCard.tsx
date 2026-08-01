@@ -110,9 +110,18 @@ export function MobileInventoryCard({
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Mkt</span>
-              <span className="text-xs font-mono text-foreground">
-                ${item.currentRawMarketPrice?.toFixed(2) ?? "—"}
-              </span>
+              <div className="flex flex-col items-start">
+                <span className={`text-xs font-mono font-medium ${
+                  item.adjustedMarketPrice != null ? 'text-primary' : 'text-foreground'
+                }`}>
+                  ${item.adjustedMarketPrice != null ? item.adjustedMarketPrice.toFixed(2) : (item.currentRawMarketPrice?.toFixed(2) ?? "—")}
+                </span>
+                {item.adjustedMarketPrice != null && (
+                  <span className="text-[8px] text-muted-foreground/40 font-mono">
+                    was ${item.currentRawMarketPrice?.toFixed(2)}
+                  </span>
+                )}
+              </div>
               <PriceDivergenceBadge item={item} />
             </div>
             <div className="flex items-center gap-1">
