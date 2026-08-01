@@ -101,12 +101,27 @@ export function RecentSalesPanel({ item }: { item: any }) {
     );
   }
 
-  // Calculate stats
+  // Calculate stats - match backend's two-tier logic (exact match + condition-only fallback)
   const printingLower = printing.toLowerCase().trim();
   const includedSales = sales.filter((s: any) => !s.isOutlier);
-  const otherConditionCount = includedSales.filter(
-    (s: any) => standardizeCondition(s.condition) !== condition || (s.variant ?? "Normal").toLowerCase().trim() !== printingLower
-  ).length;
+
+  // Check if we have exact matches (both condition and printing/variant match)
+  const exactMatches = includedSales.filter((s: any) => {
+    const saleCondition = standardizeCondition(s.condition);
+    const saleVariant = (s.variant || "").toLowerCase().trim(); // Handle empty string from DB
+    return saleCondition === condition && saleVariant === printingLower;
+  });
+
+  // If we have exact matches, other sales are "other condition"
+  // If we have no exact matches but have condition matches, those become the matching set (condition-only)
+  const hasExactMatches = exactMatches.length > 0;
+  const otherConditionCount = hasExactMatches
+    ? includedSales.filter((s: any) => {
+        const saleCondition = standardizeCondition(s.condition);
+        const saleVariant = (s.variant || "").toLowerCase().trim();
+        return saleCondition === condition && saleVariant !== printingLower;
+      }).length
+    : 0; // If condition-only match, don't mark any as "other condition"
 
   return (
     <div className="space-y-4">
@@ -181,9 +196,11 @@ export function RecentSalesPanel({ item }: { item: any }) {
                 {sales.map((sale: any, idx: number) => {
                   const isOutlier = sale.isOutlier;
                   const saleCondition = standardizeCondition(sale.condition);
-                  const saleVariant = (sale.variant ?? "Normal").toLowerCase().trim();
+                  const saleVariant = (sale.variant || "").toLowerCase().trim(); // Handle empty string from DB
                   const printingLower = printing.toLowerCase().trim();
-                  const isOtherCondition = saleCondition !== condition || saleVariant !== printingLower;
+                  // Match backend logic: mark as "other condition" only if condition doesn't match
+                  // Variant mismatch is "condition-only" match, not "other condition"
+                  const isOtherCondition = saleCondition !== condition;
                   const saleDate = new Date(sale.orderDate);
                   const dateStr = saleDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
