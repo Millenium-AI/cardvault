@@ -36,6 +36,19 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
     ? `https://www.tcgplayer.com/product/${card.tcgplayerId}`
     : null;
 
+  // Build eBay sold listings URL from card data
+  const buildEbayUrl = () => {
+    const parts = [card.name, card.number, condition]
+      .filter(Boolean)
+      .map((v) => String(v).trim())
+      .filter((v) => v.length > 0);
+    const query = parts.join(" ");
+    if (!query) return null;
+    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+  };
+
+  const ebayUrl = buildEbayUrl();
+
   const addMut = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/inventory/from-search", {
@@ -91,13 +104,13 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
         </div>
       )}
 
-      {/* Pricing section */}
+      {/* Pricing and sales section */}
       {variant && (
-        <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-3">
-          <div className="text-sm font-semibold text-foreground mb-3">Pricing</div>
+        <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-4">
+          {/* Pricing grid */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Market Price</div>
+              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">TCGplayer Price</div>
               <div className="text-lg font-mono font-bold text-primary tabular-nums">
                 {variant.price != null ? `$${variant.price.toFixed(2)}` : "—"}
               </div>
@@ -109,15 +122,16 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
               </div>
             </div>
           </div>
-          {/* Recent sales average if available */}
+
+          {/* TCG Player sales data if available */}
           {!salesLoading && salesData?.avgPrice && (
             <div className="pt-2 border-t border-border/30">
-              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1">Recent Sales Avg</div>
+              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1">TCG Player Sales</div>
               <div className="text-lg font-mono font-bold text-emerald-400 tabular-nums">
                 ${salesData.avgPrice.toFixed(2)}
               </div>
               <div className="text-[9px] text-muted-foreground/60 mt-1">
-                From {salesData.priceCount} TCGplayer sales
+                Average of {salesData.priceCount} recent sales
               </div>
             </div>
           )}
@@ -179,21 +193,38 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
         {addMut.isPending ? "Adding…" : "Add to Inventory"}
       </Button>
 
-      {/* TCGplayer link */}
-      {tcgplayerUrl ? (
-        <a
-          href={tcgplayerUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-blue-500/40 px-4 py-2.5 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors"
-        >
-          View on TCGplayer <ExternalLink size={11} />
-        </a>
-      ) : (
-        <div className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
-          TCGplayer <ExternalLink size={11} />
-        </div>
-      )}
+      {/* Secondary actions: TCGplayer and eBay research */}
+      <div className="space-y-2">
+        {/* TCGplayer link */}
+        {tcgplayerUrl ? (
+          <a
+            href={tcgplayerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-blue-500/40 px-4 py-2.5 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors"
+          >
+            View on TCGplayer <ExternalLink size={11} />
+          </a>
+        ) : (
+          <div className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+            TCGplayer <ExternalLink size={11} />
+          </div>
+        )}
+
+        {/* eBay sold listings link */}
+        {ebayUrl ? (
+          <button
+            onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}
+            className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-amber-500/40 px-4 py-2.5 text-xs font-medium text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/60 transition-colors"
+          >
+            Search eBay Sold Listings <ExternalLink size={11} />
+          </button>
+        ) : (
+          <div className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+            eBay Sold Listings <ExternalLink size={11} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
