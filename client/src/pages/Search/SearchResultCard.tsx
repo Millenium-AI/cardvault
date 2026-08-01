@@ -12,23 +12,30 @@ export function SearchResultCard({ card, game, onOpen }: { card: any; game: stri
     <div
       data-testid="search-result-card"
       onClick={onOpen}
-      className="rounded-lg border border-border/50 bg-card hover:border-primary/40 transition-colors p-2.5 flex flex-col gap-2 cursor-pointer"
+      className="rounded-lg border border-border/50 bg-card hover:border-primary/40 transition-colors p-2.5 flex flex-col gap-1.5 cursor-pointer"
     >
+      {/* Image */}
       <CardImagePlaceholder photoUrl={card.imageUrl} size="md" className="w-full h-32 rounded-md" />
 
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-foreground truncate">{card.name}</p>
-        <p className="text-[10px] text-muted-foreground truncate">
-          {[card.setName, card.number].filter(Boolean).join(" · ") || gameLabel(game)}
-        </p>
-      </div>
+      {/* Title */}
+      <p className="text-sm font-semibold text-foreground line-clamp-2 leading-tight">
+        {card.name}
+      </p>
 
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-mono font-semibold text-primary">
+      {/* Metadata: set + number */}
+      <p className="text-[10px] text-muted-foreground/70 truncate">
+        {[card.setName, card.number].filter(Boolean).join(" · ") || gameLabel(game)}
+      </p>
+
+      {/* Footer: price and printing */}
+      <div className="flex items-end justify-between gap-2 pt-1 mt-auto border-t border-border/20">
+        <span className="text-sm font-mono font-bold text-primary tabular-nums">
           {price != null ? `$${price.toFixed(2)}` : "—"}
         </span>
         {bestVariant?.printing && (
-          <span className="text-[9px] text-muted-foreground">{bestVariant.printing}</span>
+          <span className="text-[9px] text-muted-foreground/60 text-right truncate">
+            {bestVariant.printing}
+          </span>
         )}
       </div>
     </div>

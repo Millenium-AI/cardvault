@@ -64,14 +64,13 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
       {variants.length > 0 && (
         <div className="space-y-1.5">
-          <div className="text-xs text-muted-foreground font-medium">Printing / Price</div>
+          <div className="text-xs text-muted-foreground font-medium">Printing</div>
           <Select value={String(variantIndex)} onValueChange={v => setVariantIndex(Number(v))}>
             <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               {variants.map((v: any, i: number) => (
                 <SelectItem key={i} value={String(i)}>
                   {[v.condition, v.printing].filter(Boolean).join(" · ") || "Standard"}
-                  {v.price != null ? ` — $${v.price.toFixed(2)}` : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -80,21 +79,11 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
       )}
 
       {variant && (
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">Market Price</span>
-            <span className="text-lg font-mono font-bold text-primary tabular-nums">
-              {variant.price != null ? `$${variant.price.toFixed(2)}` : "—"}
-            </span>
-          </div>
-          {variant.priceChange7d != null && (
-            <div className="flex flex-col">
-              <span className="text-[9px] text-muted-foreground uppercase tracking-wider">7d</span>
-              <span className={`text-xs font-mono font-semibold ${variant.priceChange7d >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                {variant.priceChange7d >= 0 ? "+" : ""}{variant.priceChange7d.toFixed(1)}%
-              </span>
-            </div>
-          )}
+        <div className="space-y-1.5">
+          <div className="text-xs text-muted-foreground font-medium">Market Price</div>
+          <span className="inline-block text-xl font-mono font-bold text-primary tabular-nums">
+            {variant.price != null ? `$${variant.price.toFixed(2)}` : "—"}
+          </span>
         </div>
       )}
 
