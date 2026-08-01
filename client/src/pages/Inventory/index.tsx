@@ -196,18 +196,39 @@ export default function Inventory() {
 
     const totalItems = items.length;
     const batchCount = Math.max(1, Math.ceil(totalItems / 20));
-    const estimatedMs = batchCount * 1000 + 2000;
+    const priceRefreshMs = batchCount * 1000 + 2000;
+    const salesSweepMs = 15000; // Estimate 15s for sales sweep
+    const totalEstimateMs = priceRefreshMs + salesSweepMs;
 
     setRefreshing(true);
     setRefreshProgress(0);
-    setRefreshLabel("Refreshing prices...");
+    setRefreshLabel("Refreshing prices... (do not refresh page)");
     setShowProgressBar(true);
 
     const startTime = Date.now();
+    let stage: "prices" | "sales" = "prices";
+
     progressTimerRef.current = setInterval(() => {
       const elapsed = Date.now() - startTime;
-      const pct = Math.min(90, (elapsed / estimatedMs) * 100);
-      setRefreshProgress(pct);
+
+      if (elapsed < priceRefreshMs) {
+        // Price refresh stage: 0-60%
+        const pct = (elapsed / priceRefreshMs) * 60;
+        setRefreshProgress(Math.min(60, pct));
+        if (stage !== "prices") {
+          setRefreshLabel("Refreshing prices... (do not refresh page)");
+          stage = "prices";
+        }
+      } else {
+        // Sales sweep stage: 60-95%
+        const remaining = elapsed - priceRefreshMs;
+        const pct = 60 + (remaining / salesSweepMs) * 35;
+        setRefreshProgress(Math.min(95, pct));
+        if (stage !== "sales") {
+          setRefreshLabel("Checking sales data... (do not refresh page)");
+          stage = "sales";
+        }
+      }
     }, 100);
 
     try {
@@ -220,11 +241,13 @@ export default function Inventory() {
       const updated = data?.updated ?? 0;
       const total = data?.total ?? 0;
       const fresh = total > 0 ? total - updated : 0;
+      const salesSweep = data?.salesSweep;
 
       if (total === 0) {
-        setRefreshLabel("All prices are already fresh");
+        setRefreshLabel("Complete! All prices were already fresh");
       } else {
-        setRefreshLabel(`Updated ${updated} of ${total} prices`);
+        const salesLabel = salesSweep ? ` · ${salesSweep.itemsUpdated} prices adjusted from sales` : "";
+        setRefreshLabel(`Complete! Updated ${updated} of ${total} prices${salesLabel}`);
       }
 
       await queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
@@ -237,12 +260,13 @@ export default function Inventory() {
         setTimeout(() => setRefreshProgress(0), 300);
       }, 2500);
 
+      const description = total === 0
+        ? "All prices were updated within the last 6 hours."
+        : `${updated} updated · ${fresh} already fresh${salesSweep && salesSweep.itemsUpdated > 0 ? ` · ${salesSweep.itemsUpdated} prices adjusted from sales` : ""}`;
+
       toast({
         title: total === 0 ? "Prices are fresh" : "Prices refreshed",
-        description:
-          total === 0
-            ? "All prices were updated within the last 6 hours."
-            : `${updated} updated · ${fresh} already fresh`,
+        description,
       });
     } catch (err: any) {
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);

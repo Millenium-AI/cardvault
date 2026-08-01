@@ -177,7 +177,7 @@ export function registerPricesRoutes(app: Express) {
             return staleMs > 6 * 60 * 60 * 1000;
           });
 
-      if (!toRefresh.length) return res.json({ updated: 0, total: 0, message: "All prices are fresh" });
+      if (!toRefresh.length) return res.json({ updated: 0, total: 0, message: "All prices are fresh", salesSweep: null });
 
       let updated = 0;
 
@@ -241,7 +241,26 @@ export function registerPricesRoutes(app: Express) {
         }
       }
 
-      res.json({ updated, total: toRefresh.length });
+      // Run sales sweep if enabled
+      let salesSweep = null;
+      try {
+        const settings = await storage.getSalesCheckSettings(userId);
+        if (settings.enabled) {
+          const sweepItems = await storage.listItemsForSalesSweep(userId, {});
+          if (sweepItems.length) {
+            const bands = await getDivergenceBands(userId);
+            salesSweep = await sweepSalesForItems(userId, sweepItems, {
+              windowDays: settings.windowDays,
+              autoAdjust: settings.autoAdjust,
+              bands,
+            });
+          }
+        }
+      } catch (e: any) {
+        console.error("[prices/refresh] Sales sweep failed:", e.message);
+      }
+
+      res.json({ updated, total: toRefresh.length, salesSweep });
     } catch (e: any) {
       console.error("[prices/refresh]", e);
       res.status(500).json({ error: e.message });
