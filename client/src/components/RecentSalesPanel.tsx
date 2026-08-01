@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Lock, LockOpen, RotateCw } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { standardizeCondition } from "@shared/lib/conditionStandardizer";
 import { useState } from "react";
 
 export function RecentSalesPanel({ item }: { item: any }) {
@@ -63,7 +64,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
     }
   })();
 
-  const condition = item.condition ?? "Unknown";
+  const condition = standardizeCondition(item.condition) || "Unknown";
   const printing = meta.sourcePrinting ?? "Normal";
 
   // Format relative time for "checked"
@@ -103,7 +104,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
   // Calculate stats
   const includedSales = sales.filter((s: any) => !s.isOutlier);
   const otherConditionCount = includedSales.filter(
-    (s: any) => s.condition !== condition || (s.variant ?? "Normal") !== printing
+    (s: any) => standardizeCondition(s.condition) !== condition || (s.variant ?? "Normal") !== printing
   ).length;
 
   return (
@@ -178,7 +179,8 @@ export function RecentSalesPanel({ item }: { item: any }) {
               <tbody>
                 {sales.map((sale: any, idx: number) => {
                   const isOutlier = sale.isOutlier;
-                  const isOtherCondition = sale.condition !== condition || (sale.variant ?? "Normal") !== printing;
+                  const saleCondition = standardizeCondition(sale.condition);
+                  const isOtherCondition = saleCondition !== condition || (sale.variant ?? "Normal") !== printing;
                   const saleDate = new Date(sale.orderDate);
                   const dateStr = saleDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
