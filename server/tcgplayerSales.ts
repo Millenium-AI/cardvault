@@ -252,10 +252,14 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
   const inWindow = sales.filter(s => new Date(s.orderDate).getTime() >= cutoff);
 
   const itemCondition = standardizeCondition(item.condition);
+  console.log(`[TCGsales] item ${item.id}: itemCondition="${itemCondition}", inWindow=${inWindow.length}, samples:`, inWindow.slice(0, 2).map(s => ({ condition: s.condition, variant: s.variant, date: s.orderDate })));
+
   const sameCondition = inWindow.filter(s => standardizeCondition(s.condition) === itemCondition);
   const exact = item.printing
     ? sameCondition.filter(s => norm(s.variant) === norm(item.printing))
     : sameCondition;
+
+  console.log(`[TCGsales] item ${item.id}: sameCondition=${sameCondition.length}, exact=${exact.length}`);
 
   // Debug logging for items without matches
   if (sameCondition.length === 0 && inWindow.length > 0) {
