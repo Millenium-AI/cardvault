@@ -343,6 +343,75 @@ export interface SweepSummary {
  * Adjustment requires at least 2 matching sales — one datapoint is shown as a
  * badge but never moves a price.
  */
+/**
+ * Auto-fill missing variant/printing metadata from TCGplayer sales data.
+ * If item.matchMetadata.sourcePrinting is not set but sales contain variant info,
+ * extract the most common variant and update the item's metadata.
+ * This prevents future matching failures when CSV uploads don't include variant info.
+ */
+async function ensureSourcePrintingMetadata(
+  userId: string,
+  item: SweepItem,
+  sales: Sale[],
+): Promise<void> {
+  try {
+    // Fetch full item to get metadata
+    const { data: fullItem, error: fetchErr } = await supabaseAdmin
+      .from('inventory_items')
+      .select('match_metadata_json')
+      .eq('id', item.id)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (fetchErr || !fullItem) return;
+
+    // Parse existing metadata
+    let meta: Record<string, any> = {};
+    if (fullItem.match_metadata_json) {
+      if (typeof fullItem.match_metadata_json === 'object') {
+        meta = fullItem.match_metadata_json;
+      } else {
+        meta = JSON.parse(fullItem.match_metadata_json);
+      }
+    }
+
+    // If sourcePrinting already set, no action needed
+    if (meta.sourcePrinting) return;
+
+    // Extract non-null variants from sales
+    const variants = sales
+      .map(s => s.variant)
+      .filter((v): v is string => v != null && v.length > 0);
+
+    if (!variants.length) return;
+
+    // Use most common variant (or first if tied)
+    const variantCounts = new Map<string, number>();
+    for (const v of variants) {
+      variantCounts.set(v, (variantCounts.get(v) ?? 0) + 1);
+    }
+    const mostCommonVariant = Array.from(variantCounts.entries())
+      .sort((a, b) => b[1] - a[1])[0][0];
+
+    // Update metadata with extracted variant
+    meta.sourcePrinting = mostCommonVariant;
+
+    const { error: updateErr } = await supabaseAdmin
+      .from('inventory_items')
+      .update({ match_metadata_json: meta })
+      .eq('id', item.id)
+      .eq('user_id', userId);
+
+    if (!updateErr) {
+      console.log(
+        `[TCGsales] auto-filled sourcePrinting="${mostCommonVariant}" for item ${item.id}`,
+      );
+    }
+  } catch (e: any) {
+    console.error(`[TCGsales] failed to update metadata for item ${item.id}: ${e.message}`);
+  }
+}
+
 export async function sweepSalesForItems(
   userId: string,
   items: SweepItem[],
@@ -398,6 +467,11 @@ export async function sweepSalesForItems(
       const updates: { item: SweepItem; pricing: ItemPricing }[] = [];
 
       for (const item of byProduct.get(productId)!) {
+        // Auto-fill missing variant/printing metadata from TCGplayer sales data
+        if (sales.length > 0) {
+          await ensureSourcePrintingMetadata(userId, item, sales);
+        }
+
         const pricing = computeItemPricing(item, sales, windowDays);
         pricing.outlierPrices.forEach(p => allOutliers.add(p));
         updates.push({ item, pricing });
