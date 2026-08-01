@@ -246,6 +246,8 @@ function norm(v: string | null | undefined): string {
  * wins, condition-only is the fallback, and anything else scores as no match.
  */
 export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: number): ItemPricing {
+  console.log(`[TCGsales] computeItemPricing: item=${item.id}, sales=${sales.length}, condition=${item.condition}, printing=${item.printing}`);
+
   const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
   const inWindow = sales.filter(s => new Date(s.orderDate).getTime() >= cutoff);
 
