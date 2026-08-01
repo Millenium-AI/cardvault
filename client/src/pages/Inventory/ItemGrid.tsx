@@ -4,6 +4,7 @@ import { PriceDivergenceBadge } from "@/components/PriceDivergenceBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
+import { parseMatchMetadata, getPricingSummary } from "./utils";
 
 /**
  * Portrait tile card — inspired by Bonsai storefront grid.
@@ -18,14 +19,8 @@ export function InventoryGridCard({
   onSelect: (id: string, checked: boolean) => void;
   selectMode: boolean; onOpen: () => void;
 }) {
-  const meta = (() => { 
-    try { 
-      const data = item.matchMetadataJson;
-      return typeof data === 'string' ? JSON.parse(data) : (data || {});
-    } catch { 
-      return {}; 
-    } 
-  })();
+  const meta = parseMatchMetadata(item.matchMetadataJson);
+  const pricing = getPricingSummary(item);
 
   function handleClick() {
     if (selectMode) { onSelect(item.id, !selected); return; }
@@ -105,24 +100,24 @@ export function InventoryGridCard({
         <div className="px-2 py-1 flex items-center justify-between gap-1 overflow-hidden text-[8px]">
           <div className="flex flex-col items-center gap-0">
             <span className="text-muted-foreground/70 leading-none">Qty</span>
-            <span className="text-primary font-mono font-bold text-[9px]">{item.currentQuantity}</span>
+            <span className="text-primary font-mono font-bold text-[9px]">{pricing.quantityLabel}</span>
           </div>
           <div className="flex flex-col items-center gap-0">
             <span className="text-muted-foreground/70 leading-none">Mkt</span>
             <span className="text-muted-foreground font-mono text-[9px]">
-              ${item.adjustedMarketPrice != null ? item.adjustedMarketPrice.toFixed(2) : (item.currentRawMarketPrice?.toFixed(2) ?? "—")}
+              {pricing.marketDisplay}
             </span>
           </div>
           <div className="flex flex-col items-center gap-0">
             <span className="text-muted-foreground/70 leading-none">Rec</span>
             <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[9px]">
-              ${item.currentRawMarketPrice?.toFixed(2) ?? "—"}
+              {pricing.rawMarketDisplay}
             </span>
           </div>
           <div className="flex flex-col items-end gap-0">
             <span className="text-muted-foreground/70 leading-none">Print</span>
             <span className="text-primary font-mono font-bold text-sm">
-              ${item.currentRoundedPrintPrice ?? "—"}
+              {pricing.printDisplay}
             </span>
           </div>
         </div>
@@ -202,24 +197,24 @@ export function InventoryGridCard({
       <div className="px-2 py-1.5 flex items-center justify-between gap-2 overflow-hidden text-[9px]">
         <div className="flex flex-col items-center gap-0.5">
           <span className="text-muted-foreground/70 leading-none">Qty</span>
-          <span className="text-primary font-mono font-bold text-[10px]">{item.currentQuantity}</span>
+          <span className="text-primary font-mono font-bold text-[10px]">{pricing.quantityLabel}</span>
         </div>
         <div className="flex flex-col items-center gap-0.5">
           <span className="text-muted-foreground/70 leading-none">Mkt</span>
           <span className="text-muted-foreground font-mono text-[10px]">
-            ${item.adjustedMarketPrice != null ? item.adjustedMarketPrice.toFixed(2) : (item.currentRawMarketPrice?.toFixed(2) ?? "—")}
+            {pricing.marketDisplay}
           </span>
         </div>
         <div className="flex flex-col items-center gap-0.5">
           <span className="text-muted-foreground/70 leading-none">Rec</span>
           <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[10px]">
-            ${item.currentRawMarketPrice?.toFixed(2) ?? "—"}
+            {pricing.rawMarketDisplay}
           </span>
         </div>
         <div className="flex flex-col items-end gap-0.5">
           <span className="text-muted-foreground/70 leading-none">Print</span>
           <span className="text-primary font-mono font-bold text-lg">
-            ${item.currentRoundedPrintPrice ?? "—"}
+            {pricing.printDisplay}
           </span>
         </div>
       </div>

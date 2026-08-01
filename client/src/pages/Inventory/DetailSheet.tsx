@@ -1,7 +1,4 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { Pencil, Trash2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConditionBadge } from "@/components/ConditionBadge";
@@ -9,28 +6,18 @@ import { RecentSalesPanel } from "@/components/RecentSalesPanel";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
+import { useItemDeleteMutation } from "./hooks/useInventoryMutations";
+import { parseMatchMetadata, getPricingSummary, buildEbaySearchUrl } from "./utils";
 
 export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => void }) {
-  const { toast } = useToast();
   const [editing, setEditing] = useState(false);
-  const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
+  const meta = parseMatchMetadata(item.matchMetadataJson);
+  const pricing = getPricingSummary(item);
+  const deleteMut = useItemDeleteMutation();
   const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity;
 
-  const deleteMut = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("DELETE", `/api/inventory/${item.id}`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      toast({ title: "Deleted", description: "Item removed from inventory." });
-      onClose();
-    },
-    onError: () => toast({ title: "Error", description: "Failed to delete item.", variant: "destructive" }),
-  });
-
   function handleDelete() {
-    if (confirm(`Delete "${item?.productName}"? This cannot be undone.`)) deleteMut.mutate();
+    if (confirm(`Delete "${item?.productName}"? This cannot be undone.`)) deleteMut.mutate(item.id, { onSuccess: () => onClose() });
   }
 
   return (
@@ -67,9 +54,9 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
             {/* Stat tiles */}
             <div className="grid grid-cols-3 gap-2">
               {([
-                { label: "Qty",    value: String(item.currentQuantity),                              highlight: false },
-                { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`,  highlight: false },
-                { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,           highlight: true  },
+                { label: "Qty",    value: pricing.quantityLabel,    highlight: false },
+                { label: "Market", value: pricing.rawMarketDisplay, highlight: false },
+                { label: "Print",  value: pricing.printDisplay,     highlight: true  },
               ] as const).map(({ label, value, highlight }) => (
                 <div key={label} className="rounded-lg border border-border bg-muted/30 px-2 py-2 text-center">
                   <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{label}</div>
@@ -111,13 +98,8 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
                 )}
                 {/* eBay sold listings link */}
                 {(() => {
-                  const parts = [item.productName, item.condition]
-                    .filter(Boolean)
-                    .map((v) => String(v).trim())
-                    .filter((v) => v.length > 0);
-                  const query = parts.join(" ");
-                  if (!query) return null;
-                  const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+                  const ebayUrl = buildEbaySearchUrl(item);
+                  if (!ebayUrl) return null;
                   return (
                     <button
                       onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}

@@ -1,15 +1,14 @@
 import { useState, useEffect } from "react";
 import { Drawer } from "vaul";
 import { X, ExternalLink, Pencil, Trash2, TrendingDown, Eye } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { RecentSalesPanel } from "@/components/RecentSalesPanel";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
+import { useItemDeleteMutation } from "./hooks/useInventoryMutations";
+import { parseMatchMetadata, getPricingSummary, buildEbaySearchUrl } from "./utils";
 
 // ── Stat tile ────────────────────────────────────────────────────────────────
 function StatTile({
@@ -47,6 +46,7 @@ function OverviewTab({
   onDelete: () => void;
   deleting: boolean;
 }) {
+  const pricing = getPricingSummary(item);
   const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity;
 
   return (
@@ -73,14 +73,14 @@ function OverviewTab({
 
       {/* Stat tiles */}
       <div className="flex gap-2">
-        <StatTile label="Qty" value={String(item.currentQuantity)} />
+        <StatTile label="Qty" value={pricing.quantityLabel} />
         <StatTile
           label="Recent Avg Sale"
-          value={`$${item.currentRawMarketPrice?.toFixed(2) ?? "—"}`}
+          value={pricing.rawMarketDisplay}
         />
         <StatTile
           label="Print"
-          value={`$${item.currentRoundedPrintPrice ?? "—"}`}
+          value={pricing.printDisplay}
           highlight
         />
       </div>
@@ -111,13 +111,8 @@ function OverviewTab({
 
       {/* eBay sold listings link */}
       {(() => {
-        const parts = [item.productName, item.condition]
-          .filter(Boolean)
-          .map((v) => String(v).trim())
-          .filter((v) => v.length > 0);
-        const query = parts.join(" ");
-        if (!query) return null;
-        const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+        const ebayUrl = buildEbaySearchUrl(item);
+        if (!ebayUrl) return null;
         return (
           <button
             onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}
@@ -156,13 +151,8 @@ export function MobileDetailDrawer({
   const [activeTab, setActiveTab] = useState("overview");
   const [snap, setSnap] = useState<number | string | null>(0.92);
 
-  const meta = (() => {
-    try {
-      return JSON.parse(item?.matchMetadataJson || "{}");
-    } catch {
-      return {};
-    }
-  })();
+  const meta = parseMatchMetadata(item?.matchMetadataJson);
+  const deleteMut = useItemDeleteMutation();
 
   // Always re-open at the max snap point on the Overview tab, even if a
   // previous open was left dragged down or on a different tab.
@@ -173,27 +163,9 @@ export function MobileDetailDrawer({
     }
   }, [open]);
 
-  const deleteMut = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("DELETE", `/api/inventory/${item.id}`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      toast({ title: "Deleted", description: "Item removed from inventory." });
-      onClose();
-    },
-    onError: () =>
-      toast({
-        title: "Error",
-        description: "Failed to delete item.",
-        variant: "destructive",
-      }),
-  });
-
   function handleDelete() {
     if (confirm(`Delete "${item?.productName}"? This cannot be undone.`))
-      deleteMut.mutate();
+      deleteMut.mutate(item.id, { onSuccess: () => onClose() });
   }
 
   if (!item) return null;

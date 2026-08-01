@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { LABEL_STATUS_CONFIG } from "./constants";
 // import { Chart } from "@/components/Chart"; // Disabled: chart removed from UI, component kept for future
 
 // ── Time window config ───────────────────────────────────────────────────────
@@ -404,13 +405,8 @@ export function Chip({
 }
 
 export function LabelStatusBadge({ status }: { status?: string }) {
-  const statusConfig: Record<string, { label: string; className: string }> = {
-    needs_label:     { label: "Needs Label",     className: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
-    needs_repricing: { label: "Needs Repricing", className: "bg-blue-500/15  text-blue-400  border-blue-500/30"  },
-    label_created:   { label: "Label Created",   className: "bg-green-500/15 text-green-400 border-green-500/30" },
-  };
   if (!status) return null;
-  const cfg = statusConfig[status];
+  const cfg = LABEL_STATUS_CONFIG[status];
   if (!cfg) return null;
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[9px] font-semibold leading-none ${cfg.className}`}>

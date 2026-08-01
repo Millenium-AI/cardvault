@@ -1,7 +1,4 @@
 import { Pencil, Trash2, ExternalLink, X } from "lucide-react";
-import { useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { RecentSalesPanel } from "@/components/RecentSalesPanel";
@@ -10,30 +7,21 @@ import { InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 // import { PriceHistory } from "./DetailPanel"; // Disabled: price history removed from UI, kept for future
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { useItemDeleteMutation } from "./hooks/useInventoryMutations";
+import { getPricingSummary, buildEbaySearchUrl } from "./utils";
 
 export function ExpandedDetail({
   item, meta, editing, setEditing, stopProp = false,
 }: {
   item: any; meta: any; editing: boolean; setEditing: (v: boolean) => void; stopProp?: boolean;
 }) {
-  const { toast } = useToast();
   const wrap = (e: React.MouseEvent) => { if (stopProp) e.stopPropagation(); };
-
-  const deleteMut = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("DELETE", `/api/inventory/${item.id}`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
-      toast({ title: "Deleted", description: "Item removed from inventory." });
-    },
-    onError: () => toast({ title: "Error", description: "Failed to delete item.", variant: "destructive" }),
-  });
+  const deleteMut = useItemDeleteMutation();
+  const pricing = getPricingSummary(item);
 
   function handleDelete(e: React.MouseEvent) {
     e.stopPropagation();
-    if (confirm(`Delete "${item.productName}"? This cannot be undone.`)) deleteMut.mutate();
+    if (confirm(`Delete "${item.productName}"? This cannot be undone.`)) deleteMut.mutate(item.id);
   }
 
   const hasChips = meta.sourceSetName || meta.sourcePrinting || meta.sourceRarity;
@@ -101,9 +89,9 @@ export function ExpandedDetail({
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {([
-                  { label: "Qty",    value: String(item.currentQuantity),                             highlight: false },
-                  { label: "Market", value: `$${item.currentRawMarketPrice?.toFixed(2) ?? "\u2014"}`,  highlight: false },
-                  { label: "Print",  value: `$${item.currentRoundedPrintPrice ?? "\u2014"}`,           highlight: true  },
+                  { label: "Qty",    value: pricing.quantityLabel,    highlight: false },
+                  { label: "Market", value: pricing.rawMarketDisplay, highlight: false },
+                  { label: "Print",  value: pricing.printDisplay,     highlight: true  },
                 ] as const).map(({ label, value, highlight }) => (
                   <div key={label} className="rounded-lg border border-border bg-muted/30 px-2 py-2 text-center">
                     <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">{label}</div>
@@ -165,13 +153,8 @@ export function ExpandedDetail({
 
                   {/* eBay sold listings link */}
                   {(() => {
-                    const parts = [item.productName, item.condition]
-                      .filter(Boolean)
-                      .map((v) => String(v).trim())
-                      .filter((v) => v.length > 0);
-                    const query = parts.join(" ");
-                    if (!query) return null;
-                    const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+                    const ebayUrl = buildEbaySearchUrl(item);
+                    if (!ebayUrl) return null;
                     return (
                       <button
                         onClick={e => {

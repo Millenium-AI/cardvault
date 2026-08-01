@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { LabelStatusBadge } from "./DetailPanel";
 import { ColumnKey } from "./constants";
 import { ExpandedDetail } from "./ExpandedDetailRow";
+import { parseMatchMetadata, getPricingSummary } from "./utils";
 
 export function InventoryRow({
   item, selected, onSelect, selectMode, columnOrder,
@@ -17,7 +18,8 @@ export function InventoryRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
-  const meta = (() => { try { return JSON.parse(item.matchMetadataJson || "{}"); } catch { return {}; } })();
+  const meta = parseMatchMetadata(item.matchMetadataJson);
+  const pricing = getPricingSummary(item);
 
   function toggle() {
     if (selectMode) { onSelect(item.id, !selected); return; }
@@ -73,7 +75,7 @@ export function InventoryRow({
       );
       case "qty": return (
         <td key="qty" className="px-4 py-3 text-right whitespace-nowrap">
-          <span className="text-sm font-mono tabular-nums font-medium text-foreground">{item.currentQuantity}</span>
+          <span className="text-sm font-mono tabular-nums font-medium text-foreground">{pricing.quantityLabel}</span>
         </td>
       );
       case "market": return (
@@ -81,13 +83,13 @@ export function InventoryRow({
           <div className="flex items-center justify-end gap-1.5">
             <div className="flex flex-col items-end gap-0.5">
               <span className={`text-sm font-mono tabular-nums font-medium ${
-                item.adjustedMarketPrice != null ? 'text-primary' : 'text-muted-foreground'
+                pricing.isAdjusted ? 'text-primary' : 'text-muted-foreground'
               }`}>
-                ${item.adjustedMarketPrice != null ? item.adjustedMarketPrice.toFixed(2) : (item.currentRawMarketPrice?.toFixed(2) ?? "—")}
+                {pricing.marketDisplay}
               </span>
-              {item.adjustedMarketPrice != null && (
+              {pricing.isAdjusted && (
                 <span className="text-[10px] text-muted-foreground/50 tabular-nums">
-                  was ${item.currentRawMarketPrice?.toFixed(2)}
+                  was ${pricing.wasRawMarketRaw}
                 </span>
               )}
             </div>
@@ -97,13 +99,13 @@ export function InventoryRow({
       );
       case "print": return (
         <td key="print" className="px-4 py-3 text-right whitespace-nowrap">
-          <span className="text-sm font-mono tabular-nums font-semibold text-primary">${item.currentRoundedPrintPrice ?? "—"}</span>
+          <span className="text-sm font-mono tabular-nums font-semibold text-primary">{pricing.printDisplay}</span>
         </td>
       );
       case "total": return (
         <td key="total" className="px-4 py-3 text-right whitespace-nowrap">
           <span className="text-xs font-mono tabular-nums text-muted-foreground/50">
-            ${((item.effectivePrice || item.currentRawMarketPrice || 0) * item.currentQuantity).toFixed(2)}
+            {pricing.totalDisplay}
           </span>
         </td>
       );
