@@ -38,7 +38,8 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
   // Build eBay sold listings URL from card data
   const buildEbayUrl = () => {
-    const parts = [card.name, card.number, condition]
+    // Use just the card name and condition to avoid duplicating the set number
+    const parts = [card.name, condition]
       .filter(Boolean)
       .map((v) => String(v).trim())
       .filter((v) => v.length > 0);
@@ -73,14 +74,14 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Image */}
-      <div className="flex justify-center rounded-xl bg-muted/30 py-6">
-        <CardImagePlaceholder photoUrl={card.imageUrl} size="lg" className="max-h-64 max-w-[80%] rounded-lg shadow-md object-contain" />
+      <div className="flex justify-center rounded-xl bg-muted/30 py-4">
+        <CardImagePlaceholder photoUrl={card.imageUrl} size="lg" className="max-h-56 max-w-[75%] rounded-lg shadow-md object-contain" />
       </div>
 
       {/* Metadata chips */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5">
         {card.setName && <Chip>{card.setName}</Chip>}
         {card.number  && <Chip>#{card.number}</Chip>}
         {card.rarity  && <Chip>{card.rarity}</Chip>}
@@ -89,8 +90,8 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
       {/* Variant selector */}
       {variants.length > 0 && (
-        <div className="space-y-2">
-          <label className="text-sm font-semibold text-foreground">Printing</label>
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Printing</label>
           <Select value={String(variantIndex)} onValueChange={v => setVariantIndex(Number(v))}>
             <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -106,17 +107,17 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
       {/* Pricing and sales section */}
       {variant && (
-        <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-4">
+        <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
           {/* Pricing grid */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">TCGplayer Price</div>
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="space-y-0.5">
+              <div className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide">TCGplayer</div>
               <div className="text-lg font-mono font-bold text-primary tabular-nums">
                 {variant.price != null ? `$${variant.price.toFixed(2)}` : "—"}
               </div>
             </div>
-            <div className="space-y-1">
-              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Print Price</div>
+            <div className="space-y-0.5">
+              <div className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide">Print Price</div>
               <div className="text-lg font-mono font-bold text-accent tabular-nums">
                 ${variant.price != null ? Math.ceil(variant.price) : "—"}
               </div>
@@ -126,12 +127,12 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
           {/* TCG Player sales data if available */}
           {!salesLoading && salesData?.avgPrice && (
             <div className="pt-2 border-t border-border/30">
-              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1">TCG Player Sales</div>
+              <div className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide mb-0.5">TCG Player Sales</div>
               <div className="text-lg font-mono font-bold text-emerald-400 tabular-nums">
                 ${salesData.avgPrice.toFixed(2)}
               </div>
-              <div className="text-[9px] text-muted-foreground/60 mt-1">
-                Average of {salesData.priceCount} recent sales
+              <div className="text-[8px] text-muted-foreground/60 mt-0.5">
+                Avg of {salesData.priceCount} sales
               </div>
             </div>
           )}
@@ -141,11 +142,11 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
       <div className="border-t border-border/30" />
 
       {/* Condition and Quantity */}
-      <div className="space-y-4">
-        <div className="text-sm font-semibold text-foreground">Add to Inventory</div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Your Copy's Condition</label>
+      <div className="space-y-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add to Inventory</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Condition</label>
             <Select value={condition} onValueChange={setCondition}>
               <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -158,8 +159,8 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
             </Select>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Quantity</label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quantity</label>
             <div className="flex items-center h-10 rounded-md border border-input overflow-hidden">
               <button
                 onClick={() => setQuantity(q => Math.max(1, q - 1))}
