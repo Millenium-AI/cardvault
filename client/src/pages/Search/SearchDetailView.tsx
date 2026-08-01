@@ -310,8 +310,8 @@ export function SearchDetailDrawer({
             <div className="text-base font-semibold text-foreground leading-tight mb-3">{card.name}</div>
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="w-full grid grid-cols-2 h-9">
-                <TabsTrigger value="card" className="text-xs">Card</TabsTrigger>
-                <TabsTrigger value="sales" className="text-xs">Sales</TabsTrigger>
+                <TabsTrigger value="card" className="text-xs">Price</TabsTrigger>
+                <TabsTrigger value="sales" className="text-xs">TCG Player Sales</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
