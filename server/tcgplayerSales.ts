@@ -90,7 +90,7 @@ export async function fetchLatestSales(productId: string, limit = FETCH_LIMIT): 
   consecutiveBlocks = 0;
   const json = await res.json();
 
-  return (json?.data ?? [])
+  const sales = (json?.data ?? [])
     .map((s: any) => ({
       condition: s.condition ?? null,
       variant: s.variant ?? null,
@@ -101,6 +101,12 @@ export async function fetchLatestSales(productId: string, limit = FETCH_LIMIT): 
       // s.shippingPrice intentionally dropped.
     }))
     .filter((s: Sale) => Number.isFinite(s.purchasePrice) && s.purchasePrice > 0 && s.orderDate);
+
+  if (sales.length > 0) {
+    console.log(`[TCGsales] fetchLatestSales(${productId}): limit=${limit}, returned=${sales.length}`);
+  }
+
+  return sales;
 }
 
 /* ─────────────────────── statistics ─────────────────────── */
