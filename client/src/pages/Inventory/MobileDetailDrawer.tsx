@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Drawer } from "vaul";
-import { X, ExternalLink, Pencil, Trash2, TrendingDown } from "lucide-react";
+import { X, ExternalLink, Pencil, Trash2, TrendingDown, Eye } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -75,7 +75,7 @@ function OverviewTab({
       <div className="flex gap-2">
         <StatTile label="Qty" value={String(item.currentQuantity)} />
         <StatTile
-          label="Market"
+          label="Recent Avg Sale"
           value={`$${item.currentRawMarketPrice?.toFixed(2) ?? "—"}`}
         />
         <StatTile
@@ -252,7 +252,7 @@ export function MobileDetailDrawer({
           >
             <TabsList className="shrink-0 mx-4 mt-3 mb-1 grid grid-cols-3 h-9 bg-muted/50">
               <TabsTrigger value="overview" className="text-xs gap-1">
-                Overview
+                <Eye size={11} /> Overview
               </TabsTrigger>
               <TabsTrigger value="sales" className="text-xs gap-1">
                 <TrendingDown size={11} /> TCG Player Sales

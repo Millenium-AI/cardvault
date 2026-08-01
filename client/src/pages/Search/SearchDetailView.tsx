@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { PlusCircle, Minus, Plus, ExternalLink } from "lucide-react";
+import { PlusCircle, Minus, Plus, ExternalLink, Eye, TrendingDown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -475,6 +475,22 @@ export function SearchDetailDrawer({
   const [quantity, setQuantity] = useState(1);
   const variant = variants[variantIndex] ?? null;
 
+  // Build TCGplayer URL from tcgplayerId if available
+  const tcgplayerUrl = card?.tcgplayerId
+    ? `https://www.tcgplayer.com/product/${card.tcgplayerId}`
+    : null;
+
+  // Build eBay sold listings URL from card data
+  const ebayUrl = (() => {
+    const parts = [card?.name, condition]
+      .filter(Boolean)
+      .map((v) => String(v).trim())
+      .filter((v) => v.length > 0);
+    const query = parts.join(" ");
+    if (!query) return null;
+    return `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+  })();
+
   // Reset to overview/card tab and full snap when opening
   useEffect(() => {
     if (open) {
@@ -539,8 +555,8 @@ export function SearchDetailDrawer({
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
             <TabsList className="shrink-0 mx-4 mt-3 mb-1 grid grid-cols-2 h-9 bg-muted/50">
-              <TabsTrigger value="card" className="text-xs">Overview</TabsTrigger>
-              <TabsTrigger value="sales" className="text-xs">TCG Player Sales</TabsTrigger>
+              <TabsTrigger value="card" className="text-xs gap-1"><Eye size={11} /> Overview</TabsTrigger>
+              <TabsTrigger value="sales" className="text-xs gap-1"><TrendingDown size={11} /> Sales</TabsTrigger>
             </TabsList>
 
             {/* Scrollable tab body */}
