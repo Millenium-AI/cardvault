@@ -348,12 +348,13 @@ export interface SweepSummary {
  * If item.matchMetadata.sourcePrinting is not set but sales contain variant info,
  * extract the most common variant and update the item's metadata.
  * This prevents future matching failures when CSV uploads don't include variant info.
+ * Returns updated metadata object to update item in memory.
  */
 async function ensureSourcePrintingMetadata(
   userId: string,
   item: SweepItem,
   sales: Sale[],
-): Promise<void> {
+): Promise<Record<string, any> | null> {
   try {
     // Fetch full item to get metadata
     const { data: fullItem, error: fetchErr } = await supabaseAdmin
@@ -363,7 +364,7 @@ async function ensureSourcePrintingMetadata(
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (fetchErr || !fullItem) return;
+    if (fetchErr || !fullItem) return null;
 
     // Parse existing metadata
     let meta: Record<string, any> = {};
@@ -376,14 +377,14 @@ async function ensureSourcePrintingMetadata(
     }
 
     // If sourcePrinting already set, no action needed
-    if (meta.sourcePrinting) return;
+    if (meta.sourcePrinting) return null;
 
     // Extract non-null variants from sales
     const variants = sales
       .map(s => s.variant)
       .filter((v): v is string => v != null && v.length > 0);
 
-    if (!variants.length) return;
+    if (!variants.length) return null;
 
     // Use most common variant (or first if tied)
     const variantCounts = new Map<string, number>();
@@ -406,9 +407,12 @@ async function ensureSourcePrintingMetadata(
       console.log(
         `[TCGsales] auto-filled sourcePrinting="${mostCommonVariant}" for item ${item.id}`,
       );
+      return meta;
     }
+    return null;
   } catch (e: any) {
     console.error(`[TCGsales] failed to update metadata for item ${item.id}: ${e.message}`);
+    return null;
   }
 }
 
@@ -469,7 +473,11 @@ export async function sweepSalesForItems(
       for (const item of byProduct.get(productId)!) {
         // Auto-fill missing variant/printing metadata from TCGplayer sales data
         if (sales.length > 0) {
-          await ensureSourcePrintingMetadata(userId, item, sales);
+          const updatedMeta = await ensureSourcePrintingMetadata(userId, item, sales);
+          // Update item object with the newly filled metadata
+          if (updatedMeta && !item.printing) {
+            item.printing = updatedMeta.sourcePrinting ?? null;
+          }
         }
 
         const pricing = computeItemPricing(item, sales, windowDays);
