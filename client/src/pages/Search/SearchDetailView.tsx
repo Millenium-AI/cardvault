@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { PlusCircle, Minus, Plus, ExternalLink } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -504,6 +504,11 @@ export function SearchDetailDrawer({
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  // Auto-select sales tab when condition changes
+  useEffect(() => {
+    setActiveTab("sales");
+  }, [condition]);
+
   if (!card) return null;
 
   return (
@@ -519,18 +524,16 @@ export function SearchDetailDrawer({
           </div>
           <div className="px-4 pt-2 pb-0 border-b border-border/50 shrink-0">
             <div className="text-base font-semibold text-foreground leading-tight mb-3">{card.name}</div>
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="w-full grid grid-cols-2 h-9">
-                <TabsTrigger value="card" className="text-xs">Price</TabsTrigger>
-                <TabsTrigger value="sales" className="text-xs">TCG Player Sales</TabsTrigger>
-              </TabsList>
-            </Tabs>
           </div>
           <div
             className="flex-1 overflow-y-auto px-4 pt-3"
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)" }}
           >
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full flex flex-col">
+              <TabsList className="w-full grid grid-cols-2 h-9 -mx-4 -mt-3 mb-3 rounded-none px-4 pt-3">
+                <TabsTrigger value="card" className="text-xs">Price</TabsTrigger>
+                <TabsTrigger value="sales" className="text-xs">TCG Player Sales</TabsTrigger>
+              </TabsList>
               <TabsContent value="card" className="space-y-3 mt-0">
                 {/* Image */}
                 <div className="flex justify-center rounded-lg bg-muted/30 py-3">

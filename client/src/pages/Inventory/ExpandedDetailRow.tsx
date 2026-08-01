@@ -189,7 +189,7 @@ export function ExpandedDetail({
 
             {/* Edit modal — floating overlay that covers left column */}
             <Dialog open={editing} onOpenChange={setEditing}>
-              <DialogContent className="w-[320px] max-w-none p-0 flex flex-col gap-0 overflow-hidden rounded-2xl border-0 shadow-2xl fixed bottom-auto top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-in slide-in-from-bottom-4 max-h-[90vh]">
+              <DialogContent className="w-[320px] max-w-none p-0 flex flex-col gap-0 overflow-hidden rounded-2xl border-0 shadow-2xl fixed bottom-auto top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-in slide-in-from-bottom-4 max-h-[90vh] z-50">
                 <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border/50">
                   <div className="text-sm font-semibold text-foreground">Edit Item</div>
                   <button
