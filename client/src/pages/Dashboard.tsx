@@ -717,6 +717,8 @@ export default function Dashboard() {
   const staleValue = staleItems.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
   const deadItems = inventory.filter(i => daysSince(i.lastSeenAt || i.firstSeenAt) >= 180);
   const deadValue = deadItems.reduce((s, i) => s + (i.currentRawMarketPrice || 0) * (i.currentQuantity || 1), 0);
+  const mismatchItems = inventory.filter(i => i.divergenceFlagged);
+  const mismatchValue = mismatchItems.reduce((s, i) => s + Math.abs((i.adjustedMarketPrice || i.currentRawMarketPrice || 0) - (i.currentRawMarketPrice || 0)) * (i.currentQuantity || 1), 0);
 
   const recentShows = shows.slice(0, 3);
   const cashflow = calcMonthlyCashflow(transactions, shows);
@@ -762,13 +764,17 @@ export default function Dashboard() {
               accent={cashflow.netCash >= 0}
               warn={cashflow.netCash < 0}
             />
-            <StatCard
-              label="Reprice Queue"
-              value={stats?.repricingPending ?? 0}
-              icon={RefreshCcw}
-              sub={repriceDollarSub}
-              accent={(stats?.repricingPending ?? 0) > 0}
-            />
+            <Link href="/inventory?mismatch=1">
+              <a className="stat-card no-underline hover:opacity-80 transition-opacity">
+                <StatCard
+                  label="Price Mismatch"
+                  value={mismatchItems.length}
+                  icon={AlertCircle}
+                  sub={mismatchValue > 0 ? `${fmtUSD(mismatchValue)} impact` : "none"}
+                  warn={mismatchItems.length > 0}
+                />
+              </a>
+            </Link>
             <StatCard
               label="Stale ≥ 90d"
               value={staleItems.length}

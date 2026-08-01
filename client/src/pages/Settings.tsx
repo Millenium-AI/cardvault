@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Check, Save, RotateCcw } from "lucide-react";
+import { Check, Save, RotateCcw, AlertTriangle, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -147,6 +147,210 @@ function FieldRow({ label, fields }: { label: string; fields: string[] }) {
   );
 }
 
+function SalesCrossCheckSettings() {
+  const { toast } = useToast();
+
+  const { data: settings, isLoading: settingsLoading } = useQuery<any>({
+    queryKey: ["/api/settings/sales-check"],
+  });
+
+  const { data: bands, isLoading: bandsLoading } = useQuery<any>({
+    queryKey: ["/api/settings/divergence-bands"],
+  });
+
+  const [settingsDraft, setSettingsDraft] = useState<any>(null);
+  const [bandsDraft, setBandsDraft] = useState<any>(null);
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      if (settingsDraft) {
+        await apiRequest("PUT", "/api/settings/sales-check", {
+          enabled: settingsDraft.enabled,
+          autoAdjust: settingsDraft.autoAdjust,
+          windowDays: parseInt(settingsDraft.windowDays || "30"),
+        });
+      }
+      if (bandsDraft) {
+        await apiRequest("PUT", "/api/settings/divergence-bands", bandsDraft);
+      }
+      return true;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/sales-check"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/divergence-bands"] });
+      setSettingsDraft(null);
+      setBandsDraft(null);
+      toast({ title: "Settings saved" });
+    },
+    onError: (e: any) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
+  });
+
+  const checkMut = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/prices/check-sales", {});
+    },
+    onSuccess: (result: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      const summary = result?.summary;
+      toast({
+        title: "Sales check complete",
+        description: `${summary?.itemsUpdated} items updated, ${summary?.pricesAdjusted} prices adjusted`,
+      });
+    },
+    onError: (e: any) => toast({ title: "Check failed", description: e.message, variant: "destructive" }),
+  });
+
+  const { data: breaker } = useQuery<any>({
+    queryKey: ["/api/sales/status"],
+    refetchInterval: 5000,
+  });
+
+  const currentSettings = settingsDraft ?? settings;
+  const currentBands = bandsDraft ?? bands;
+  const isDirty = settingsDraft !== null || bandsDraft !== null;
+
+  if (settingsLoading || bandsLoading || !currentSettings || !currentBands) {
+    return <div className="text-xs text-muted-foreground">Loading…</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {breaker?.breaker?.open && (
+        <div className="p-3 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs flex items-start gap-2">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+          <div>
+            <div className="font-semibold">Circuit breaker active</div>
+            <div className="text-amber-400/80">Sales checks are paused until {new Date(breaker.breaker.opensUntil).toLocaleString()}.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Feature toggles */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={currentSettings.enabled}
+            onChange={(e) => setSettingsDraft({ ...currentSettings, enabled: e.target.checked })}
+            className="w-4 h-4 rounded"
+          />
+          <label className="text-sm font-medium text-foreground flex-1">
+            Enable sales cross-check
+          </label>
+        </div>
+        <div className="flex items-center gap-3 ml-7">
+          <input
+            type="checkbox"
+            checked={currentSettings.autoAdjust}
+            onChange={(e) => setSettingsDraft({ ...currentSettings, autoAdjust: e.target.checked })}
+            disabled={!currentSettings.enabled}
+            className="w-4 h-4 rounded"
+          />
+          <label className="text-sm font-medium text-foreground flex-1">
+            Auto-adjust prices
+          </label>
+        </div>
+        <div className="flex items-center gap-3 ml-7">
+          <label className="text-xs text-muted-foreground w-24">Window (days)</label>
+          <Input
+            type="number"
+            min="1"
+            value={currentSettings.windowDays}
+            onChange={(e) => setSettingsDraft({ ...currentSettings, windowDays: e.target.value })}
+            disabled={!currentSettings.enabled}
+            className="w-20 h-8 text-sm"
+          />
+        </div>
+      </div>
+
+      {/* Threshold bands table */}
+      <div className="mt-6">
+        <div className="text-xs font-semibold text-muted-foreground mb-2">Divergence Thresholds</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/50 border-b border-border">
+              <tr>
+                <th className="text-left px-2 py-1.5 font-medium">Price Range</th>
+                <th className="text-center px-2 py-1.5 font-medium">Under %</th>
+                <th className="text-center px-2 py-1.5 font-medium">Over %</th>
+                <th className="text-center px-2 py-1.5 font-medium">Min $</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currentBands.map((band: any, idx: number) => (
+                <tr key={idx} className="border-b border-border/50">
+                  <td className="px-2 py-2 font-mono text-muted-foreground">{band.label}</td>
+                  <td className="text-center px-2 py-2">
+                    <Input
+                      type="number"
+                      value={band.underPct ?? ""}
+                      onChange={(e) => {
+                        const updated = [...currentBands];
+                        updated[idx] = { ...band, underPct: e.target.value ? parseFloat(e.target.value) : null };
+                        setBandsDraft(updated);
+                      }}
+                      className="w-16 h-7 text-sm text-center"
+                      disabled={band.underPct === null}
+                    />
+                  </td>
+                  <td className="text-center px-2 py-2">
+                    <Input
+                      type="number"
+                      value={band.overPct ?? ""}
+                      onChange={(e) => {
+                        const updated = [...currentBands];
+                        updated[idx] = { ...band, overPct: e.target.value ? parseFloat(e.target.value) : null };
+                        setBandsDraft(updated);
+                      }}
+                      className="w-16 h-7 text-sm text-center"
+                      disabled={band.overPct === null}
+                    />
+                  </td>
+                  <td className="text-center px-2 py-2">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={band.minDelta ?? ""}
+                      onChange={(e) => {
+                        const updated = [...currentBands];
+                        updated[idx] = { ...band, minDelta: e.target.value ? parseFloat(e.target.value) : null };
+                        setBandsDraft(updated);
+                      }}
+                      className="w-16 h-7 text-sm text-center"
+                      disabled={band.minDelta === null}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Save and Run Check buttons */}
+      <div className="flex items-center gap-2 pt-3 border-t border-border">
+        <Button
+          onClick={() => saveMut.mutate()}
+          disabled={!isDirty || saveMut.isPending}
+          className="bg-primary text-primary-foreground hover:bg-primary/90 h-8 text-sm"
+        >
+          <Save size={13} className="mr-1.5" />
+          {saveMut.isPending ? "Saving…" : "Save Settings"}
+        </Button>
+        <Button
+          onClick={() => checkMut.mutate()}
+          disabled={!currentSettings.enabled || checkMut.isPending}
+          variant="outline"
+          className="h-8 text-sm"
+        >
+          <Play size={13} className="mr-1.5" />
+          {checkMut.isPending ? "Running…" : "Run check now"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ThresholdSettings() {
   const { toast } = useToast();
 
@@ -262,6 +466,15 @@ export default function Settings() {
       </div>
 
       <div className="space-y-6 max-w-3xl">
+
+        {/* ── SALES CROSS-CHECK — visible to everyone ── */}
+        <div className="stat-card">
+          <div className="text-sm font-semibold text-foreground mb-1">Sales Cross-Check</div>
+          <p className="text-xs text-muted-foreground mb-4">
+            Cross-check JustTCG prices against TCGplayer sales to flag significant divergences.
+          </p>
+          <SalesCrossCheckSettings />
+        </div>
 
         {/* ── REPRICING THRESHOLDS — visible to everyone ── */}
         <div className="stat-card">

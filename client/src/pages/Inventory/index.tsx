@@ -168,6 +168,14 @@ export default function Inventory() {
     }
   }, [columnQuery.data?.order]);
 
+  // Check URL parameter for mismatch filter
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mismatch") === "1") {
+      setLabelFilter("price_mismatch");
+    }
+  }, []);
+
   const { data: items = [], isLoading } = useInventoryList(
     game,
     condition,
@@ -311,6 +319,8 @@ export default function Inventory() {
   const sorted =
     labelFilter === "all"
       ? sortedAll
+      : labelFilter === "price_mismatch"
+      ? sortedAll.filter((i: any) => i.divergenceFlagged)
       : sortedAll.filter((i: any) => i.labelStatus === labelFilter);
 
   const labelCounts = {
@@ -376,6 +386,8 @@ export default function Inventory() {
     sortBy !== "name",
   ].filter(Boolean).length;
 
+  const mismatchCount = items.filter(i => i.divergenceFlagged).length;
+
   const labelOptions = [
     {
       key: "all",
@@ -400,6 +412,12 @@ export default function Inventory() {
       label: "Label Created",
       count: labelCounts.label_created,
       cls: "text-green-400",
+    },
+    {
+      key: "price_mismatch",
+      label: "Price Mismatch",
+      count: mismatchCount,
+      cls: "text-red-400",
     },
   ] as const;
 

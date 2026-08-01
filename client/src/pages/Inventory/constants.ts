@@ -1,4 +1,4 @@
-export type LabelFilter = "all" | "needs_label" | "needs_repricing" | "label_created";
+export type LabelFilter = "all" | "needs_label" | "needs_repricing" | "label_created" | "price_mismatch";
 export type ViewMode = "list" | "grid-sm" | "grid-lg";
 
 export const DEFAULT_COLUMN_ORDER = ["card", "condition", "game", "qty", "market", "print", "total"] as const;
