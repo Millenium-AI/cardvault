@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ConditionBadge } from "@/components/ConditionBadge";
 import { RecentSalesPanel } from "@/components/RecentSalesPanel";
 import { gameLabel } from "@shared/gameLabels";
-import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
+import { InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
+// import { PriceHistory } from "./DetailPanel"; // Disabled: price history removed from UI, kept for future
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 
 export function ExpandedDetail({
@@ -112,14 +113,11 @@ export function ExpandedDetail({
             </div>
           </div>
 
-          {/* Chart column — height cap removed. The old sm:max-h-[340px]
-              was still forcing an inner scrollbar to see the full
-              PriceHistory block (buttons + chart + History tiles +
-              Statistics) on most items. DetailSheet's equivalent column has
-              no cap of its own — only the outer dialog does — so this now
-              matches that: the row simply expands to fit its content. */}
+          {/* Sales panel column */}
           <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30 space-y-6">
+            {/* PRICE HISTORY DISABLED: Kept for future implementation
             <PriceHistory item={item} height={190} />
+            */}
             <RecentSalesPanel item={item} />
           </div>
 
