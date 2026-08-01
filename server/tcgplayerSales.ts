@@ -64,44 +64,54 @@ function tripBreaker(reason: string) {
 export async function fetchLatestSales(productId: string, limit = FETCH_LIMIT): Promise<Sale[]> {
   if (Date.now() < breakerOpenUntil) return [];
 
-  const res = await fetch(SALES_URL(productId), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': UA,
-      Origin: 'https://www.tcgplayer.com',
-      Referer: `https://www.tcgplayer.com/product/${productId}`,
-    },
-    // NOTE: the `conditions` filter expects condition IDs, not names — passing
-    // ["Near Mint"] silently returns zero rows. Always request everything and
-    // filter in code.
-    body: JSON.stringify({ conditions: [], listingType: 'All', offset: 0, limit }),
-  });
+  const headers = {
+    'Content-Type': 'application/json',
+    'User-Agent': UA,
+    Origin: 'https://www.tcgplayer.com',
+    Referer: `https://www.tcgplayer.com/product/${productId}`,
+  };
 
-  if (res.status === 403 || res.status === 429) {
-    consecutiveBlocks++;
-    if (consecutiveBlocks >= 3) tripBreaker(`HTTP ${res.status} x${consecutiveBlocks}`);
-    throw Object.assign(new Error(`TCGplayer sales ${res.status}`), { status: res.status });
+  try {
+    const res = await fetch(SALES_URL(productId), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ conditions: [], listingType: 'All', offset: 0, limit }),
+    });
+
+    if (res.status === 401) {
+      // 401 may indicate TCGplayer has changed their authentication requirements
+      // or blocked our user agent. Try once more with a fresh request before failing.
+      console.warn(`[TCGsales] Got 401 from TCGplayer, will retry with different approach`);
+      throw Object.assign(new Error(`TCGplayer sales ${res.status}`), { status: res.status });
+    }
+
+    if (res.status === 403 || res.status === 429) {
+      consecutiveBlocks++;
+      if (consecutiveBlocks >= 3) tripBreaker(`HTTP ${res.status} x${consecutiveBlocks}`);
+      throw Object.assign(new Error(`TCGplayer sales ${res.status}`), { status: res.status });
+    }
+
+    if (!res.ok) {
+      throw Object.assign(new Error(`TCGplayer sales ${res.status}`), { status: res.status });
+    }
+
+    consecutiveBlocks = 0;
+    const json = await res.json();
+
+    return (json?.data ?? [])
+      .map((s: any) => ({
+        condition: s.condition ?? null,
+        variant: s.variant ?? null,
+        language: s.language ?? null,
+        quantity: Number(s.quantity ?? 1),
+        purchasePrice: Number(s.purchasePrice),
+        orderDate: s.orderDate,
+      }))
+      .filter((s: Sale) => Number.isFinite(s.purchasePrice) && s.purchasePrice > 0 && s.orderDate);
+  } catch (err: any) {
+    // On network error or status error, just propagate
+    throw err;
   }
-
-  if (!res.ok) {
-    throw Object.assign(new Error(`TCGplayer sales ${res.status}`), { status: res.status });
-  }
-
-  consecutiveBlocks = 0;
-  const json = await res.json();
-
-  return (json?.data ?? [])
-    .map((s: any) => ({
-      condition: s.condition ?? null,
-      variant: s.variant ?? null,
-      language: s.language ?? null,
-      quantity: Number(s.quantity ?? 1),
-      purchasePrice: Number(s.purchasePrice),
-      orderDate: s.orderDate,
-      // s.shippingPrice intentionally dropped.
-    }))
-    .filter((s: Sale) => Number.isFinite(s.purchasePrice) && s.purchasePrice > 0 && s.orderDate);
 }
 
 /* ─────────────────────── statistics ─────────────────────── */

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PlusCircle, Minus, Plus, ExternalLink, Eye, TrendingDown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +16,7 @@ import { SearchRecentSalesPanel } from "@/components/SearchRecentSalesPanel";
 
 function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; onAdded: () => void }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const variants = card.variants ?? [];
   const [variantIndex, setVariantIndex] = useState(0);
   const [condition, setCondition] = useState(variants[0]?.condition ?? "Near Mint");
@@ -24,13 +25,22 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
   const variant = variants[variantIndex] ?? null;
 
   // Fetch recent sales data if available, filtered by selected condition
-  const { data: salesData, isLoading: salesLoading } = useQuery({
+  const { data: salesData, isLoading: salesLoading, isFetching: salesFetching } = useQuery({
     queryKey: [`/api/search/${card.tcgplayerId}/sales`, condition],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/search/${card.tcgplayerId}/sales?condition=${encodeURIComponent(condition)}`);
       return res.json();
     },
     enabled: !!card.tcgplayerId,
+  });
+
+  const refreshSalesMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", `/api/search/${card.tcgplayerId}/sales/refresh`, { condition });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/search/${card.tcgplayerId}/sales`, condition] });
+    },
   });
 
   // Build TCGplayer URL from tcgplayerId if available
@@ -135,6 +145,7 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
               </div>
               <div className="text-[8px] text-muted-foreground/60 mt-0.5">
                 Avg of {salesData.priceCount} sales
+                {refreshSalesMutation.isPending && <span> — refreshing…</span>}
               </div>
             </div>
           )}
@@ -235,6 +246,7 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 export function SearchDetailModal({
   card, game, open, onClose,
 }: { card: any; game: string; open: boolean; onClose: () => void }) {
+  const queryClient = useQueryClient();
   const variants = card?.variants ?? [];
   const [variantIndex, setVariantIndex] = useState(0);
   const nearMintVariant = variants.find((v: any) => v.condition === "Near Mint");
@@ -243,7 +255,7 @@ export function SearchDetailModal({
   const variant = variants[variantIndex] ?? null;
   const { toast } = useToast();
 
-  const { data: salesData, isLoading: salesLoading } = useQuery({
+  const { data: salesData, isLoading: salesLoading, isFetching: salesFetching } = useQuery({
     queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition, variant?.printing],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -253,6 +265,18 @@ export function SearchDetailModal({
       return res.json();
     },
     enabled: !!card?.tcgplayerId,
+  });
+
+  const refreshSalesMutation = useMutation({
+    mutationFn: async () => {
+      const params = new URLSearchParams();
+      if (condition) params.append("condition", condition);
+      if (variant?.printing) params.append("printing", variant.printing);
+      return apiRequest("POST", `/api/search/${card?.tcgplayerId}/sales/refresh?${params.toString()}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition, variant?.printing] });
+    },
   });
 
   const addMut = useMutation({
@@ -424,7 +448,13 @@ export function SearchDetailModal({
 
           {/* Right: Recent sales */}
           <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto">
-            <SearchRecentSalesPanel salesData={salesData} isLoading={salesLoading} variant={variant} />
+            <SearchRecentSalesPanel
+              salesData={salesData}
+              isLoading={salesLoading}
+              isFetching={salesFetching || refreshSalesMutation.isPending}
+              variant={variant}
+              onRefresh={() => refreshSalesMutation.mutate()}
+            />
           </div>
         </div>
       </DialogContent>
@@ -435,6 +465,7 @@ export function SearchDetailModal({
 export function SearchDetailDrawer({
   card, game, open, onClose,
 }: { card: any; game: string; open: boolean; onClose: () => void }) {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("card");
   const [snap, setSnap] = useState<number | string | null>(0.92);
   const { toast } = useToast();
@@ -470,7 +501,7 @@ export function SearchDetailDrawer({
   }, [open]);
 
   // Fetch recent sales data
-  const { data: salesData, isLoading: salesLoading } = useQuery({
+  const { data: salesData, isLoading: salesLoading, isFetching: salesFetching } = useQuery({
     queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition, variant?.printing],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -480,6 +511,18 @@ export function SearchDetailDrawer({
       return res.json();
     },
     enabled: !!card?.tcgplayerId,
+  });
+
+  const refreshSalesMutation = useMutation({
+    mutationFn: async () => {
+      const params = new URLSearchParams();
+      if (condition) params.append("condition", condition);
+      if (variant?.printing) params.append("printing", variant.printing);
+      return apiRequest("POST", `/api/search/${card?.tcgplayerId}/sales/refresh?${params.toString()}`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/search/${card?.tcgplayerId}/sales`, condition, variant?.printing] });
+    },
   });
 
   const addMut = useMutation({
@@ -665,7 +708,13 @@ export function SearchDetailDrawer({
               </TabsContent>
 
               <TabsContent value="sales" className="space-y-3 mt-0 px-4 pt-3 pb-2">
-                <SearchRecentSalesPanel salesData={salesData} isLoading={salesLoading} variant={variant} />
+                <SearchRecentSalesPanel
+                  salesData={salesData}
+                  isLoading={salesLoading}
+                  isFetching={salesFetching || refreshSalesMutation.isPending}
+                  variant={variant}
+                  onRefresh={() => refreshSalesMutation.mutate()}
+                />
               </TabsContent>
             </div>
           </Tabs>

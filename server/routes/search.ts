@@ -215,9 +215,10 @@ export function registerSearchRoutes(app: Express) {
       // Ensure fresh sales data exists — if nothing was fetched in the last 6h,
       // fetch live from TCGplayer and store it to the shared product_sales table.
       // Fails soft if the circuit breaker is open or the fetch errors.
+      // This gracefully handles 401, 403, 429, network errors, etc.
       await ensureLiveSalesFetched(tcgplayerId);
 
-      // Fetch all sales for this product
+      // Fetch all sales for this product (uses cached data if fresh data fetch failed)
       const rawSales = await storage.listProductSales(tcgplayerId);
       if (!rawSales || rawSales.length === 0) {
         return res.json({ sales: [], salePrices: [], avgPrice: null, priceCount: 0 });
@@ -256,8 +257,27 @@ export function registerSearchRoutes(app: Express) {
       });
     } catch (e: any) {
       console.error("[search/sales]", e);
-      // Don't error — just return empty sales if lookup fails
+      // Gracefully return empty sales without erroring
+      // If TCGplayer is unavailable, client can still show UI without data
       res.json({ sales: [], salePrices: [], avgPrice: null, priceCount: 0 });
+    }
+  });
+
+  // Manual refresh of sales data for a TCGplayer product
+  app.post("/api/search/:tcgplayerId/sales/refresh", async (req: any, res) => {
+    try {
+      const { tcgplayerId } = req.params;
+      if (!tcgplayerId) return res.status(400).json({ error: "tcgplayerId is required" });
+
+      // Trigger a fresh fetch of sales data; ensureLiveSalesFetched handles storing it.
+      // We call it directly (not wrapped in try/catch) so it can do its own error handling.
+      await ensureLiveSalesFetched(tcgplayerId);
+
+      res.json({ success: true });
+    } catch (e: any) {
+      console.error("[search/sales/refresh]", e);
+      // Don't error — refresh failures are non-critical
+      res.json({ success: false, error: e.message ?? "Could not fetch fresh sales data" });
     }
   });
 }
