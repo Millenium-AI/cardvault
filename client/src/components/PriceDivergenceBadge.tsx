@@ -41,12 +41,12 @@ export function PriceDivergenceBadge({ item }: { item: any }) {
 
   const tooltipText = `Avg of ${count} ${condition}${printing ? ` / ${printing}` : ""} sales · ${avgPrice} · ${lastDate}`;
 
-  // Color classes
+  // Color classes - all equally visible now
   const colorClasses = !isFlagged
-    ? "bg-muted/80 text-muted-foreground" // Neutral grey when not flagged
+    ? "bg-slate-600/90 text-slate-100" // Neutral grey when not flagged - darker background
     : isPositive
-      ? "bg-amber-500/40 text-amber-300" // Amber for underpriced
-      : "bg-red-500/40 text-red-300"; // Red for overpriced
+      ? "bg-amber-600/90 text-amber-100" // Amber for underpriced - darker amber
+      : "bg-red-600/90 text-red-100"; // Red for overpriced - darker red
 
   // Outline variant if weak match
   const variantClasses = isWeakMatch

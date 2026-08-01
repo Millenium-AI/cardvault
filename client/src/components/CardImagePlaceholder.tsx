@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface CardImagePlaceholderProps {
@@ -14,12 +15,15 @@ export function CardImagePlaceholder({
   className,
   size = "md",
 }: CardImagePlaceholderProps) {
-  if (photoUrl) {
+  const [imageError, setImageError] = useState(false);
+
+  if (photoUrl && !imageError) {
     return (
       <img
         src={photoUrl}
         alt={alt}
         className={cn("object-contain", className)}
+        onError={() => setImageError(true)}
       />
     );
   }
@@ -29,6 +33,10 @@ export function CardImagePlaceholder({
       src="/imageplaceholder.jpg"
       alt={alt || "No Image Available"}
       className={cn("object-contain", className)}
+      onError={(e) => {
+        // Fallback if placeholder also fails to load
+        (e.target as HTMLImageElement).style.display = "none";
+      }}
     />
   );
 }
