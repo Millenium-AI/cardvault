@@ -4,6 +4,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { ConditionBadge } from "@/components/ConditionBadge";
+import { RecentSalesPanel } from "@/components/RecentSalesPanel";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
@@ -117,8 +118,9 @@ export function ExpandedDetail({
               Statistics) on most items. DetailSheet's equivalent column has
               no cap of its own — only the outer dialog does — so this now
               matches that: the row simply expands to fit its content. */}
-          <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30">
+          <div className="flex-1 min-w-0 px-5 py-4 sm:border-r border-border/30 space-y-6">
             <PriceHistory item={item} height={190} />
+            <RecentSalesPanel item={item} />
           </div>
 
           {/* Actions sidebar — full width on mobile with top border, fixed 200px on desktop */}

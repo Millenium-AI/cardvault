@@ -6,48 +6,6 @@ Handoff document for continuing the TCGplayer last-sale / adjusted-pricing featu
 Each phase below is written as a self-contained prompt. Run them **in order**, one at a
 time, verifying before moving on. Do not attempt all phases in one pass.
 
-## PHASE 5 — Recent sales in the expanded views
-
-> **Prompt for Claude:**
->
-> Build `client/src/components/RecentSalesPanel.tsx` once and mount it in **all four**
-> expanded surfaces: `ExpandedDetailRow.tsx`, `DetailSheet.tsx`, `DetailPanel.tsx`,
-> `MobileDetailDrawer.tsx`.
->
-> Data source: `GET /api/inventory/:id/sales` from phase 2, via TanStack Query, fetched
-> only when the panel mounts.
->
-> **Layout:**
->
-> 1. Header: `Recent Sales` + `checked {relative time}` + a manual re-check button that
->    POSTs to `/api/prices/check-sales` with `{ itemIds: [item.id] }` and invalidates
->    both `/api/inventory` and the sales query
-> 2. Four tiles, matching the existing Qty/Market/Print tile pattern already in
->    `ExpandedDetailRow.tsx` (`rounded-lg border border-border bg-muted/30`):
->    `JustTCG` · `Sales Avg` · `Difference` (coloured by direction) · `Print Price`
-> 3. Sales table — **every** stored sale, newest first. Columns: Date, Price, Cond,
->    Printing, Qty. **No shipping column.** Three row states:
->    - included → normal
->    - `isOutlier` → struck through, amber `outlier` chip
->    - condition or printing doesn't match the item → greyed, muted `other condition` chip
-> 4. Footer: `Average of {n} {condition} / {printing} sales · {x} outliers excluded · {y} other conditions`
-> 5. **Pin toggle** — a small control bound to `priceLocked` via
->    `PATCH /api/inventory/:id`. When on, show `Price pinned — automatic sales adjustment
->    is off for this card`
-> 6. Empty state: `No recent sales on TCGplayer for this product` with a one-line note that
->    this usually means an illiquid card whose market price may be stale
->
-> Also update the manual price editor in `DetailPanel.tsx`: when `adjustedMarketPrice` is
-> present and the card is not pinned, show `Sales data is driving this price — manual edits
-> will be replaced on the next check` beneath the input.
->
-> **Acceptance:** the panel renders identically in all four surfaces; outliers are visible
-> but clearly excluded; the pin round-trips and survives a sweep.
->
-> Commit as `inventory: recent sales panel in expanded views`.
-
----
-
 ## PHASE 6 — Dashboard, filter, settings
 
 > **Prompt for Claude:**

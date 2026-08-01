@@ -373,6 +373,11 @@ export function InlineEditPanel({ item, onDone }: { item: any; onDone: () => voi
           </div>
           <Input data-testid="input-edit-price" type="number" min="0" step="0.01" value={price}
             onChange={e => setPrice(e.target.value)} className="h-9 text-sm font-mono" />
+          {item.adjustedMarketPrice != null && !item.priceLocked && (
+            <p className="text-[10px] text-amber-400 mt-1">
+              Sales data is driving this price — manual edits will be replaced on the next check
+            </p>
+          )}
         </div>
       </div>
       <div className="space-y-1">

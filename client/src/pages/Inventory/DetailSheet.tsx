@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Pencil, Trash2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConditionBadge } from "@/components/ConditionBadge";
+import { RecentSalesPanel } from "@/components/RecentSalesPanel";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
@@ -117,8 +118,9 @@ export function ItemDetailBody({ item, onClose }: { item: any; onClose: () => vo
             the three surfaces (only bounded by the dialog's max-h-[88vh]),
             so the chart can take a taller, more legible height here than
             in the table-row or mobile-drawer versions. */}
-        <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto">
+        <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto space-y-6">
           <PriceHistory itemId={item.id} item={item} height={190} />
+          <RecentSalesPanel item={item} />
         </div>
       </div>
 

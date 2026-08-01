@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { Drawer } from "vaul";
-import { X, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { X, ExternalLink, Pencil, Trash2, TrendingDown } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConditionBadge } from "@/components/ConditionBadge";
+import { RecentSalesPanel } from "@/components/RecentSalesPanel";
 import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 
@@ -230,12 +231,15 @@ export function MobileDetailDrawer({
             onValueChange={setActiveTab}
             className="flex flex-col flex-1 min-h-0"
           >
-            <TabsList className="shrink-0 mx-4 mt-3 mb-1 grid grid-cols-3 h-9 bg-muted/50">
+            <TabsList className="shrink-0 mx-4 mt-3 mb-1 grid grid-cols-4 h-9 bg-muted/50">
               <TabsTrigger value="overview" className="text-xs gap-1">
                 Overview
               </TabsTrigger>
               <TabsTrigger value="price" className="text-xs gap-1">
                 Price
+              </TabsTrigger>
+              <TabsTrigger value="sales" className="text-xs gap-1">
+                <TrendingDown size={11} /> Sales
               </TabsTrigger>
               <TabsTrigger value="edit" className="text-xs gap-1">
                 <Pencil size={11} /> Edit
@@ -266,6 +270,12 @@ export function MobileDetailDrawer({
                     into their own inner scroll before. */}
                 <div className="rounded-xl border border-border/40 bg-muted/10 p-3 max-h-[420px] overflow-y-auto">
                   <PriceHistory item={item} height={140} />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="sales" className="mt-0 px-4 pt-3 pb-2">
+                <div className="space-y-4">
+                  <RecentSalesPanel item={item} />
                 </div>
               </TabsContent>
 
