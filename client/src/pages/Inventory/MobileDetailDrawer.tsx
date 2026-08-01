@@ -9,6 +9,7 @@ import { gameLabel } from "@shared/gameLabels";
 import { PriceHistory, InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 import { useItemDeleteMutation } from "./hooks/useInventoryMutations";
 import { parseMatchMetadata, getPricingSummary, buildEbaySearchUrl } from "./utils";
+import { useToast } from "@/hooks/use-toast";
 
 // ── Stat tile ────────────────────────────────────────────────────────────────
 function StatTile({
