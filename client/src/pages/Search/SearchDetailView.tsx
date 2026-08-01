@@ -23,11 +23,11 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
   const variant = variants[variantIndex] ?? null;
 
-  // Fetch recent sales data if available
+  // Fetch recent sales data if available, filtered by selected condition
   const { data: salesData, isLoading: salesLoading } = useQuery({
-    queryKey: [`/api/search/${card.tcgplayerId}/sales`],
+    queryKey: [`/api/search/${card.tcgplayerId}/sales`, condition],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/search/${card.tcgplayerId}/sales`);
+      const res = await apiRequest("GET", `/api/search/${card.tcgplayerId}/sales?condition=${encodeURIComponent(condition)}`);
       return res.json();
     },
     enabled: !!card.tcgplayerId,
@@ -237,7 +237,8 @@ export function SearchDetailModal({
 }: { card: any; game: string; open: boolean; onClose: () => void }) {
   const variants = card?.variants ?? [];
   const [variantIndex, setVariantIndex] = useState(0);
-  const [condition, setCondition] = useState(variants[0]?.condition ?? "Near Mint");
+  const nearMintVariant = variants.find((v: any) => v.condition === "Near Mint");
+  const [condition, setCondition] = useState(nearMintVariant?.condition ?? variants[0]?.condition ?? "Near Mint");
   const [quantity, setQuantity] = useState(1);
   const variant = variants[variantIndex] ?? null;
   const { toast } = useToast();
@@ -469,7 +470,8 @@ export function SearchDetailDrawer({
   const { toast } = useToast();
   const variants = card?.variants ?? [];
   const [variantIndex, setVariantIndex] = useState(0);
-  const [condition, setCondition] = useState(variants[0]?.condition ?? "Near Mint");
+  const nearMintVariant = variants.find((v: any) => v.condition === "Near Mint");
+  const [condition, setCondition] = useState(nearMintVariant?.condition ?? variants[0]?.condition ?? "Near Mint");
   const [quantity, setQuantity] = useState(1);
   const variant = variants[variantIndex] ?? null;
 
@@ -645,6 +647,32 @@ export function SearchDetailDrawer({
                   <PlusCircle size={14} />
                   {addMut.isPending ? "Adding…" : "Add to Inventory"}
                 </Button>
+
+                {/* External links */}
+                <div className="border-t border-border/30 pt-3 space-y-2">
+                  {tcgplayerUrl ? (
+                    <a
+                      href={tcgplayerUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full rounded-lg border border-blue-500/40 px-4 py-2.5 text-xs font-medium text-blue-400 hover:bg-blue-500/10 transition-colors"
+                    >
+                      View on TCGplayer <ExternalLink size={13} />
+                    </a>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2 w-full rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+                      TCGplayer unavailable <ExternalLink size={13} />
+                    </div>
+                  )}
+                  {ebayUrl && (
+                    <button
+                      onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}
+                      className="flex items-center justify-center gap-2 w-full rounded-lg border border-amber-500/40 px-4 py-2.5 text-xs font-medium text-amber-400 hover:bg-amber-500/10 transition-colors"
+                    >
+                      Search eBay Sold Listings <ExternalLink size={13} />
+                    </button>
+                  )}
+                </div>
               </TabsContent>
 
               <TabsContent value="sales" className="space-y-3 mt-0 px-4 pt-3 pb-2">

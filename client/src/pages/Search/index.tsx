@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -48,6 +48,16 @@ export default function SearchPage() {
     enabled: activeQuery.length > 0,
     staleTime: 60 * 1000,
   });
+
+  // Auto-search with 1000ms debounce to conserve API quota
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (query.trim().length > 0) {
+        setActiveQuery(query.trim());
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   function runSearch() { setActiveQuery(query.trim()); }
 

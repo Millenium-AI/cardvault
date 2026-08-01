@@ -5,7 +5,9 @@ import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 // (SearchDetailModal/Drawer) where the user can review pricing and add it
 // to their inventory.
 export function SearchResultCard({ card, game, onOpen }: { card: any; game: string; onOpen: () => void }) {
-  const bestVariant = card.variants?.[0] ?? null;
+  // Show Near Mint price if available, otherwise fall back to first variant
+  const variants = card.variants ?? [];
+  const bestVariant = variants.find((v: any) => v.condition === "Near Mint") ?? variants[0] ?? null;
   const price = bestVariant?.price ?? null;
 
   return (
