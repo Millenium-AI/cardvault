@@ -255,6 +255,16 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
     ? sameCondition.filter(s => norm(s.variant) === norm(item.printing))
     : sameCondition;
 
+  // Debug logging for items without matches
+  if (sameCondition.length === 0 && inWindow.length > 0) {
+    const sampleSaleCondition = inWindow[0]?.condition;
+    console.log(`[TCGsales] DEBUG item ${item.id}: condition mismatch - item="${itemCondition}" vs sale="${sampleSaleCondition}" (standardized: "${standardizeCondition(sampleSaleCondition)}")`);
+  }
+  if (exact.length === 0 && sameCondition.length > 0 && item.printing) {
+    const sampleVariant = sameCondition[0]?.variant;
+    console.log(`[TCGsales] DEBUG item ${item.id}: printing mismatch - item="${item.printing}" vs sale="${sampleVariant}"`);
+  }
+
   let matched = exact;
   let match: ItemPricing['lastSaleMatch'] = 'exact';
 
@@ -263,6 +273,9 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
     match = 'condition_only';
   }
   if (!matched.length) {
+    if (inWindow.length > 0) {
+      console.log(`[TCGsales] item ${item.id}: NO MATCHES - inWindow=${inWindow.length}, sameCondition=${sameCondition.length}, exact=${exact.length}`);
+    }
     return {
       adjustedMarketPrice: null, lastSaleDate: null, lastSaleCount: 0,
       lastSaleOutliers: 0, lastSaleMatch: 'none', priceDivergencePct: null, outlierPrices: [],
@@ -280,6 +293,10 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
     .map(s => s.orderDate)
     .sort()
     .reverse()[0] ?? null;
+
+  if (matched.length > 0) {
+    console.log(`[TCGsales] item ${item.id}: found ${matched.length} ${match} matches (avg $${adjusted.toFixed(2)})`);
+  }
 
   return {
     adjustedMarketPrice: Number(adjusted.toFixed(2)),
