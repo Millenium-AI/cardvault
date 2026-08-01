@@ -58,8 +58,8 @@ export function InventoryGridCard({
           />
         </div>
 
-        {/* Info below image — tighter spacing */}
-        <div className="px-1 py-1 flex flex-col gap-0.5 flex-1">
+        {/* Info below image — uniform spacing */}
+        <div className="px-2 py-2 flex flex-col gap-1 flex-1">
           {/* Title */}
           <div className="text-[10px] font-medium text-foreground line-clamp-2 leading-tight">
             {item.productName}
@@ -72,7 +72,7 @@ export function InventoryGridCard({
           </div>
 
           {/* Pricing footer */}
-          <div className="flex items-center justify-between gap-1 mt-auto">
+          <div className="flex items-center justify-between gap-1 pt-0.5">
             <div className="flex flex-col items-start gap-0">
               <span className={`text-[9px] font-mono font-medium leading-tight ${
                 item.adjustedMarketPrice != null ? 'text-primary' : 'text-muted-foreground'
@@ -126,8 +126,8 @@ export function InventoryGridCard({
         />
       </div>
 
-      {/* Info below image — tighter, better organized */}
-      <div className="px-2 py-1.5 flex flex-col gap-1 flex-1">
+      {/* Info below image — uniform spacing */}
+      <div className="px-2 py-2 flex flex-col gap-1 flex-1">
         {/* Title */}
         <div className="text-xs font-medium text-foreground line-clamp-2 leading-tight">
           {item.productName}
@@ -149,8 +149,8 @@ export function InventoryGridCard({
           <LabelStatusBadge status={item.labelStatus} />
         </div>
 
-        {/* Pricing footer — tighter, scannable */}
-        <div className="mt-auto flex items-end justify-between gap-2 pt-0.5 border-t border-border/20">
+        {/* Pricing footer — scannable */}
+        <div className="flex items-end justify-between gap-2 pt-0.5 border-t border-border/20">
           {/* Left: Market price + was */}
           <div className="flex flex-col items-start gap-0">
             <span className={`text-[9px] font-mono font-medium leading-tight ${
