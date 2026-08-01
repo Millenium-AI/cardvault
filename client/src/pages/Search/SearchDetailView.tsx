@@ -50,21 +50,24 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
   });
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-center rounded-xl bg-muted/30 py-4">
-        <CardImagePlaceholder photoUrl={card.imageUrl} size="lg" className="max-h-56 max-w-[75%] rounded-lg shadow-md" />
+    <div className="space-y-6">
+      {/* Image */}
+      <div className="flex justify-center rounded-xl bg-muted/30 py-6">
+        <CardImagePlaceholder photoUrl={card.imageUrl} size="lg" className="max-h-64 max-w-[80%] rounded-lg shadow-md object-contain" />
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
+      {/* Metadata chips */}
+      <div className="flex flex-wrap gap-2">
         {card.setName && <Chip>{card.setName}</Chip>}
         {card.number  && <Chip>#{card.number}</Chip>}
         {card.rarity  && <Chip>{card.rarity}</Chip>}
         <Chip>{gameLabel(game)}</Chip>
       </div>
 
+      {/* Variant selector */}
       {variants.length > 0 && (
-        <div className="space-y-1.5">
-          <div className="text-xs text-muted-foreground font-medium">Printing</div>
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-foreground">Printing</label>
           <Select value={String(variantIndex)} onValueChange={v => setVariantIndex(Number(v))}>
             <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -78,50 +81,68 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
         </div>
       )}
 
+      {/* Pricing section */}
       {variant && (
-        <div className="space-y-1.5">
-          <div className="text-xs text-muted-foreground font-medium">Market Price</div>
-          <span className="inline-block text-xl font-mono font-bold text-primary tabular-nums">
-            {variant.price != null ? `$${variant.price.toFixed(2)}` : "—"}
-          </span>
+        <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-3">
+          <div className="text-sm font-semibold text-foreground mb-3">Pricing</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Market Price</div>
+              <div className="text-lg font-mono font-bold text-primary tabular-nums">
+                {variant.price != null ? `$${variant.price.toFixed(2)}` : "—"}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Print Price</div>
+              <div className="text-lg font-mono font-bold text-accent tabular-nums">
+                ${variant.price != null ? Math.ceil(variant.price) : "—"}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <div className="text-xs text-muted-foreground font-medium">Your Copy's Condition</div>
-          <Select value={condition} onValueChange={setCondition}>
-            <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Near Mint">Near Mint (NM)</SelectItem>
-              <SelectItem value="Lightly Played">Lightly Played (LP)</SelectItem>
-              <SelectItem value="Moderately Played">Moderately Played (MP)</SelectItem>
-              <SelectItem value="Heavily Played">Heavily Played (HP)</SelectItem>
-              <SelectItem value="Damaged">Damaged (DMG)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="border-t border-border/30" />
 
-        <div className="space-y-1.5">
-          <div className="text-xs text-muted-foreground font-medium">Quantity</div>
-          <div className="flex items-center h-10 rounded-md border border-input overflow-hidden">
-            <button
-              onClick={() => setQuantity(q => Math.max(1, q - 1))}
-              className="h-full w-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            >
-              <Minus size={13} />
-            </button>
-            <Input
-              type="number" min="1" value={quantity}
-              onChange={e => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-              className="h-full flex-1 text-center border-0 rounded-none font-mono"
-            />
-            <button
-              onClick={() => setQuantity(q => q + 1)}
-              className="h-full w-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            >
-              <Plus size={13} />
-            </button>
+      {/* Condition and Quantity */}
+      <div className="space-y-4">
+        <div className="text-sm font-semibold text-foreground">Add to Inventory</div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Your Copy's Condition</label>
+            <Select value={condition} onValueChange={setCondition}>
+              <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Near Mint">Near Mint (NM)</SelectItem>
+                <SelectItem value="Lightly Played">Lightly Played (LP)</SelectItem>
+                <SelectItem value="Moderately Played">Moderately Played (MP)</SelectItem>
+                <SelectItem value="Heavily Played">Heavily Played (HP)</SelectItem>
+                <SelectItem value="Damaged">Damaged (DMG)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Quantity</label>
+            <div className="flex items-center h-10 rounded-md border border-input overflow-hidden">
+              <button
+                onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                className="h-full w-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <Minus size={13} />
+              </button>
+              <Input
+                type="number" min="1" value={quantity}
+                onChange={e => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                className="h-full flex-1 text-center border-0 rounded-none font-mono"
+              />
+              <button
+                onClick={() => setQuantity(q => q + 1)}
+                className="h-full w-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <Plus size={13} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -136,18 +157,18 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
         {addMut.isPending ? "Adding…" : "Add to Inventory"}
       </Button>
 
-      {/* TCGplayer link — same style as inventory detail view */}
+      {/* TCGplayer link */}
       {tcgplayerUrl ? (
         <a
           href={tcgplayerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 w-full rounded-xl border border-blue-500/40 px-3 py-2.5 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors"
+          className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-blue-500/40 px-4 py-2.5 text-xs font-medium text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/60 transition-colors"
         >
           View on TCGplayer <ExternalLink size={11} />
         </a>
       ) : (
-        <div className="flex items-center justify-center gap-1.5 w-full rounded-xl border border-border px-3 py-2.5 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+        <div className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-border px-4 py-2.5 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
           TCGplayer <ExternalLink size={11} />
         </div>
       )}
