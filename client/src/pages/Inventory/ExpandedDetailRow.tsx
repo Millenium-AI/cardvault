@@ -1,4 +1,4 @@
-import { Pencil, Trash2, ExternalLink } from "lucide-react";
+import { Pencil, Trash2, ExternalLink, X } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -9,6 +9,7 @@ import { gameLabel } from "@shared/gameLabels";
 import { InlineEditPanel, Chip, LabelStatusBadge } from "./DetailPanel";
 // import { PriceHistory } from "./DetailPanel"; // Disabled: price history removed from UI, kept for future
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 export function ExpandedDetail({
   item, meta, editing, setEditing, stopProp = false,
@@ -130,9 +131,7 @@ export function ExpandedDetail({
               </div>
             )}
 
-            {editing ? (
-              <InlineEditPanel item={item} onDone={() => setEditing(false)} />
-            ) : (
+            {!editing && (
               <div className="flex flex-col gap-2 sm:mt-auto">
                 <Button
                   data-testid="button-edit-item"
@@ -187,6 +186,24 @@ export function ExpandedDetail({
                 </div>
               </div>
             )}
+
+            {/* Edit modal — floating overlay that covers left column */}
+            <Dialog open={editing} onOpenChange={setEditing}>
+              <DialogContent className="w-[320px] max-w-none p-0 flex flex-col gap-0 overflow-hidden rounded-2xl border-0 shadow-2xl fixed bottom-auto top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-in slide-in-from-bottom-4 max-h-[90vh]">
+                <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border/50">
+                  <div className="text-sm font-semibold text-foreground">Edit Item</div>
+                  <button
+                    onClick={() => setEditing(false)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1 px-4 py-4">
+                  <InlineEditPanel item={item} onDone={() => setEditing(false)} />
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
 
         </div>

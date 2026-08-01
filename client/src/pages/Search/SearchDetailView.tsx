@@ -234,15 +234,226 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 export function SearchDetailModal({
   card, game, open, onClose,
 }: { card: any; game: string; open: boolean; onClose: () => void }) {
+  const variants = card?.variants ?? [];
+  const [variantIndex, setVariantIndex] = useState(0);
+  const [condition, setCondition] = useState(variants[0]?.condition ?? "Near Mint");
+  const [quantity, setQuantity] = useState(1);
+  const variant = variants[variantIndex] ?? null;
+  const { toast } = useToast();
+
+  const { data: salesData, isLoading: salesLoading } = useQuery({
+    queryKey: [`/api/search/${card?.tcgplayerId}/sales`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales`);
+      return res.json();
+    },
+    enabled: !!card?.tcgplayerId,
+  });
+
+  const addMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/inventory/from-search", {
+        card, variantIndex, game, quantity, condition,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add item");
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({
+        title: data.created ? "Added to inventory" : "Quantity updated",
+        description: data.created
+          ? `${card.name} was added to your inventory.`
+          : `${card.name} already existed — quantity increased.`,
+      });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   if (!card) return null;
+
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="w-[min(480px,92vw)] max-w-none p-0 flex flex-col gap-0 overflow-hidden max-h-[88vh] rounded-2xl">
+      <DialogContent className="w-[min(900px,92vw)] max-w-none p-0 flex flex-col gap-0 overflow-hidden max-h-[88vh] rounded-2xl">
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border/40 shrink-0 text-left">
           <DialogTitle className="text-base font-semibold leading-tight pr-6">{card.name}</DialogTitle>
         </DialogHeader>
-        <div className="modal-scroll-area overflow-y-auto flex-1 px-5 py-4">
-          <SearchDetailBody card={card} game={game} onAdded={onClose} />
+
+        {/* 2-column layout */}
+        <div className="modal-scroll-area overflow-y-auto flex-1 flex gap-0">
+          {/* Left: Card details + add to inventory */}
+          <div className="w-[320px] shrink-0 border-r border-border/40 flex flex-col px-5 py-4 space-y-4">
+            <div className="flex justify-center rounded-lg bg-muted/30 py-3">
+              <CardImagePlaceholder photoUrl={card.imageUrl} size="lg" className="max-h-48 max-w-[75%] rounded-lg shadow-md object-contain" />
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {card.setName && <Chip>{card.setName}</Chip>}
+              {card.number && <Chip>#{card.number}</Chip>}
+              {card.rarity && <Chip>{card.rarity}</Chip>}
+              <Chip>{gameLabel(game)}</Chip>
+            </div>
+
+            {variants.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Printing</label>
+                <Select value={String(variantIndex)} onValueChange={v => setVariantIndex(Number(v))}>
+                  <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {variants.map((v: any, i: number) => (
+                      <SelectItem key={i} value={String(i)}>
+                        {[v.condition, v.printing].filter(Boolean).join(" · ") || "Standard"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {variant && (
+              <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="space-y-0.5">
+                    <div className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide">TCGplayer</div>
+                    <div className="text-lg font-mono font-bold text-primary tabular-nums">
+                      {variant.price != null ? `$${variant.price.toFixed(2)}` : "—"}
+                    </div>
+                  </div>
+                  <div className="space-y-0.5">
+                    <div className="text-[9px] text-muted-foreground font-semibold uppercase tracking-wide">Print</div>
+                    <div className="text-lg font-mono font-bold text-accent tabular-nums">
+                      ${variant.price != null ? Math.ceil(variant.price) : "—"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Condition</label>
+                  <Select value={condition} onValueChange={setCondition}>
+                    <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Near Mint">NM</SelectItem>
+                      <SelectItem value="Lightly Played">LP</SelectItem>
+                      <SelectItem value="Moderately Played">MP</SelectItem>
+                      <SelectItem value="Heavily Played">HP</SelectItem>
+                      <SelectItem value="Damaged">DMG</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Qty</label>
+                  <div className="flex items-center h-10 rounded-md border border-input overflow-hidden">
+                    <button
+                      onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                      className="h-full w-8 flex items-center justify-center text-muted-foreground hover:bg-accent"
+                    >
+                      −
+                    </button>
+                    <Input
+                      type="number" min="1" value={quantity}
+                      onChange={e => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="h-full flex-1 text-center border-0 rounded-none font-mono text-sm"
+                    />
+                    <button
+                      onClick={() => setQuantity(q => q + 1)}
+                      className="h-full w-8 flex items-center justify-center text-muted-foreground hover:bg-accent"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <Button
+              className="w-full h-10 gap-2 rounded-lg font-semibold"
+              onClick={() => addMut.mutate()}
+              disabled={addMut.isPending}
+            >
+              <PlusCircle size={14} />
+              {addMut.isPending ? "Adding…" : "Add to Inventory"}
+            </Button>
+
+            <div className="space-y-2">
+              {card.tcgplayerId ? (
+                <a
+                  href={`https://www.tcgplayer.com/product/${card.tcgplayerId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-blue-500/40 px-3 py-2 text-xs font-medium text-blue-400 hover:bg-blue-500/10 transition-colors"
+                >
+                  TCGplayer <ExternalLink size={10} />
+                </a>
+              ) : (
+                <div className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground opacity-40">
+                  TCGplayer <ExternalLink size={10} />
+                </div>
+              )}
+
+              {(() => {
+                const parts = [card.name, condition]
+                  .filter(Boolean)
+                  .map((v) => String(v).trim())
+                  .filter((v) => v.length > 0);
+                const query = parts.join(" ");
+                if (!query) return null;
+                const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1`;
+                return (
+                  <button
+                    onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}
+                    className="flex items-center justify-center gap-1.5 w-full rounded-lg border border-amber-500/40 px-3 py-2 text-xs font-medium text-amber-400 hover:bg-amber-500/10 transition-colors"
+                  >
+                    eBay Sold Listings <ExternalLink size={10} />
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* Right: Recent sales */}
+          <div className="flex-1 min-w-0 px-5 py-4 overflow-y-auto space-y-4">
+            {!salesLoading && salesData?.avgPrice ? (
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-foreground">TCG Player Sales</div>
+                <div className="rounded-lg border border-border/50 bg-muted/20 p-4 space-y-3">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wide mb-1">Average Price</div>
+                    <div className="text-2xl font-mono font-bold text-emerald-400">
+                      ${salesData.avgPrice.toFixed(2)}
+                    </div>
+                  </div>
+                  {salesData.salePrices && (
+                    <div className="space-y-1.5 pt-2 border-t border-border/30">
+                      <div className="flex justify-between">
+                        <span className="text-[10px] text-muted-foreground">High</span>
+                        <span className="text-sm font-mono font-semibold text-emerald-400">${Math.max(...salesData.salePrices).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-[10px] text-muted-foreground">Low</span>
+                        <span className="text-sm font-mono font-semibold text-red-400">${Math.min(...salesData.salePrices).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="text-[9px] text-muted-foreground/60 pt-1">
+                    Based on {salesData.priceCount} recent sales
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-center">
+                <p className="text-xs text-muted-foreground">
+                  {salesLoading ? "Loading sales data…" : "No recent sales data available"}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
