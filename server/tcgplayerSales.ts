@@ -294,11 +294,12 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
 
 async function storeSales(userId: string, productId: string, sales: Sale[], outlierPrices: Set<number>) {
   if (!sales.length) return;
+
   const rows = sales.map(s => ({
     user_id: userId,
     source_product_id: productId,
-    condition: s.condition,
-    variant: s.variant,
+    condition: s.condition ?? '',
+    variant: s.variant ?? '',
     language: s.language,
     quantity: s.quantity,
     purchase_price: s.purchasePrice,
@@ -307,13 +308,19 @@ async function storeSales(userId: string, productId: string, sales: Sale[], outl
     fetched_at: new Date().toISOString(),
   }));
 
-  // The endpoint returns an overlapping window every call, so upsert on the
-  // dedupe index keeps repeated sweeps idempotent.
+  // Insert; duplicates on the dedupe index are ignored. The index uses COALESCE
+  // so we normalize empty strings above to match.
   const { error } = await supabaseAdmin
     .from('product_sales')
-    .upsert(rows, { onConflict: 'user_id,source_product_id,order_date,purchase_price,condition,variant', ignoreDuplicates: true });
+    .insert(rows);
 
-  if (error) console.warn(`[TCGsales] could not store sales for ${productId}: ${error.message}`);
+  if (error) {
+    if (error.message?.includes('duplicate key')) {
+      // Expected on re-sweep; silently ignore
+    } else {
+      console.warn(`[TCGsales] could not store sales for ${productId}: ${error.message}`);
+    }
+  }
 }
 
 export interface SweepSummary {

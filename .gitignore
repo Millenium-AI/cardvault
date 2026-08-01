@@ -8,4 +8,5 @@ data.db-wal
 .env.development
 .env.production
 *.log
-docs/
+.claude/
+
