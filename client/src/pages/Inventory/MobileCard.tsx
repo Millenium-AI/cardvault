@@ -76,60 +76,70 @@ export function MobileInventoryCard({
 
         {/* Info */}
         <div className="flex-1 min-w-0">
+          {/* Header: Title + Condition */}
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-foreground truncate leading-tight">
                 {meta.cleanName || item.productName}
               </div>
-              <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+              {/* Metadata row: number + set */}
+              <div className="flex items-center gap-0.5 mt-0.5 flex-wrap">
                 {item.number && (
-                  <span className="text-[11px] text-muted-foreground">
+                  <span className="text-[10px] text-muted-foreground">
                     #{item.number}
                   </span>
                 )}
                 {item.number && meta.sourceSetName && (
-                  <span className="text-muted-foreground/50 text-[11px]">·</span>
+                  <span className="text-muted-foreground/40 text-[10px]">·</span>
                 )}
                 {meta.sourceSetName && (
-                  <span className="text-[11px] text-muted-foreground truncate max-w-[130px]">
+                  <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
                     {meta.sourceSetName}
                   </span>
                 )}
               </div>
             </div>
-            <ConditionBadge condition={item.condition} abbreviated />
+            <div className="shrink-0">
+              <ConditionBadge condition={item.condition} abbreviated />
+            </div>
           </div>
 
-          {/* Price row */}
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          {/* Pricing row — compact and scannable */}
+          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+            {/* Qty */}
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Qty</span>
               <span className="text-xs font-mono font-medium text-foreground">
                 {item.currentQuantity}
               </span>
             </div>
+
+            {/* Market price + was + badge */}
             <div className="flex items-center gap-1">
-              <span className="text-[10px] text-muted-foreground">Mkt</span>
-              <div className="flex flex-col items-start">
-                <span className={`text-xs font-mono font-medium ${
+              <div className="flex flex-col items-start gap-0">
+                <span className={`text-xs font-mono font-medium leading-tight ${
                   item.adjustedMarketPrice != null ? 'text-primary' : 'text-foreground'
                 }`}>
                   ${item.adjustedMarketPrice != null ? item.adjustedMarketPrice.toFixed(2) : (item.currentRawMarketPrice?.toFixed(2) ?? "—")}
                 </span>
                 {item.adjustedMarketPrice != null && (
-                  <span className="text-[8px] text-muted-foreground/40 font-mono">
+                  <span className="text-[8px] text-muted-foreground/50 font-mono leading-none">
                     was ${item.currentRawMarketPrice?.toFixed(2)}
                   </span>
                 )}
               </div>
               <PriceDivergenceBadge item={item} />
             </div>
+
+            {/* Print price */}
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground">Print</span>
               <span className="text-xs font-mono font-bold text-primary">
                 ${item.currentRoundedPrintPrice ?? "—"}
               </span>
             </div>
+
+            {/* Label status if needed */}
             {item.labelStatus && item.labelStatus !== "label_created" && (
               <LabelStatusBadge status={item.labelStatus} />
             )}
