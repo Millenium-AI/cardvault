@@ -364,7 +364,10 @@ async function ensureSourcePrintingMetadata(
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (fetchErr || !fullItem) return null;
+    if (fetchErr || !fullItem) {
+      console.log(`[TCGsales] metadata fetch failed for ${item.id}: ${fetchErr?.message}`);
+      return null;
+    }
 
     // Parse existing metadata
     let meta: Record<string, any> = {};
@@ -377,14 +380,22 @@ async function ensureSourcePrintingMetadata(
     }
 
     // If sourcePrinting already set, no action needed
-    if (meta.sourcePrinting) return null;
+    if (meta.sourcePrinting) {
+      console.log(`[TCGsales] item ${item.id} already has sourcePrinting="${meta.sourcePrinting}"`);
+      return null;
+    }
 
     // Extract non-null variants from sales
     const variants = sales
       .map(s => s.variant)
       .filter((v): v is string => v != null && v.length > 0);
 
-    if (!variants.length) return null;
+    console.log(`[TCGsales] item ${item.id}: found ${sales.length} sales, ${variants.length} with variants: ${JSON.stringify(variants)}`);
+
+    if (!variants.length) {
+      console.log(`[TCGsales] item ${item.id}: no variants in sales data`);
+      return null;
+    }
 
     // Use most common variant (or first if tied)
     const variantCounts = new Map<string, number>();
@@ -403,15 +414,17 @@ async function ensureSourcePrintingMetadata(
       .eq('id', item.id)
       .eq('user_id', userId);
 
-    if (!updateErr) {
-      console.log(
-        `[TCGsales] auto-filled sourcePrinting="${mostCommonVariant}" for item ${item.id}`,
-      );
-      return meta;
+    if (updateErr) {
+      console.error(`[TCGsales] failed to update metadata for ${item.id}: ${updateErr.message}`);
+      return null;
     }
-    return null;
+
+    console.log(
+      `[TCGsales] ✓ auto-filled sourcePrinting="${mostCommonVariant}" for item ${item.id}`,
+    );
+    return meta;
   } catch (e: any) {
-    console.error(`[TCGsales] failed to update metadata for item ${item.id}: ${e.message}`);
+    console.error(`[TCGsales] metadata exception for item ${item.id}: ${e.message}`);
     return null;
   }
 }
