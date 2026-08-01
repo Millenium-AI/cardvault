@@ -159,7 +159,6 @@ export type ShowLedger = typeof showLedgers.$inferSelect;
 // Shipping is deliberately never stored. Purged after 180 days.
 export const productSales = pgTable("product_sales", {
   id: text("id").primaryKey(),
-  userId: text("user_id").notNull(),
   sourceProductId: text("source_product_id").notNull(),
   condition: text("condition"),
   variant: text("variant"), // printing

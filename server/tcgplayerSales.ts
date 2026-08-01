@@ -27,6 +27,7 @@ const ABORT_ERROR_RATE = 0.25;
 const MIN_PRODUCTS_BEFORE_ABORT = 12;
 const BREAKER_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const RETENTION_DAYS = 180;
+const SALES_FRESHNESS_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 export interface Sale {
   condition: string | null;
@@ -240,6 +241,31 @@ function norm(v: string | null | undefined): string {
   return (v ?? '').toLowerCase().trim();
 }
 
+export function matchSalesToItem(
+  sales: Sale[],
+  condition: string | null,
+  printing: string | null,
+): { matched: Sale[]; match: 'exact' | 'condition_only' | 'none' } {
+  const itemCondition = standardizeCondition(condition);
+  const sameCondition = sales.filter(s => standardizeCondition(s.condition) === itemCondition);
+  const exact = printing
+    ? sameCondition.filter(s => norm(s.variant) === norm(printing))
+    : sameCondition;
+
+  let matched = exact;
+  let match: 'exact' | 'condition_only' | 'none' = 'exact';
+
+  if (!matched.length) {
+    matched = sameCondition;
+    match = 'condition_only';
+  }
+  if (!matched.length) {
+    return { matched: [], match: 'none' };
+  }
+
+  return { matched, match };
+}
+
 /**
  * Pick the sales that describe THIS item. Averaging every condition together
  * drags a Near Mint price down with played copies, so exact condition+printing
@@ -254,19 +280,8 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
     inWindow = sales;
   }
 
-  const itemCondition = standardizeCondition(item.condition);
-  const sameCondition = inWindow.filter(s => standardizeCondition(s.condition) === itemCondition);
-  const exact = item.printing
-    ? sameCondition.filter(s => norm(s.variant) === norm(item.printing))
-    : sameCondition;
+  const { matched, match } = matchSalesToItem(inWindow, item.condition, item.printing);
 
-  let matched = exact;
-  let match: ItemPricing['lastSaleMatch'] = 'exact';
-
-  if (!matched.length) {
-    matched = sameCondition;
-    match = 'condition_only';
-  }
   if (!matched.length) {
     return {
       adjustedMarketPrice: null, lastSaleDate: null, lastSaleCount: 0,
@@ -299,11 +314,30 @@ export function computeItemPricing(item: SweepItem, sales: Sale[], windowDays: n
 
 /* ─────────────────────── persistence ─────────────────────── */
 
-async function storeSales(userId: string, productId: string, sales: Sale[], outlierPrices: Set<number>) {
+async function getFreshSales(productId: string): Promise<Sale[] | null> {
+  const cutoff = new Date(Date.now() - SALES_FRESHNESS_MS).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from('product_sales')
+    .select('condition, variant, language, quantity, purchase_price, order_date')
+    .eq('source_product_id', productId)
+    .gte('fetched_at', cutoff)
+    .limit(1);
+
+  if (error || !data?.length) return null;
+  return data.map(row => ({
+    condition: row.condition || null,
+    variant: row.variant || null,
+    language: row.language || null,
+    quantity: row.quantity,
+    purchasePrice: row.purchase_price,
+    orderDate: row.order_date,
+  }));
+}
+
+async function storeSales(productId: string, sales: Sale[], outlierPrices: Set<number>) {
   if (!sales.length) return;
 
   const rows = sales.map(s => ({
-    user_id: userId,
     source_product_id: productId,
     condition: s.condition ?? '',
     variant: s.variant ?? '',
@@ -477,7 +511,12 @@ export async function sweepSalesForItems(
       let sales: Sale[] = [];
 
       try {
-        sales = await fetchLatestSales(productId);
+        const freshSales = await getFreshSales(productId);
+        if (freshSales) {
+          sales = freshSales;
+        } else {
+          sales = await fetchLatestSales(productId);
+        }
       } catch (e: any) {
         summary.errors++;
         return;
@@ -503,7 +542,7 @@ export async function sweepSalesForItems(
         updates.push({ item, pricing });
       }
 
-      await storeSales(userId, productId, sales, allOutliers);
+      await storeSales(productId, sales, allOutliers);
 
       for (const { item, pricing } of updates) {
         try {
@@ -530,7 +569,7 @@ export async function sweepSalesForItems(
     }
   }
 
-  await purgeOldSales(userId);
+  await purgeOldSales();
 
   console.log(
     `[TCGsales] swept ${summary.productsChecked} products (${summary.productsWithSales} with sales) — ` +
@@ -629,12 +668,11 @@ async function applyPricing(
   }
 }
 
-async function purgeOldSales(userId: string) {
+async function purgeOldSales() {
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const { error } = await supabaseAdmin
     .from('product_sales')
     .delete()
-    .eq('user_id', userId)
     .lt('order_date', cutoff);
   if (error) console.warn(`[TCGsales] purge failed: ${error.message}`);
 }

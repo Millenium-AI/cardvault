@@ -7,7 +7,7 @@ import { resolveProductIds } from "../productIdResolver";
 import { refreshInventoryPrices } from "./uploads";
 import { supabaseAdmin } from "../supabase";
 import { effectivePrice, effectivePrintPrice } from "../../shared/lib/effectivePrice";
-import { evaluateDivergence, getDivergenceBands } from "../tcgplayerSales";
+import { evaluateDivergence, getDivergenceBands, matchSalesToItem } from "../tcgplayerSales";
 
 export function registerInventoryRoutes(app: Express) {
   // ── Repair: resolve product ids for existing unpriceable items ────────────
@@ -220,9 +220,21 @@ export function registerInventoryRoutes(app: Express) {
         return res.json({ sales: [] });
       }
 
-      const sales = await storage.listProductSales(userId, item.sourceProductId);
+      const rawSales = await storage.listProductSales(item.sourceProductId);
+      const meta = (() => {
+        try {
+          return JSON.parse(item.matchMetadataJson || "{}");
+        } catch {
+          return {};
+        }
+      })();
+      const printing = meta.sourcePrinting ?? null;
+
+      const { matched } = matchSalesToItem(rawSales, item.condition, printing);
+      const filteredSales = matched.slice(0, 25);
+
       res.json({
-        sales,
+        sales: filteredSales,
         lastSaleMatch: item.lastSaleMatch ?? null,
         lastSaleCount: item.lastSaleCount ?? 0,
         lastSaleOutliers: item.lastSaleOutliers ?? 0,

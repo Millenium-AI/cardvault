@@ -644,15 +644,15 @@ class SupabaseStorage {
 
   // ── product sales ───────────────────────────────────────────────────────
   /** Every stored sale for a product, newest first — including outliers, which
-   *  the expanded view shows struck through rather than hiding. */
-  async listProductSales(userId: string, sourceProductId: string, limit = 25): Promise<any[]> {
+   *  the expanded view shows struck through rather than hiding. Fetches with a
+   *  higher internal limit to ensure enough raw data remains after condition filtering. */
+  async listProductSales(sourceProductId: string, limit = 25): Promise<any[]> {
     const { data } = await supabaseAdmin
       .from('product_sales')
       .select('condition, variant, language, quantity, purchase_price, order_date, is_outlier')
-      .eq('user_id', userId)
       .eq('source_product_id', sourceProductId)
       .order('order_date', { ascending: false })
-      .limit(limit);
+      .limit(Math.max(200, limit * 10)); // Fetch more raw data to ensure filtering doesn't starve results
 
     return (data || []).map((r: any) => ({
       condition: r.condition,
