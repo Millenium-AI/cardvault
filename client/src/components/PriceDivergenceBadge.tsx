@@ -45,8 +45,8 @@ export function PriceDivergenceBadge({ item }: { item: any }) {
   const colorClasses = !isFlagged
     ? "bg-muted/80 text-muted-foreground" // Neutral grey when not flagged
     : isPositive
-      ? "bg-amber-500/15 text-amber-400" // Amber for underpriced
-      : "bg-red-500/15 text-red-400"; // Red for overpriced
+      ? "bg-amber-500/40 text-amber-300" // Amber for underpriced
+      : "bg-red-500/40 text-red-300"; // Red for overpriced
 
   // Outline variant if weak match
   const variantClasses = isWeakMatch
