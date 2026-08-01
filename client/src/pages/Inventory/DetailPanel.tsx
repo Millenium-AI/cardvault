@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Chart } from "@/components/Chart";
+// import { Chart } from "@/components/Chart"; // Disabled: chart removed from UI, component kept for future
 
 // ── Time window config ───────────────────────────────────────────────────────
 const WINDOWS = [
@@ -257,6 +257,7 @@ export function PriceHistory({
 
       {data && !isFetching && (
         <div className="space-y-3">
+          {/* CHART DISABLED: Kept for future implementation when integrated with sales data
           {data.history?.length >= 2 ? (
             <div className="rounded-lg border border-border bg-muted/20 px-2 pt-2 pb-1">
               <Chart
@@ -271,6 +272,7 @@ export function PriceHistory({
               <p className="text-xs text-muted-foreground">Not enough data points for this window.</p>
             </div>
           )}
+          */}
 
           {/* History — quick "where has this card been" view across all 5
               windows at once, sitting right under the chart with no
