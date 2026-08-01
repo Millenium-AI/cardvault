@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer } from "vaul";
 import { gameLabel } from "@shared/gameLabels";
@@ -251,26 +252,204 @@ export function SearchDetailModal({
 export function SearchDetailDrawer({
   card, game, open, onClose,
 }: { card: any; game: string; open: boolean; onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState("card");
+  const { toast } = useToast();
+  const variants = card?.variants ?? [];
+  const [variantIndex, setVariantIndex] = useState(0);
+  const [condition, setCondition] = useState(variants[0]?.condition ?? "Near Mint");
+  const [quantity, setQuantity] = useState(1);
+  const variant = variants[variantIndex] ?? null;
+
+  // Fetch recent sales data
+  const { data: salesData, isLoading: salesLoading } = useQuery({
+    queryKey: [`/api/search/${card?.tcgplayerId}/sales`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/search/${card?.tcgplayerId}/sales`);
+      return res.json();
+    },
+    enabled: !!card?.tcgplayerId,
+  });
+
+  const addMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/inventory/from-search", {
+        card, variantIndex, game, quantity, condition,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add item");
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+      toast({
+        title: data.created ? "Added to inventory" : "Quantity updated",
+        description: data.created
+          ? `${card.name} was added to your inventory.`
+          : `${card.name} already existed — quantity increased.`,
+      });
+      onClose();
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   if (!card) return null;
+
   return (
-    <Drawer.Root open={open} onOpenChange={v => !v && onClose()} snapPoints={[0.92]} activeSnapPoint={0.92}>
+    <Drawer.Root open={open} onOpenChange={v => !v && onClose()} snapPoints={[0.75]} activeSnapPoint={0.75}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/50" />
         <Drawer.Content
           className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl bg-card border-t border-border focus:outline-none"
-          style={{ height: "92dvh", maxHeight: "92dvh" }}
+          style={{ height: "75dvh", maxHeight: "75dvh" }}
         >
           <div className="flex justify-center pt-3 pb-1 shrink-0">
             <div className="w-10 h-1 rounded-full bg-border" />
           </div>
-          <div className="px-4 pt-2 pb-3 border-b border-border/50 shrink-0">
-            <div className="text-base font-semibold text-foreground leading-tight">{card.name}</div>
+          <div className="px-4 pt-2 pb-0 border-b border-border/50 shrink-0">
+            <div className="text-base font-semibold text-foreground leading-tight mb-3">{card.name}</div>
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsList className="w-full grid grid-cols-2 h-9">
+                <TabsTrigger value="card" className="text-xs">Card</TabsTrigger>
+                <TabsTrigger value="sales" className="text-xs">Sales</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
           <div
             className="flex-1 overflow-y-auto px-4 pt-3"
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)" }}
           >
-            <SearchDetailBody card={card} game={game} onAdded={onClose} />
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsContent value="card" className="space-y-3 mt-0">
+                {/* Image */}
+                <div className="flex justify-center rounded-lg bg-muted/30 py-3">
+                  <CardImagePlaceholder photoUrl={card.imageUrl} size="md" className="max-h-40 max-w-[70%] rounded-lg object-contain" />
+                </div>
+
+                {/* Metadata chips */}
+                <div className="flex flex-wrap gap-1">
+                  {card.setName && <Chip>{card.setName}</Chip>}
+                  {card.number && <Chip>#{card.number}</Chip>}
+                  {card.rarity && <Chip>{card.rarity}</Chip>}
+                  <Chip>{gameLabel(game)}</Chip>
+                </div>
+
+                {/* Variant selector */}
+                {variants.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase text-muted-foreground">Printing</label>
+                    <Select value={String(variantIndex)} onValueChange={v => setVariantIndex(Number(v))}>
+                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {variants.map((v: any, i: number) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {[v.condition, v.printing].filter(Boolean).join(" · ") || "Standard"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Pricing */}
+                {variant && (
+                  <div className="rounded-lg border border-border/50 bg-muted/20 p-2.5 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-0.5">
+                        <div className="text-[8px] text-muted-foreground font-semibold uppercase">TCGplayer</div>
+                        <div className="text-sm font-mono font-bold text-primary">
+                          {variant.price != null ? `$${variant.price.toFixed(2)}` : "—"}
+                        </div>
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="text-[8px] text-muted-foreground font-semibold uppercase">Print</div>
+                        <div className="text-sm font-mono font-bold text-accent">
+                          ${variant.price != null ? Math.ceil(variant.price) : "—"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Condition and Qty */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase text-muted-foreground">Condition</label>
+                    <Select value={condition} onValueChange={setCondition}>
+                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Near Mint">NM</SelectItem>
+                        <SelectItem value="Lightly Played">LP</SelectItem>
+                        <SelectItem value="Moderately Played">MP</SelectItem>
+                        <SelectItem value="Heavily Played">HP</SelectItem>
+                        <SelectItem value="Damaged">DMG</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase text-muted-foreground">Qty</label>
+                    <div className="flex items-center h-9 rounded-md border border-input overflow-hidden">
+                      <button
+                        onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                        className="h-full w-7 flex items-center justify-center text-muted-foreground text-sm"
+                      >
+                        −
+                      </button>
+                      <Input
+                        type="number" min="1" value={quantity}
+                        onChange={e => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                        className="h-full flex-1 text-center border-0 rounded-none font-mono text-xs"
+                      />
+                      <button
+                        onClick={() => setQuantity(q => q + 1)}
+                        className="h-full w-7 flex items-center justify-center text-muted-foreground text-sm"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CTA */}
+                <Button
+                  className="w-full h-10 gap-2 rounded-lg font-semibold text-sm"
+                  onClick={() => addMut.mutate()}
+                  disabled={addMut.isPending}
+                >
+                  <PlusCircle size={14} />
+                  {addMut.isPending ? "Adding…" : "Add to Inventory"}
+                </Button>
+              </TabsContent>
+
+              <TabsContent value="sales" className="space-y-3 mt-0">
+                {/* TCG Player sales data */}
+                {!salesLoading && salesData?.avgPrice ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-border/50 bg-muted/20 p-3">
+                      <div className="text-[10px] text-muted-foreground font-semibold uppercase mb-2">TCG Player Sales</div>
+                      <div className="text-2xl font-mono font-bold text-emerald-400">
+                        ${salesData.avgPrice.toFixed(2)}
+                      </div>
+                      <div className="text-[9px] text-muted-foreground/60 mt-1">
+                        Average of {salesData.priceCount} recent sales
+                      </div>
+                    </div>
+                    {salesData.salePrices && (
+                      <div className="text-[10px] text-muted-foreground space-y-1">
+                        <div>High: <span className="text-emerald-400 font-mono">${Math.max(...salesData.salePrices).toFixed(2)}</span></div>
+                        <div>Low: <span className="text-red-400 font-mono">${Math.min(...salesData.salePrices).toFixed(2)}</span></div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-center">
+                    <p className="text-xs text-muted-foreground">
+                      {salesLoading ? "Loading sales data…" : "No recent sales data available"}
+                    </p>
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
         </Drawer.Content>
       </Drawer.Portal>
