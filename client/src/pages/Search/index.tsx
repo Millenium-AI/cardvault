@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Search as SearchIcon, X, ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { getBackendCondition, UI_CONDITIONS } from "@shared/lib/conditionStandardizer";
 import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -24,7 +25,7 @@ const ORDER_BY_OPTIONS = [
   { value: "30d", label: "30d Change" },
 ];
 
-const CONDITIONS = ["Near Mint", "Lightly Played", "Moderately Played", "Heavily Played", "Damaged"];
+const CONDITIONS = UI_CONDITIONS.map(c => c.value);
 const PRINTINGS = ["Normal", "Holo", "Reverse Holo", "Alt Art", "Full Art"];
 const GRADING_COMPANIES = ["PSA", "BGS", "CGC", "BCCG", "BVG", "SGC"];
 const GRADES = ["10", "9.5", "9", "8.5", "8", "7.5", "7", "6.5", "6", "5.5", "5"];
@@ -117,8 +118,10 @@ export default function SearchPage() {
     // v1 Raw cards: apply client-side filters
     return allResults.filter((card: any) => {
       if (conditions.length > 0) {
+        // Convert UI conditions to backend conditions for matching
+        const backendConditions = conditions.map(c => getBackendCondition(c));
         const hasMatchingCondition = card.variants?.some((v: any) =>
-          conditions.includes(v.condition)
+          backendConditions.includes(v.condition)
         );
         if (!hasMatchingCondition) return false;
       }
@@ -350,17 +353,17 @@ export default function SearchPage() {
               <div>
                 <label className="text-xs font-semibold text-muted-foreground uppercase mb-3 block">Condition</label>
                 <div className="flex flex-wrap gap-2">
-                  {CONDITIONS.map(cond => (
+                  {UI_CONDITIONS.map(cond => (
                     <button
-                      key={cond}
-                      onClick={() => toggleCondition(cond)}
+                      key={cond.value}
+                      onClick={() => toggleCondition(cond.value)}
                       className={`px-3 py-2 rounded-md text-xs font-semibold transition-colors ${
-                        conditions.includes(cond)
+                        conditions.includes(cond.value)
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted/50 text-muted-foreground hover:bg-muted"
                       }`}
                     >
-                      {cond}
+                      {cond.label}
                     </button>
                   ))}
                 </div>

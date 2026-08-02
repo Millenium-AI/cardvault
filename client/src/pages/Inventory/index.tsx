@@ -10,6 +10,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useGameParam } from "@/lib/useGameParam";
+import { getBackendCondition, UI_CONDITIONS } from "@shared/lib/conditionStandardizer";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -178,7 +179,7 @@ export default function Inventory() {
 
   const { data: items = [], isLoading } = useInventoryList(
     game,
-    condition,
+    condition === "all" ? "all" : getBackendCondition(condition),
     search
   );
   const columnMut = useColumnOrderMutation();
@@ -560,11 +561,9 @@ export default function Inventory() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Conds</SelectItem>
-                    <SelectItem value="Near Mint">NM</SelectItem>
-                    <SelectItem value="Lightly Played">LP</SelectItem>
-                    <SelectItem value="Moderately Played">MP</SelectItem>
-                    <SelectItem value="Heavily Played">HP</SelectItem>
-                    <SelectItem value="Damaged">DMG</SelectItem>
+                    {UI_CONDITIONS.map(cond => (
+                      <SelectItem key={cond.value} value={cond.value}>{cond.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 
@@ -733,11 +732,9 @@ export default function Inventory() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Conditions</SelectItem>
-                  <SelectItem value="Near Mint">NM</SelectItem>
-                  <SelectItem value="Lightly Played">LP</SelectItem>
-                  <SelectItem value="Moderately Played">MP</SelectItem>
-                  <SelectItem value="Heavily Played">HP</SelectItem>
-                  <SelectItem value="Damaged">DMG</SelectItem>
+                  {UI_CONDITIONS.map(cond => (
+                    <SelectItem key={cond.value} value={cond.value}>{cond.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 

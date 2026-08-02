@@ -593,6 +593,7 @@ export default function Settings() {
                   { full: "Moderately Played",short: "MP",  cls: "badge-mp" },
                   { full: "Heavily Played",   short: "HP",  cls: "badge-hp" },
                   { full: "Damaged",          short: "DMG", cls: "badge-d"  },
+                  { full: "Sealed - SLD",     short: "SLD", cls: "badge-sld" },
                 ].map(c => (
                   <div key={c.short} className="flex items-center gap-4 py-2 border-b border-border/50 last:border-0">
                     <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${c.cls}`}>{c.short}</span>

@@ -3,6 +3,7 @@ import { Check, X } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getDisplayCondition, getBackendCondition, UI_CONDITIONS } from "@shared/lib/conditionStandardizer";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -289,7 +290,7 @@ export function PriceHistory({
             </div>
           )}
           {(data.condition || data.printing) && (
-            <p className="text-[10px] text-muted-foreground">{[data.condition, data.printing].filter(Boolean).join(" · ")}</p>
+            <p className="text-[10px] text-muted-foreground">{[getDisplayCondition(data.condition), data.printing].filter(Boolean).join(" · ")}</p>
           )}
         </div>
       )}
@@ -302,7 +303,11 @@ export function InlineEditPanel({ item, onDone }: { item: any; onDone: () => voi
   const { toast } = useToast();
   const [qty, setQty] = useState(String(item.currentQuantity ?? ""));
   const [price, setPrice] = useState(String(item.currentRawMarketPrice ?? ""));
-  const [condition, setCondition] = useState(item.condition ?? "Near Mint");
+  // Convert backend condition to UI condition for display
+  const initCondition = item.condition ?
+    (item.condition?.toLowerCase() === "unopened" ? "Sealed - SLD" : item.condition) :
+    "Near Mint";
+  const [condition, setCondition] = useState(initCondition);
   const [notes, setNotes] = useState(item.notes ?? "");
 
   const mutation = useMutation({
@@ -323,7 +328,8 @@ export function InlineEditPanel({ item, onDone }: { item: any; onDone: () => voi
     const priceNum = parseFloat(price);
     if (isNaN(qtyNum) || qtyNum < 0) { toast({ title: "Invalid quantity", variant: "destructive" }); return; }
     if (isNaN(priceNum) || priceNum < 0) { toast({ title: "Invalid price", variant: "destructive" }); return; }
-    mutation.mutate({ currentQuantity: qtyNum, currentRawMarketPrice: priceNum, condition, notes });
+    const backendCondition = getBackendCondition(condition);
+    mutation.mutate({ currentQuantity: qtyNum, currentRawMarketPrice: priceNum, condition: backendCondition, notes });
   }
 
   const printPrice = !isNaN(parseFloat(price)) && parseFloat(price) >= 0 ? Math.ceil(parseFloat(price)) : null;
@@ -356,11 +362,9 @@ export function InlineEditPanel({ item, onDone }: { item: any; onDone: () => voi
         <Select value={condition} onValueChange={setCondition}>
           <SelectTrigger data-testid="select-edit-condition" className="h-9 text-sm"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="Near Mint">Near Mint (NM)</SelectItem>
-            <SelectItem value="Lightly Played">Lightly Played (LP)</SelectItem>
-            <SelectItem value="Moderately Played">Moderately Played (MP)</SelectItem>
-            <SelectItem value="Heavily Played">Heavily Played (HP)</SelectItem>
-            <SelectItem value="Damaged">Damaged (DMG)</SelectItem>
+            {UI_CONDITIONS.map(cond => (
+              <SelectItem key={cond.value} value={cond.value}>{cond.label}</SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>

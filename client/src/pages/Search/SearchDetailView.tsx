@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer } from "vaul";
 import { gameLabel } from "@shared/gameLabels";
+import { getBackendCondition, getDisplayCondition, UI_CONDITIONS } from "@shared/lib/conditionStandardizer";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
 import { Chip } from "@/pages/Inventory/DetailPanel";
 import { SearchRecentSalesPanel } from "@/components/SearchRecentSalesPanel";
@@ -40,12 +41,13 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
   // Fetch recent sales data if available, filtered by condition/printing
   // For sealed products, match by printing="Unopened" instead of condition
+  const backendCondition = getBackendCondition(condition);
   const salesQueryParams = card.isSealed
     ? `printing=${encodeURIComponent("Unopened")}`
-    : `condition=${encodeURIComponent(condition)}`;
+    : `condition=${encodeURIComponent(backendCondition)}`;
 
   const { data: salesData, isLoading: salesLoading, isFetching: salesFetching } = useQuery({
-    queryKey: [`/api/search/${card.tcgplayerId}/sales`, card.isSealed ? "unopened" : condition],
+    queryKey: [`/api/search/${card.tcgplayerId}/sales`, card.isSealed ? "unopened" : backendCondition],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/search/${card.tcgplayerId}/sales?${salesQueryParams}`);
       return res.json();
@@ -55,11 +57,11 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
   const refreshSalesMutation = useMutation({
     mutationFn: async () => {
-      const body = card.isSealed ? { printing: "Unopened" } : { condition };
+      const body = card.isSealed ? { printing: "Unopened" } : { condition: backendCondition };
       return apiRequest("POST", `/api/search/${card.tcgplayerId}/sales/refresh`, body);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/search/${card.tcgplayerId}/sales`, card.isSealed ? "unopened" : condition] });
+      queryClient.invalidateQueries({ queryKey: [`/api/search/${card.tcgplayerId}/sales`, card.isSealed ? "unopened" : backendCondition] });
     },
   });
 
@@ -182,17 +184,15 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Condition</label>
             {card.isSealed ? (
               <div className="h-10 px-3 flex items-center rounded-md border border-input bg-muted/50 text-sm font-medium text-foreground">
-                {condition}
+                Sealed - SLD
               </div>
             ) : (
               <Select value={condition} onValueChange={setCondition}>
                 <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Near Mint">Near Mint (NM)</SelectItem>
-                  <SelectItem value="Lightly Played">Lightly Played (LP)</SelectItem>
-                  <SelectItem value="Moderately Played">Moderately Played (MP)</SelectItem>
-                  <SelectItem value="Heavily Played">Heavily Played (HP)</SelectItem>
-                  <SelectItem value="Damaged">Damaged (DMG)</SelectItem>
+                  {UI_CONDITIONS.map(cond => (
+                    <SelectItem key={cond.value} value={cond.value}>{cond.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             )}

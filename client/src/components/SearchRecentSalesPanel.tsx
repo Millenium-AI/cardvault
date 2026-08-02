@@ -11,6 +11,10 @@ export function SearchRecentSalesPanel({
   variant?: any;
   onRefresh?: () => void;
 }) {
+  const spotlightPrice = salesData?.spotlightPrice;
+  const spotlightCondition = salesData?.spotlightCondition;
+  const spotlightPrinting = salesData?.spotlightPrinting;
+
   if (isLoading) {
     return (
       <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-center">
@@ -20,6 +24,26 @@ export function SearchRecentSalesPanel({
   }
 
   if (!salesData || !salesData.sales || salesData.sales.length === 0) {
+    // Show fallback: spotlight price if available
+    if (spotlightPrice != null) {
+      return (
+        <div className="space-y-3">
+          <div className="rounded-lg border border-border bg-muted/30 p-3">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Spotlight (Lowest Listed)</div>
+            <div className="text-lg font-mono font-semibold text-foreground mb-1">
+              ${spotlightPrice.toFixed(2)}
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              {spotlightCondition}{spotlightPrinting && spotlightPrinting !== 'Normal' ? ` · ${spotlightPrinting}` : ''}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground/60">
+            No recent sales available. Showing the current lowest listed price.
+          </p>
+        </div>
+      );
+    }
+
     return (
       <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-center space-y-3">
         <div>
@@ -103,6 +127,19 @@ export function SearchRecentSalesPanel({
           </div>
         </div>
       </div>
+
+      {/* Spotlight price (if available) */}
+      {spotlightPrice != null && (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-2">
+          <div className="text-[10px] text-muted-foreground">Spotlight</div>
+          <div className="text-sm font-mono font-semibold text-blue-400">
+            ${spotlightPrice.toFixed(2)}
+          </div>
+          <div className="text-[8px] text-muted-foreground/70 mt-0.5">
+            {spotlightCondition}{spotlightPrinting && spotlightPrinting !== 'Normal' ? ` · ${spotlightPrinting}` : ''}
+          </div>
+        </div>
+      )}
 
       {/* Sales table */}
       {sales.length > 0 && (

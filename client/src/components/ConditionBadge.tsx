@@ -6,6 +6,7 @@ const map: Record<string, string> = {
   "Moderately Played": "badge-mp",
   "Heavily Played": "badge-hp",
   "Damaged": "badge-d",
+  "Unopened": "badge-sld",
 };
 
 const short: Record<string, string> = {
@@ -14,14 +15,16 @@ const short: Record<string, string> = {
   "Moderately Played": "MP",
   "Heavily Played": "HP",
   "Damaged": "DMG",
+  "Unopened": "SLD",
 };
 
 export function ConditionBadge({ condition, abbreviated = false }: { condition?: string | null; abbreviated?: boolean }) {
   if (!condition) return null;
   const cls = map[condition] || "bg-muted text-muted-foreground border border-border";
+  const fullLabel = condition === "Unopened" ? "Sealed - SLD" : condition;
   return (
     <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium", cls)}>
-      {abbreviated ? short[condition] || condition : condition}
+      {abbreviated ? short[condition] || condition : fullLabel}
     </span>
   );
 }

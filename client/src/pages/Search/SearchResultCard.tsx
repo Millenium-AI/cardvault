@@ -25,7 +25,7 @@ export function SearchResultCard({ card, game, onOpen }: { card: any; game: stri
         <CardImagePlaceholder photoUrl={card.imageUrl} size="md" className="w-full h-32 rounded-md object-contain" />
         {card.isSealed && (
           <div className="absolute top-1 right-1 px-2 py-1 rounded-md bg-blue-500/90 text-white text-[9px] font-bold">
-            UNOPENED
+            SLD
           </div>
         )}
       </div>
@@ -47,7 +47,7 @@ export function SearchResultCard({ card, game, onOpen }: { card: any; game: stri
         </span>
         {bestVariant && (
           <span className="text-[9px] text-muted-foreground/70 text-right truncate max-w-[50%]">
-            {card.isSealed ? "Unopened" : (bestVariant.condition || bestVariant.printing)}
+            {card.isSealed ? "Sealed - SLD" : (bestVariant.condition || bestVariant.printing)}
           </span>
         )}
       </div>

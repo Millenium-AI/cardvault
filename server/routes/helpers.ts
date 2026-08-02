@@ -109,6 +109,7 @@ export const CONDITION_SHORT: Record<string, string> = {
   "Moderately Played": "MP",
   "Heavily Played": "HP",
   "Damaged": "DMG",
+  "Unopened": "SLD",
 };
 
 export const DEFAULT_COLUMN_ORDER = ["card", "condition", "game", "qty", "market", "print", "total"];

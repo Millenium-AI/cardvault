@@ -865,3 +865,82 @@ export async function ensureLiveSalesFetched(productId: string): Promise<void> {
 
   await storeSales(productId, sales, outlierMap);
 }
+
+/* ─────────────────────── spotlight (lowest listed) ─────────────────────── */
+
+export interface SpotlightData {
+  spotlightPrice: number;
+  spotlightCondition: string;
+  spotlightPrinting: string;
+}
+
+/**
+ * Fetch the current lowest listed price from TCGplayer's spotlight endpoint.
+ * Matches the spotlight result on condition AND printing.
+ * Returns null if no match found or fetch fails.
+ */
+export async function fetchSpotlight(
+  productId: string,
+  condition: string | null,
+  printing: string | null,
+): Promise<SpotlightData | null> {
+  if (!productId || !condition) return null;
+
+  try {
+    const res = await fetch(`https://data.tcgplayer.com/spotlight/search/${productId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': UA },
+      body: JSON.stringify({}),
+    });
+
+    if (!res.ok) {
+      console.warn(`[spotlight] HTTP ${res.status} for product ${productId}`);
+      return null;
+    }
+
+    const json = await res.json();
+    const spotlight = json?.spotlight;
+
+    if (!spotlight) {
+      console.debug(`[spotlight] No spotlight data for product ${productId}`);
+      return null;
+    }
+
+    // Match condition (case-insensitive)
+    const spotlightCondition = spotlight.condition ?? null;
+    if (!spotlightCondition || spotlightCondition.toLowerCase() !== condition.toLowerCase()) {
+      console.debug(
+        `[spotlight] Condition mismatch for product ${productId}: requested "${condition}", got "${spotlightCondition}"`,
+      );
+      return null;
+    }
+
+    // Match printing (case-insensitive)
+    const spotlightPrinting = spotlight.printing ?? null;
+    if (printing && spotlightPrinting && spotlightPrinting.toLowerCase() !== printing.toLowerCase()) {
+      console.debug(
+        `[spotlight] Printing mismatch for product ${productId}: requested "${printing}", got "${spotlightPrinting}"`,
+      );
+      return null;
+    }
+
+    const spotlightPrice = Number(spotlight.price);
+    if (!Number.isFinite(spotlightPrice) || spotlightPrice <= 0) {
+      console.warn(`[spotlight] Invalid price for product ${productId}: ${spotlight.price}`);
+      return null;
+    }
+
+    console.log(
+      `[spotlight] Found price for product ${productId}: $${spotlightPrice} (${spotlightCondition}, ${spotlightPrinting || 'Normal'})`,
+    );
+
+    return {
+      spotlightPrice,
+      spotlightCondition,
+      spotlightPrinting: spotlightPrinting ?? 'Normal',
+    };
+  } catch (err: any) {
+    console.error(`[spotlight] Error fetching for product ${productId}:`, err.message);
+    return null;
+  }
+}

@@ -4,7 +4,7 @@ import { pokeWalletSearchCards, berryWalletSearchCards } from "../pokewallet";
 import { storage } from "../storage";
 import { parseProductName } from "../../shared/lib/parseProductName";
 import { supabaseAdmin } from "../supabase";
-import { matchSalesToItem, rejectOutliers, ensureLiveSalesFetched, computeWindowedAverage } from "../tcgplayerSales";
+import { matchSalesToItem, rejectOutliers, ensureLiveSalesFetched, computeWindowedAverage, fetchSpotlight } from "../tcgplayerSales";
 
 const searchCache = new Map<string, { data: SearchResultCard[]; expiresAt: number }>();
 const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -264,6 +264,9 @@ export function registerSearchRoutes(app: Express) {
         .filter(s => !s.isOutlier)
         .map(s => s.purchasePrice);
 
+      // Fetch spotlight (lowest listed) price as fallback
+      const spotlight = await fetchSpotlight(tcgplayerId, condition || null, printing || null);
+
       console.log(`[search/sales] Returning ${matchedWithOutlierFlag.length} sales (${priceCount} for pricing) for product ${tcgplayerId}`);
       res.json({
         sales: matchedWithOutlierFlag,
@@ -271,6 +274,9 @@ export function registerSearchRoutes(app: Express) {
         avgPrice: avgPrice > 0 ? avgPrice : null,
         priceCount,
         calculationMethod,
+        spotlightPrice: spotlight?.spotlightPrice ?? null,
+        spotlightCondition: spotlight?.spotlightCondition ?? null,
+        spotlightPrinting: spotlight?.spotlightPrinting ?? null,
       });
     } catch (e: any) {
       console.error("[search/sales]", e.message);
