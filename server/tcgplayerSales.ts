@@ -345,13 +345,32 @@ function norm(v: string | null | undefined): string {
   return (v ?? '').toLowerCase().trim();
 }
 
+/**
+ * Returns true if the standardized condition represents a sealed/unopened product.
+ * TCGplayer does not use "Unopened" as a condition string in its sales API —
+ * sealed product sales come back tagged as "Near Mint". This helper centralises
+ * that knowledge so the matching logic can treat them as equivalent.
+ */
+function isUnopenedCondition(standardized: string): boolean {
+  return standardized === 'unopened';
+}
+
 export function matchSalesToItem(
   sales: Sale[],
   condition: string | null,
   printing: string | null,
 ): { matched: Sale[]; match: 'exact' | 'condition_only' | 'none' } {
   const itemCondition = standardizeCondition(condition);
-  const sameCondition = sales.filter(s => standardizeCondition(s.condition) === itemCondition);
+
+  // TCGplayer tags sealed product sales as "Near Mint" — if the item is
+  // unopened/sealed, accept both "unopened" and "near mint" sales as a match.
+  const sameCondition = isUnopenedCondition(itemCondition)
+    ? sales.filter(s => {
+        const sc = standardizeCondition(s.condition);
+        return sc === 'unopened' || sc === 'near mint';
+      })
+    : sales.filter(s => standardizeCondition(s.condition) === itemCondition);
+
   const exact = printing
     ? sameCondition.filter(s => norm(s.variant) === norm(printing))
     : sameCondition;
