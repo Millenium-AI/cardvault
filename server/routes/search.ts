@@ -182,6 +182,7 @@ export function registerSearchRoutes(app: Express) {
         sourceSetName:        card.setName             ?? null,
         sourcePrinting:       variant?.printing        ?? null,
         sourceRarity:         card.rarity              ?? null,
+        isSealed:             card.isSealed ?? false,
         cleanName,
         displaySuffix: displaySuffix ?? null,
       });
@@ -208,6 +209,7 @@ export function registerSearchRoutes(app: Express) {
         notes:                    notes                  ?? null,
         justtcgCardUuid:          card.cardUuid          ?? null,
         justtcgVariantUuid:       variant?.variantUuid   ?? null,
+        isSealed:                 card.isSealed ?? false,
       });
 
       res.json({ item: created, created: true });

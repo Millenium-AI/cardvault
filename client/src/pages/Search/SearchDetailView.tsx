@@ -24,11 +24,30 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
   const variant = variants[variantIndex] ?? null;
 
-  // Fetch recent sales data if available, filtered by selected condition
+  // Update condition when variant changes
+  useEffect(() => {
+    if (variant?.condition) {
+      setCondition(variant.condition);
+    }
+  }, [variantIndex, variant?.condition]);
+
+  // For sealed products, ensure condition is set to Unopened
+  useEffect(() => {
+    if (card.isSealed && condition !== "Unopened") {
+      setCondition("Unopened");
+    }
+  }, [card.isSealed]);
+
+  // Fetch recent sales data if available, filtered by condition/printing
+  // For sealed products, match by printing="Unopened" instead of condition
+  const salesQueryParams = card.isSealed
+    ? `printing=${encodeURIComponent("Unopened")}`
+    : `condition=${encodeURIComponent(condition)}`;
+
   const { data: salesData, isLoading: salesLoading, isFetching: salesFetching } = useQuery({
-    queryKey: [`/api/search/${card.tcgplayerId}/sales`, condition],
+    queryKey: [`/api/search/${card.tcgplayerId}/sales`, card.isSealed ? "unopened" : condition],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/search/${card.tcgplayerId}/sales?condition=${encodeURIComponent(condition)}`);
+      const res = await apiRequest("GET", `/api/search/${card.tcgplayerId}/sales?${salesQueryParams}`);
       return res.json();
     },
     enabled: !!card.tcgplayerId,
@@ -36,10 +55,11 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
 
   const refreshSalesMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", `/api/search/${card.tcgplayerId}/sales/refresh`, { condition });
+      const body = card.isSealed ? { printing: "Unopened" } : { condition };
+      return apiRequest("POST", `/api/search/${card.tcgplayerId}/sales/refresh`, body);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/search/${card.tcgplayerId}/sales`, condition] });
+      queryClient.invalidateQueries({ queryKey: [`/api/search/${card.tcgplayerId}/sales`, card.isSealed ? "unopened" : condition] });
     },
   });
 
@@ -160,16 +180,22 @@ function SearchDetailBody({ card, game, onAdded }: { card: any; game: string; on
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Condition</label>
-            <Select value={condition} onValueChange={setCondition}>
-              <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Near Mint">Near Mint (NM)</SelectItem>
-                <SelectItem value="Lightly Played">Lightly Played (LP)</SelectItem>
-                <SelectItem value="Moderately Played">Moderately Played (MP)</SelectItem>
-                <SelectItem value="Heavily Played">Heavily Played (HP)</SelectItem>
-                <SelectItem value="Damaged">Damaged (DMG)</SelectItem>
-              </SelectContent>
-            </Select>
+            {card.isSealed ? (
+              <div className="h-10 px-3 flex items-center rounded-md border border-input bg-muted/50 text-sm font-medium text-foreground">
+                {condition}
+              </div>
+            ) : (
+              <Select value={condition} onValueChange={setCondition}>
+                <SelectTrigger className="h-10 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Near Mint">Near Mint (NM)</SelectItem>
+                  <SelectItem value="Lightly Played">Lightly Played (LP)</SelectItem>
+                  <SelectItem value="Moderately Played">Moderately Played (MP)</SelectItem>
+                  <SelectItem value="Heavily Played">Heavily Played (HP)</SelectItem>
+                  <SelectItem value="Damaged">Damaged (DMG)</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <div className="space-y-1.5">

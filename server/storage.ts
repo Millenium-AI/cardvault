@@ -66,6 +66,7 @@ export interface InventoryItem {
   status: string;
   labelStatus?: string;
   priceSource?: string | null;
+  isSealed?: boolean;
   // Sales-derived pricing (see server/tcgplayerSales.ts)
   adjustedMarketPrice?: number | null;
   lastSaleDate?: string | null;

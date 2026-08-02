@@ -469,7 +469,37 @@ export interface SearchResultCard {
   rarity:      string | null;
   tcgplayerId: string | null;
   imageUrl:    string | null;
+  isSealed:    boolean;
   variants:    SearchResultVariant[];
+}
+
+function isSealedProduct(name: string, variants: any[]): boolean {
+  const sealedKeywords = [
+    'booster box',
+    'booster pack',
+    'booster bundle',
+    'booster case',
+    'elite trainer box',
+    'build & battle',
+    'build and battle',
+    'blister',
+    'blister pack',
+    'bundle',
+    'bundle case',
+    'case',
+  ];
+
+  const nameLower = name.toLowerCase();
+  const hasKeyword = sealedKeywords.some(keyword => nameLower.includes(keyword));
+  if (!hasKeyword) return false;
+
+  // Check if any variant is marked as Unopened
+  const hasUnopened = variants.some((v: any) => {
+    const condition = (v.condition ?? v.grade ?? '').toLowerCase();
+    return condition === 'unopened' || condition.includes('unopened');
+  });
+
+  return hasUnopened;
 }
 
 function mapJustTcgCardToSearchResult(card: any, isV2: boolean = false): SearchResultCard {
@@ -499,6 +529,7 @@ function mapJustTcgCardToSearchResult(card: any, isV2: boolean = false): SearchR
     imageUrl:    tcgplayerId
       ? `https://product-images.tcgplayer.com/fit-in/1000x1000/${tcgplayerId}.jpg`
       : null,
+    isSealed:    isSealedProduct(name, variants),
     variants: variants.map((v: any) => {
       const getVField = (camelCase: string, snakeCase: string) =>
         isV2 ? v[snakeCase] : v[camelCase];

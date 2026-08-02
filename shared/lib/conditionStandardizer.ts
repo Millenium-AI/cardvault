@@ -8,6 +8,7 @@ export function standardizeCondition(condition: string | null | undefined): stri
     'mp': 'moderately played',
     'hp': 'heavily played',
     'dmg': 'damaged',
+    'unopened': 'unopened',
   };
   return conditionMap[c] || c;
 }
