@@ -54,11 +54,11 @@ function OverviewTab({
     <div className="space-y-4">
       {/* Card image */}
       {item.photoUrl && (
-        <div className="flex justify-center rounded-xl bg-muted/30 py-5">
+        <div className="flex justify-center rounded-xl bg-muted/30 py-3">
           <img
             src={item.photoUrl}
             alt=""
-            className="max-h-64 max-w-[80%] object-contain rounded-lg shadow-md"
+            className="max-h-56 max-w-[62%] object-contain rounded-lg shadow-md"
           />
         </div>
       )}
@@ -76,7 +76,7 @@ function OverviewTab({
       <div className="flex gap-2">
         <StatTile label="Qty" value={pricing.quantityLabel} />
         <StatTile
-          label="Recent Avg Sale"
+          label="Avg Sale"
           value={pricing.rawMarketDisplay}
         />
         <StatTile
@@ -94,35 +94,36 @@ function OverviewTab({
         </div>
       )}
 
-      {/* TCGplayer link */}
-      {item.tcgplayerUrl ? (
-        <a
-          href={item.tcgplayerUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-2 w-full rounded-xl border border-blue-500/40 px-4 py-3 text-sm font-medium text-blue-400 hover:bg-blue-500/10 transition-colors"
-        >
-          View on TCGplayer <ExternalLink size={14} />
-        </a>
-      ) : (
-        <div className="flex items-center justify-center gap-2 w-full rounded-xl border border-border px-4 py-3 text-sm font-medium text-muted-foreground opacity-40 cursor-not-allowed">
-          TCGplayer unavailable <ExternalLink size={14} />
-        </div>
-      )}
-
-      {/* eBay sold listings link */}
-      {(() => {
-        const ebayUrl = buildEbaySearchUrl(item);
-        if (!ebayUrl) return null;
-        return (
-          <button
-            onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}
-            className="flex items-center justify-center gap-2 w-full rounded-xl border border-amber-500/40 px-4 py-3 text-sm font-medium text-amber-400 hover:bg-amber-500/10 transition-colors"
+      {/* TCGplayer + eBay actions */}
+      <div className="grid grid-cols-2 gap-2">
+        {item.tcgplayerUrl ? (
+          <a
+            href={item.tcgplayerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 w-full rounded-xl border border-blue-500/40 px-3 py-3 text-xs font-medium text-blue-400 hover:bg-blue-500/10 transition-colors"
           >
-            Search eBay Sold Listings <ExternalLink size={14} />
-          </button>
-        );
-      })()}
+            TCGplayer <ExternalLink size={13} />
+          </a>
+        ) : (
+          <div className="flex items-center justify-center gap-2 w-full rounded-xl border border-border px-3 py-3 text-xs font-medium text-muted-foreground opacity-40 cursor-not-allowed">
+            TCGplayer <ExternalLink size={13} />
+          </div>
+        )}
+
+        {(() => {
+          const ebayUrl = buildEbaySearchUrl(item);
+          if (!ebayUrl) return null;
+          return (
+            <button
+              onClick={() => window.open(ebayUrl, "_blank", "noopener,noreferrer")}
+              className="flex items-center justify-center gap-2 w-full rounded-xl border border-amber-500/40 px-3 py-3 text-xs font-medium text-amber-400 hover:bg-amber-500/10 transition-colors"
+            >
+              eBay Sold <ExternalLink size={13} />
+            </button>
+          );
+        })()}
+      </div>
 
       {/* Delete */}
       <Button
@@ -150,16 +151,13 @@ export function MobileDetailDrawer({
 }) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("overview");
-  const [snap, setSnap] = useState<number | string | null>(0.92);
-
-  const meta = parseMatchMetadata(item?.matchMetadataJson);
-  const deleteMut = useItemDeleteMutation();
+  const [snap, setSnap] = useState<number | string | null>(1);
 
   // Always re-open at the max snap point on the Overview tab, even if a
   // previous open was left dragged down or on a different tab.
   useEffect(() => {
     if (open) {
-      setSnap(0.92);
+      setSnap(1);
       setActiveTab("overview");
     }
   }, [open]);
@@ -169,23 +167,31 @@ export function MobileDetailDrawer({
       deleteMut.mutate(item.id, { onSuccess: () => onClose() });
   }
 
+  const meta = parseMatchMetadata(item?.matchMetadataJson);
+  const deleteMut = useItemDeleteMutation();
+  const hasSalesData = Boolean(
+    item?.recentSales?.length || item?.salesCount || item?.recentSalesCount,
+  );
+
   if (!item) return null;
 
   return (
     <Drawer.Root
       open={open}
       onOpenChange={(v) => !v && onClose()}
-      snapPoints={[0.6, 0.92]}
+      snapPoints={[0.6, 0.9, 0.95]}
       activeSnapPoint={snap}
       setActiveSnapPoint={setSnap}
     >
       <Drawer.Portal>
-        {/* Backdrop */}
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/50" />
 
         <Drawer.Content
           className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl bg-card border-t border-border focus:outline-none"
-          style={{ height: "92dvh", maxHeight: "92dvh" }}
+          style={{
+            height: "calc(100dvh - 4rem)",
+            maxHeight: "calc(100dvh - 4rem)",
+          }}
         >
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1 shrink-0">
@@ -228,7 +234,7 @@ export function MobileDetailDrawer({
                 <Eye size={11} /> Overview
               </TabsTrigger>
               <TabsTrigger value="sales" className="text-xs gap-1">
-                <TrendingDown size={11} /> TCG Player Sales
+                <TrendingDown size={11} /> Sold Listings
               </TabsTrigger>
               <TabsTrigger value="edit" className="text-xs gap-1">
                 <Pencil size={11} /> Edit
@@ -255,6 +261,27 @@ export function MobileDetailDrawer({
               <TabsContent value="sales" className="mt-0 px-4 pt-3 pb-2">
                 <div className="space-y-4">
                   <RecentSalesPanel item={item} />
+
+                  {!hasSalesData && (
+                    <Button
+                      variant="outline"
+                      className="w-full h-11 rounded-xl border-primary/40 text-primary hover:bg-primary/10 hover:text-primary"
+                      onClick={() => {
+                        window.dispatchEvent(
+                          new CustomEvent("inventory:refresh-prices", {
+                            detail: { id: item.id },
+                          }),
+                        );
+
+                        toast({
+                          title: "Sales refresh requested",
+                          description: "We’ll fetch the latest sales data for this card.",
+                        });
+                      }}
+                    >
+                      Refresh Sales
+                    </Button>
+                  )}
                 </div>
               </TabsContent>
 
