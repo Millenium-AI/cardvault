@@ -484,7 +484,10 @@ export interface SearchResultCard {
   variants: SearchResultVariant[];
 }
 
-function isSealedProduct(name: string, variants: any[]): boolean {
+function isSealedProduct(card: any, name: string, variants: any[]): boolean {
+  const cardIsSealed =
+    card?.isSealed ?? card?.is_sealed ?? card?.sealed ?? card?.issealed ?? false;
+
   const sealedKeywords = [
     'booster box',
     'booster pack',
@@ -498,18 +501,31 @@ function isSealedProduct(name: string, variants: any[]): boolean {
     'bundle',
     'bundle case',
     'case',
+    'box',
   ];
 
-  const nameLower = name.toLowerCase();
+  const nameLower = (name ?? '').toLowerCase();
   const hasKeyword = sealedKeywords.some(keyword => nameLower.includes(keyword));
-  if (!hasKeyword) return false;
 
-  const hasUnopened = variants.some((v: any) => {
-    const condition = (v.condition ?? v.grade ?? '').toLowerCase();
-    return condition === 'unopened' || condition.includes('unopened');
+  const hasSealedCondition = variants.some((v: any) => {
+    const condition = String(v.condition ?? v.grade ?? v.type ?? '').toLowerCase();
+    const printing = String(v.printing ?? '').toLowerCase();
+    const type = String(v.type ?? '').toLowerCase();
+
+    return (
+      condition.includes('sealed') ||
+      condition.includes('unopened') ||
+      printing.includes('sealed') ||
+      type.includes('sealed') ||
+      condition === 'sealed'
+    );
   });
 
-  return hasUnopened;
+  if (cardIsSealed) return true;
+  if (hasSealedCondition) return true;
+  if (hasKeyword) return true;
+
+  return false;
 }
 
 function mapJustTcgCardToSearchResult(card: any, isV2 = false): SearchResultCard {
@@ -538,7 +554,7 @@ function mapJustTcgCardToSearchResult(card: any, isV2 = false): SearchResultCard
     imageUrl: tcgplayerId
       ? `https://product-images.tcgplayer.com/fit-in/1000x1000/${tcgplayerId}.jpg`
       : null,
-    isSealed: isSealedProduct(name, variants),
+    isSealed: isSealedProduct(card, name, variants),
     variants: variants.map((v: any) => {
       const getVField = (camelCase: string, snakeCase: string) =>
         isV2 ? (v[snakeCase] ?? v[camelCase]) : (v[camelCase] ?? v[snakeCase]);
