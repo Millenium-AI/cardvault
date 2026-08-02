@@ -4,6 +4,19 @@ import { apiRequest } from "@/lib/queryClient";
 import { standardizeCondition } from "@shared/lib/conditionStandardizer";
 import { useState } from "react";
 
+function normalizeRecentSalesCondition(condition?: string | null): string {
+  const standardized = standardizeCondition(condition ?? "");
+  if (!standardized) return "Unknown";
+
+  const value = standardized.toLowerCase();
+  if (value === "unopened") return "Sealed";
+  return standardized;
+}
+
+function isPhotoListing(listingType?: string | null): boolean {
+  return (listingType ?? "").toLowerCase() === "listingwithphotos";
+}
+
 export function RecentSalesPanel({ item }: { item: any }) {
   const queryClient = useQueryClient();
   const [isToggling, setIsToggling] = useState(false);
@@ -67,6 +80,11 @@ export function RecentSalesPanel({ item }: { item: any }) {
   const condition = standardizeCondition(item.condition) || "Unknown";
   const printing = meta.sourcePrinting ?? "Normal";
 
+  // Exclude photo listings from recent-sales display
+  const displaySales = Array.isArray(sales)
+    ? sales.filter((sale: any) => !isPhotoListing(sale.listingType))
+    : [];
+
   // Format relative time for "checked"
   const formatCheckedTime = () => {
     if (!item.lastSaleFetchedAt) return "never";
@@ -82,7 +100,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
   };
 
   // Empty state
-  if (!sales || sales.length === 0) {
+  if (!displaySales || displaySales.length === 0) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -102,7 +120,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
   }
 
   // All returned sales are already condition-matched server-side (via matchSalesToItem)
-  const includedSales = sales.filter((s: any) => !s.isOutlier);
+  const includedSales = displaySales.filter((s: any) => !s.isOutlier);
 
   return (
     <div className="space-y-4">
@@ -157,10 +175,10 @@ export function RecentSalesPanel({ item }: { item: any }) {
       </div>
 
       {/* Sales table */}
-      {sales.length > 0 && (
+      {displaySales.length > 0 && (
         <div className="space-y-2">
           <div className="text-xs font-semibold text-muted-foreground px-1">
-            Sales history ({sales.length} total)
+            Sales history ({displaySales.length} total)
           </div>
           <div className="border border-border rounded-lg overflow-hidden">
             <table className="w-full text-xs">
@@ -174,10 +192,11 @@ export function RecentSalesPanel({ item }: { item: any }) {
                 </tr>
               </thead>
               <tbody>
-                {sales.map((sale: any, idx: number) => {
+                {displaySales.map((sale: any, idx: number) => {
                   const isOutlier = sale.isOutlier;
                   const saleDate = new Date(sale.orderDate);
                   const dateStr = saleDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  const saleCondition = normalizeRecentSalesCondition(sale.condition);
 
                   return (
                     <tr
@@ -192,7 +211,7 @@ export function RecentSalesPanel({ item }: { item: any }) {
                       <td className={`text-right px-2 py-1.5 font-mono ${isOutlier ? "line-through" : ""}`}>
                         ${sale.purchasePrice.toFixed(2)}
                       </td>
-                      <td className="px-2 py-1.5">{sale.condition ?? "—"}</td>
+                      <td className="px-2 py-1.5">{saleCondition}</td>
                       <td className="px-2 py-1.5">{sale.variant ?? "Normal"}</td>
                       <td className="text-center px-2 py-1.5">{sale.quantity}</td>
                       {isOutlier && (
