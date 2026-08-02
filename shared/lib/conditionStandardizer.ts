@@ -3,11 +3,19 @@ export function standardizeCondition(condition: string | null | undefined): stri
   if (!condition) return '';
   const c = condition.toLowerCase().trim();
   const conditionMap: Record<string, string> = {
+    // Abbreviations
     'nm': 'near mint',
     'lp': 'lightly played',
     'mp': 'moderately played',
     'hp': 'heavily played',
     'dmg': 'damaged',
+    // Full strings (canonical forward-direction entries — prevents passthrough fragility)
+    'near mint': 'near mint',
+    'lightly played': 'lightly played',
+    'moderately played': 'moderately played',
+    'heavily played': 'heavily played',
+    'damaged': 'damaged',
+    // Sealed/unopened aliases
     'unopened': 'unopened',
     'sealed': 'unopened',
     'sld': 'unopened',

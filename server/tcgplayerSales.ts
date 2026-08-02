@@ -36,6 +36,7 @@ export interface Sale {
   quantity: number;
   purchasePrice: number;
   orderDate: string;
+  listingType?: string | null;
 }
 
 /* ─────────────────────── circuit breaker ─────────────────────── */
@@ -124,6 +125,7 @@ export async function fetchLatestSales(productId: string, limit = FETCH_LIMIT): 
         quantity: Number(s.quantity ?? 1),
         purchasePrice: Number(s.purchasePrice),
         orderDate: s.orderDate,
+        listingType: s.listingType ?? null,
       }))
       .filter((s: Sale) => Number.isFinite(s.purchasePrice) && s.purchasePrice > 0 && s.orderDate);
 
@@ -346,10 +348,22 @@ function norm(v: string | null | undefined): string {
 }
 
 /**
+ * Returns true if a sale came from a photo listing (ListingWithPhotos).
+ * Photo listings are filtered out of pricing calculations server-side because
+ * they frequently represent different-language or mis-catalogued product
+ * (e.g. a Korean box listed under a Japanese product page) that would corrupt
+ * the windowed average. The frontend RecentSalesPanel applies the same filter
+ * for display consistency.
+ */
+function isPhotoListing(listingType: string | null | undefined): boolean {
+  return (listingType ?? '').toLowerCase() === 'listingwithphotos';
+}
+
+/**
  * Returns true if the standardized condition represents a sealed/unopened product.
- * TCGplayer does not use "Unopened" as a condition string in its sales API —
- * sealed product sales come back tagged as "Near Mint". This helper centralises
- * that knowledge so the matching logic can treat them as equivalent.
+ * TCGplayer typically returns "Unopened" for sealed product in its sales API,
+ * but some products may come back tagged as "Near Mint" instead. This helper
+ * centralises that knowledge so the matching logic accepts both as a valid match.
  */
 function isUnopenedCondition(standardized: string): boolean {
   return standardized === 'unopened';
@@ -362,14 +376,19 @@ export function matchSalesToItem(
 ): { matched: Sale[]; match: 'exact' | 'condition_only' | 'none' } {
   const itemCondition = standardizeCondition(condition);
 
-  // TCGplayer tags sealed product sales as "Near Mint" — if the item is
-  // unopened/sealed, accept both "unopened" and "near mint" sales as a match.
+  // Filter out photo listings before any condition matching — they frequently
+  // represent different-language or mis-catalogued product (e.g. Korean box
+  // under a Japanese product page) that would corrupt the price average.
+  const nonPhotoSales = sales.filter(s => !isPhotoListing(s.listingType));
+
+  // TCGplayer typically tags sealed product sales as "Unopened", but some come
+  // back as "Near Mint" — accept both so no sealed sales are missed.
   const sameCondition = isUnopenedCondition(itemCondition)
-    ? sales.filter(s => {
+    ? nonPhotoSales.filter(s => {
         const sc = standardizeCondition(s.condition);
         return sc === 'unopened' || sc === 'near mint';
       })
-    : sales.filter(s => standardizeCondition(s.condition) === itemCondition);
+    : nonPhotoSales.filter(s => standardizeCondition(s.condition) === itemCondition);
 
   const exact = printing
     ? sameCondition.filter(s => norm(s.variant) === norm(printing))
@@ -458,7 +477,7 @@ async function checkFreshSalesExist(productId: string): Promise<boolean> {
 async function getAllProductSales(productId: string): Promise<Sale[]> {
   const { data, error } = await supabaseAdmin
     .from('product_sales')
-    .select('condition, variant, language, quantity, purchase_price, order_date')
+    .select('condition, variant, language, quantity, purchase_price, order_date, listing_type')
     .eq('source_product_id', productId)
     .order('order_date', { ascending: false })
     .limit(200);
@@ -471,6 +490,7 @@ async function getAllProductSales(productId: string): Promise<Sale[]> {
     quantity: row.quantity,
     purchasePrice: row.purchase_price,
     orderDate: row.order_date,
+    listingType: row.listing_type || null,
   }));
 }
 
@@ -488,6 +508,7 @@ async function storeSales(productId: string, sales: Sale[], outlierMap: Map<stri
       quantity: s.quantity,
       purchase_price: s.purchasePrice,
       order_date: s.orderDate,
+      listing_type: s.listingType ?? null,
       is_outlier: isOutlier,
       fetched_at: new Date().toISOString(),
     };
