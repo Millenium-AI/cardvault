@@ -2,9 +2,8 @@ import { useLocation, Link } from "wouter";
 import {
   LayoutDashboard, Package, Search,
   Tent, Settings, ChevronRight, Menu, ShieldCheck, LogOut, Sun, Moon, ArrowLeftRight,
-  type LucideIcon,
 } from "lucide-react";
-import { useState, useRef, useEffect, useCallback, type RefObject } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/AuthContext";
 import { useUserPrefs } from "@/lib/useUserPrefs";
@@ -69,14 +68,14 @@ function Logo({ size = 28 }: { size?: number }) {
 
 
 function SideNavItem({ href, label, icon: Icon, collapsed }: {
-  href: string; label: string; icon: LucideIcon; collapsed: boolean;
+  href: string; label: string; icon: any; collapsed: boolean;
 }) {
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
     <Link
       href={href}
-      data-testid={`nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      data-testid={`nav-${label.toLowerCase().replace(/\\s+/g, "-")}`}
       className={cn(
         "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all",
         active
@@ -92,13 +91,13 @@ function SideNavItem({ href, label, icon: Icon, collapsed }: {
 }
 
 
-function BottomNavItem({ href, label, icon: Icon }: { href: string; label: string; icon: LucideIcon }) {
+function BottomNavItem({ href, label, icon: Icon }: { href: string; label: string; icon: any }) {
   const [location] = useLocation();
   const active = isActive(href, location);
   return (
     <Link
       href={href}
-      data-testid={`mobile-nav-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      data-testid={`mobile-nav-${label.toLowerCase().replace(/\\s+/g, "-")}`}
       className="relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-1 group"
     >
       {active && (
@@ -124,12 +123,14 @@ function BottomNavItem({ href, label, icon: Icon }: { href: string; label: strin
 function AvatarMenu({
   user, isAdmin, avatarRef, onClose, onSignOut,
 }: {
-  user: any; isAdmin: boolean; avatarRef: RefObject<HTMLButtonElement>; onClose: () => void; onSignOut: () => void;
+  user: any; isAdmin: boolean; avatarRef: React.RefObject<HTMLButtonElement>;
+  onClose: () => void; onSignOut: () => void;
 }) {
   const [pos, setPos] = useState({ top: 0, right: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
   const [, navigate] = useLocation();
   const { theme, setTheme } = useUserPrefs();
+
 
   const recalcPos = useCallback(() => {
     if (!avatarRef.current) return;
@@ -137,11 +138,13 @@ function AvatarMenu({
     setPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
   }, [avatarRef]);
 
+
   useEffect(() => {
     recalcPos();
     window.addEventListener("resize", recalcPos);
     return () => window.removeEventListener("resize", recalcPos);
   }, [recalcPos]);
+
 
   useEffect(() => {
     function handler(e: PointerEvent) {
@@ -149,26 +152,29 @@ function AvatarMenu({
       if (menuRef.current?.contains(e.target as Node)) return;
       onClose();
     }
-
-    document.addEventListener("pointerdown", handler);
-    return () => document.removeEventListener("pointerdown", handler);
+    const t = setTimeout(() => document.addEventListener("pointerdown", handler), 50);
+    return () => { clearTimeout(t); document.removeEventListener("pointerdown", handler); };
   }, [avatarRef, onClose]);
+
 
   function goSettings() {
     onClose();
     navigate("/settings");
   }
 
+
   function goAdmin() {
     onClose();
     navigate("/admin");
   }
+
 
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
     onClose();
   }
+
 
   return (
     <div
@@ -196,6 +202,7 @@ function AvatarMenu({
         </div>
       )}
 
+
       <div className="py-1.5 px-1.5 space-y-0.5">
         <button
           onClick={goSettings}
@@ -204,6 +211,7 @@ function AvatarMenu({
           <Settings size={14} className="text-muted-foreground shrink-0" />
           <span>Settings</span>
         </button>
+
 
         {isAdmin && (
           <button
@@ -214,6 +222,7 @@ function AvatarMenu({
             <span>Admin</span>
           </button>
         )}
+
 
         <button
           onClick={toggleTheme}
@@ -228,6 +237,7 @@ function AvatarMenu({
           </span>
         </button>
       </div>
+
 
       <div className="border-t border-border/40 py-1.5 px-1.5">
         <button
@@ -245,7 +255,9 @@ function AvatarMenu({
 
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth < 1024
+  );
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const avatarRef = useRef<HTMLButtonElement>(null);
@@ -253,21 +265,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { signOut, user, isAdmin } = useAuth();
   const { theme, setTheme } = useUserPrefs();
 
+
   useEffect(() => {
-    const body = document.body;
-    if (!body) return;
-
     const observer = new MutationObserver(() => {
-      setModalOpen(body.classList.contains("modal-open"));
+      setModalOpen(document.body.classList.contains("modal-open"));
     });
-
-    observer.observe(body, { attributes: true, attributeFilter: ["class"] });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
   }, []);
+
 
   const pageTitle    = PAGE_TITLES[location]    ?? "CardVault";
   const pageSubtitle = PAGE_SUBTITLES[location] ?? "";
   const userInitial  = user?.email?.[0]?.toUpperCase() ?? "U";
+
 
   return (
     <div className="flex h-app overflow-hidden bg-background">

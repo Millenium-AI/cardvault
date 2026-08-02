@@ -916,7 +916,7 @@ export default function Inventory() {
 
           {viewMode === "list" && (
             <div className="rounded-lg border border-border/40 bg-card overflow-hidden shadow-sm">
-              <div className="md:hidden">
+              <div className="md:hidden divide-y divide-border/50">
                 {isLoading ? (
                   Array.from({ length: 6 }).map((_, i) => (
                     <div key={i} className="flex items-center gap-3 px-3 py-3">

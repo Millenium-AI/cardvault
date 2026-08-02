@@ -1,6 +1,7 @@
 import { ChevronRight, CheckSquare, Square } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConditionBadge } from "@/components/ConditionBadge";
+import { PriceDivergenceBadge } from "@/components/PriceDivergenceBadge";
 import { gameLabel } from "@shared/gameLabels";
 import { LabelStatusBadge } from "./DetailPanel";
 import { CardImagePlaceholder } from "@/components/CardImagePlaceholder";
@@ -34,14 +35,15 @@ export function MobileInventoryCard({
     <div
       data-testid={`row-inventory-${item.id}`}
       className={cn(
-        "transition-colors",
-        selected ? "bg-primary/8" : "bg-transparent"
+        "border-b border-border/50 last:border-b-0 transition-colors",
+        selected ? "bg-primary/8" : "bg-transparent",
       )}
     >
       <div
-        className="flex items-center gap-3 px-3 py-2 cursor-pointer active:bg-accent/40"
+        className="flex items-center gap-3 px-3 py-3 cursor-pointer active:bg-accent/40"
         onClick={tap}
       >
+        {/* Left: select checkbox or chevron */}
         <div className="shrink-0">
           {selectMode ? (
             <button
@@ -62,22 +64,17 @@ export function MobileInventoryCard({
           )}
         </div>
 
+        {/* Thumbnail */}
         <CardImagePlaceholder
           photoUrl={item.photoUrl}
           size="xs"
           className="w-9 h-[50px] rounded shrink-0"
         />
 
-        <div
-          className="flex-1 min-w-0"
-          style={{
-            display: "grid",
-            gridTemplateRows: "22px 20px 16px 40px",
-            gridTemplateColumns: "1fr",
-            rowGap: "2px",
-          }}
-        >
-          <div className="flex items-center justify-between gap-2 overflow-hidden">
+        {/* Info — 4-row grid layout */}
+        <div className="flex-1 min-w-0" style={{ display: "grid", gridTemplateRows: "22px 20px 16px 40px", gridTemplateColumns: "1fr" }}>
+          {/* Row 1: Card name (left) | Condition (right) — 22px */}
+          <div className="flex items-center justify-between gap-2 border-b border-border/40 overflow-hidden">
             <div className="min-w-0 flex-1 text-sm font-medium text-foreground truncate">
               {meta.cleanName || item.productName}
             </div>
@@ -86,7 +83,8 @@ export function MobileInventoryCard({
             </div>
           </div>
 
-          <div className="flex items-center justify-between gap-2 overflow-hidden">
+          {/* Row 2: Number + Set (left) | Label (right) — 20px */}
+          <div className="flex items-center justify-between gap-2 border-b border-border/40 overflow-hidden">
             <div className="flex items-center gap-0.5 min-w-0 flex-1 text-[10px] text-muted-foreground">
               {item.number && <span className="shrink-0">{item.number}</span>}
               {item.number && meta.sourceSetName && <span className="shrink-0">·</span>}
@@ -99,7 +97,8 @@ export function MobileInventoryCard({
             </div>
           </div>
 
-          <div className="flex items-center overflow-hidden">
+          {/* Row 3: Game — 16px */}
+          <div className="flex items-center border-b border-border/40 overflow-hidden">
             {item.game && (
               <span className="text-[10px] text-muted-foreground truncate">
                 {gameLabel(item.game)}
@@ -107,39 +106,29 @@ export function MobileInventoryCard({
             )}
           </div>
 
-          <div
-            className="grid grid-cols-4 gap-1 items-stretch overflow-hidden"
-            style={{
-              display: "grid",
-              gridTemplateRows: "10px 24px",
-              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-              rowGap: "1px",
-            }}
-          >
-            <div className="min-w-0 flex items-end justify-center text-[7px] uppercase tracking-wide text-muted-foreground/70 leading-none">
-              Qty
+          {/* Row 4: Pricing — 40px */}
+          <div className="flex items-center justify-between gap-1 overflow-hidden text-[8px]">
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-muted-foreground/70 leading-none">Qty</span>
+              <span className="text-primary font-mono font-bold text-[9px]">{pricing.quantityLabel}</span>
             </div>
-            <div className="min-w-0 flex items-end justify-center text-[7px] uppercase tracking-wide text-muted-foreground/70 leading-none">
-              Mkt
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-muted-foreground/70 leading-none">Mkt</span>
+              <span className="text-muted-foreground font-mono text-[9px]">
+                {pricing.marketDisplay}
+              </span>
             </div>
-            <div className="min-w-0 flex items-end justify-center text-[7px] uppercase tracking-wide text-muted-foreground/70 leading-none">
-              Rec
+            <div className="flex flex-col items-center gap-0.5">
+              <span className="text-muted-foreground/70 leading-none">Rec</span>
+              <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[9px]">
+                {pricing.rawMarketDisplay}
+              </span>
             </div>
-            <div className="min-w-0 flex items-end justify-end text-[7px] uppercase tracking-wide text-muted-foreground/70 leading-none pr-[1px]">
-              Print
-            </div>
-
-            <div className="min-w-0 flex items-start justify-center text-primary font-mono font-bold text-[9px] leading-[10px] break-all">
-              {pricing.quantityLabel}
-            </div>
-            <div className="min-w-0 flex items-start justify-center text-muted-foreground font-mono text-[9px] leading-[10px] break-all">
-              {pricing.marketDisplay}
-            </div>
-            <div className="min-w-0 flex items-start justify-center text-cyan-600 dark:text-cyan-400 font-mono text-[9px] leading-[10px] break-all">
-              {pricing.rawMarketDisplay}
-            </div>
-            <div className="min-w-0 flex items-start justify-end text-primary font-mono font-bold text-[10px] leading-[10px] break-all pr-[1px]">
-              {pricing.printDisplay}
+            <div className="flex flex-col items-end gap-0.5">
+              <span className="text-muted-foreground/70 leading-none">Print</span>
+              <span className="text-primary font-mono font-bold text-xs">
+                {pricing.printDisplay}
+              </span>
             </div>
           </div>
         </div>
