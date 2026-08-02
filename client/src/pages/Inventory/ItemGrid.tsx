@@ -38,35 +38,39 @@ export function InventoryGridCard({
         }`}
         style={{
           display: "grid",
-          gridTemplateRows: "auto 24px 20px 16px 48px",
+          gridTemplateRows: "auto 18px 16px 14px 38px",
           gridTemplateColumns: "1fr",
+          gap: 0,
         }}
       >
         {/* Select checkbox */}
         {selectMode && (
-          <div className="absolute top-1.5 left-1.5 z-10">
+          <div className="absolute top-0 left-0 z-10">
             {selected
-              ? <CheckSquare size={13} className="text-primary drop-shadow" />
-              : <Square size={13} className="text-muted-foreground" />}
+              ? <CheckSquare size={12} className="text-primary drop-shadow" />
+              : <Square size={12} className="text-muted-foreground" />}
           </div>
         )}
 
         {/* Divergence badge */}
-        <div className="absolute top-1.5 right-1.5 z-10">
+        <div className="absolute top-0 right-0 z-10">
           <PriceDivergenceBadge item={item} />
         </div>
 
         {/* Image row */}
-        <div className="relative w-full" style={{ aspectRatio: "3/4" }}>
+        <div className="relative w-full" style={{ aspectRatio: "3/4", margin: 0, padding: 0 }}>
           <CardImagePlaceholder
             photoUrl={item.photoUrl}
             size="sm"
-            className="absolute inset-0 w-full h-full object-contain bg-muted rounded-t-lg"
+            className="absolute inset-0 w-full h-full object-cover bg-muted rounded-none"
           />
         </div>
 
-        {/* Row 1: Card name (left) | Condition (right) — 24px */}
-        <div className="px-2 flex items-center justify-between gap-1 border-b border-border/20 overflow-hidden">
+        {/* Row 1 */}
+        <div
+          className="flex items-center justify-between gap-1 overflow-hidden"
+          style={{ paddingLeft: "0.25px", paddingRight: "0.25px" }}
+        >
           <div className="min-w-0 flex-1 text-[10px] font-medium text-foreground truncate">
             {meta.cleanName || item.productName}
           </div>
@@ -75,8 +79,11 @@ export function InventoryGridCard({
           </div>
         </div>
 
-        {/* Row 2: Number + Set (left) | Label (right) — 20px */}
-        <div className="px-2 flex items-center justify-between gap-1 border-b border-border/20 overflow-hidden">
+        {/* Row 2 */}
+        <div
+          className="flex items-center justify-between gap-1 overflow-hidden"
+          style={{ paddingLeft: "0.25px", paddingRight: "0.25px" }}
+        >
           <div className="flex items-center gap-0.5 min-w-0 flex-1 text-[9px] text-muted-foreground">
             {item.number && <span className="shrink-0">{item.number}</span>}
             {item.number && meta.sourceSetName && <span className="shrink-0">·</span>}
@@ -87,8 +94,11 @@ export function InventoryGridCard({
           </div>
         </div>
 
-        {/* Row 3: Game — 16px */}
-        <div className="px-2 flex items-center border-b border-border/20 overflow-hidden">
+        {/* Row 3 */}
+        <div
+          className="flex items-center overflow-hidden"
+          style={{ paddingLeft: "0.25px", paddingRight: "0.25px" }}
+        >
           {item.game && (
             <span className="text-[9px] text-muted-foreground truncate">
               {gameLabel(item.game)}
@@ -96,29 +106,34 @@ export function InventoryGridCard({
           )}
         </div>
 
-        {/* Row 4: Pricing — 48px */}
-        <div className="px-2 py-1 flex items-center justify-between gap-1 overflow-hidden text-[8px]">
-          <div className="flex flex-col items-center gap-0">
+        {/* Row 4 */}
+        <div
+          className="grid grid-cols-2 gap-x-1 gap-y-0.5 overflow-hidden text-[8px]"
+          style={{
+            paddingLeft: "0.25px",
+            paddingRight: "0.25px",
+            paddingTop: 0,
+            paddingBottom: 0,
+          }}
+        >
+          <div className="flex items-center justify-between gap-1 min-w-0">
             <span className="text-muted-foreground/70 leading-none">Qty</span>
             <span className="text-primary font-mono font-bold text-[9px]">{pricing.quantityLabel}</span>
           </div>
-          <div className="flex flex-col items-center gap-0">
+
+          <div className="flex items-center justify-between gap-1 min-w-0">
             <span className="text-muted-foreground/70 leading-none">Mkt</span>
-            <span className="text-muted-foreground font-mono text-[9px]">
-              {pricing.marketDisplay}
-            </span>
+            <span className="text-muted-foreground font-mono text-[9px] truncate">{pricing.marketDisplay}</span>
           </div>
-          <div className="flex flex-col items-center gap-0">
+
+          <div className="flex items-center justify-between gap-1 min-w-0">
             <span className="text-muted-foreground/70 leading-none">Rec</span>
-            <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[9px]">
-              {pricing.rawMarketDisplay}
-            </span>
+            <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[9px] truncate">{pricing.rawMarketDisplay}</span>
           </div>
-          <div className="flex flex-col items-end gap-0">
+
+          <div className="flex items-center justify-between gap-1 min-w-0">
             <span className="text-muted-foreground/70 leading-none">Print</span>
-            <span className="text-primary font-mono font-bold text-sm">
-              {pricing.printDisplay}
-            </span>
+            <span className="text-primary font-mono font-bold text-sm truncate">{pricing.printDisplay}</span>
           </div>
         </div>
       </div>
@@ -158,12 +173,12 @@ export function InventoryGridCard({
         <CardImagePlaceholder
           photoUrl={item.photoUrl}
           size="md"
-          className="absolute inset-0 w-full h-full object-contain bg-muted rounded-t-lg"
+          className="absolute inset-0 w-full h-full object-cover bg-muted rounded-none"
         />
       </div>
 
       {/* Row 1: Card name (left) | Condition (right) — 28px */}
-      <div className="px-2 flex items-center justify-between gap-2 border-b border-border/20 overflow-hidden">
+      <div className="px-2 flex items-center justify-between gap-2 overflow-hidden" style={{ padding: 0 }}>
         <div className="min-w-0 flex-1 text-xs font-medium text-foreground truncate">
           {meta.cleanName || item.productName}
         </div>
@@ -173,7 +188,7 @@ export function InventoryGridCard({
       </div>
 
       {/* Row 2: Number + Set (left) | Label badge (right) — 24px */}
-      <div className="px-2 flex items-center justify-between gap-2 border-b border-border/20 overflow-hidden">
+      <div className="px-2 flex items-center justify-between gap-2 overflow-hidden" style={{ padding: 0 }}>
         <div className="flex items-center gap-1 min-w-0 flex-1 text-[10px] text-muted-foreground">
           {item.number && <span className="shrink-0">{item.number}</span>}
           {item.number && meta.sourceSetName && <span className="shrink-0">·</span>}
@@ -185,7 +200,7 @@ export function InventoryGridCard({
       </div>
 
       {/* Row 3: Game name (left) — 20px */}
-      <div className="px-2 flex items-center border-b border-border/20 overflow-hidden">
+      <div className="px-2 flex items-center overflow-hidden" style={{ padding: 0 }}>
         {item.game && (
           <span className="text-[10px] text-muted-foreground truncate">
             {gameLabel(item.game)}
@@ -193,27 +208,32 @@ export function InventoryGridCard({
         )}
       </div>
 
-      {/* Row 4: Pricing — 56px */}
-      <div className="px-2 py-1.5 flex items-center justify-between gap-2 overflow-hidden text-[9px]">
-        <div className="flex flex-col items-center gap-0.5">
+      {/* Row 4: Pricing — compact 2x2 layout */}
+      <div className="px-2 py-1.5 grid grid-cols-2 gap-x-1.5 gap-y-0.5 overflow-hidden text-[9px]" style={{ padding: 0 }}>
+        <div className="flex items-center justify-between gap-1 min-w-0">
           <span className="text-muted-foreground/70 leading-none">Qty</span>
-          <span className="text-primary font-mono font-bold text-[10px]">{pricing.quantityLabel}</span>
+          <span className="text-primary font-mono font-bold text-[10px]">
+            {pricing.quantityLabel}
+          </span>
         </div>
-        <div className="flex flex-col items-center gap-0.5">
+
+        <div className="flex items-center justify-between gap-1 min-w-0">
           <span className="text-muted-foreground/70 leading-none">Mkt</span>
-          <span className="text-muted-foreground font-mono text-[10px]">
+          <span className="text-muted-foreground font-mono text-[10px] truncate">
             {pricing.marketDisplay}
           </span>
         </div>
-        <div className="flex flex-col items-center gap-0.5">
+
+        <div className="flex items-center justify-between gap-1 min-w-0">
           <span className="text-muted-foreground/70 leading-none">Rec</span>
-          <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[10px]">
+          <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[10px] truncate">
             {pricing.rawMarketDisplay}
           </span>
         </div>
-        <div className="flex flex-col items-end gap-0.5">
+
+        <div className="flex items-center justify-between gap-1 min-w-0">
           <span className="text-muted-foreground/70 leading-none">Print</span>
-          <span className="text-primary font-mono font-bold text-lg">
+          <span className="text-primary font-mono font-bold text-sm truncate">
             {pricing.printDisplay}
           </span>
         </div>

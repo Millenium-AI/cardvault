@@ -35,7 +35,7 @@ export function MobileInventoryCard({
     <div
       data-testid={`row-inventory-${item.id}`}
       className={cn(
-        "border-b border-border/50 last:border-b-0 transition-colors",
+        "transition-colors",
         selected ? "bg-primary/8" : "bg-transparent",
       )}
     >
@@ -71,10 +71,13 @@ export function MobileInventoryCard({
           className="w-9 h-[50px] rounded shrink-0"
         />
 
-        {/* Info — 4-row grid layout */}
-        <div className="flex-1 min-w-0" style={{ display: "grid", gridTemplateRows: "22px 20px 16px 40px", gridTemplateColumns: "1fr" }}>
-          {/* Row 1: Card name (left) | Condition (right) — 22px */}
-          <div className="flex items-center justify-between gap-2 border-b border-border/40 overflow-hidden">
+        {/* Info — 4-row grid layout, no row separators */}
+        <div
+          className="flex-1 min-w-0"
+          style={{ display: "grid", gridTemplateRows: "22px 20px 16px auto", gridTemplateColumns: "1fr" }}
+        >
+          {/* Row 1: Card name (left) | Condition (right) */}
+          <div className="flex items-center justify-between gap-2 overflow-hidden">
             <div className="min-w-0 flex-1 text-sm font-medium text-foreground truncate">
               {meta.cleanName || item.productName}
             </div>
@@ -83,8 +86,8 @@ export function MobileInventoryCard({
             </div>
           </div>
 
-          {/* Row 2: Number + Set (left) | Label (right) — 20px */}
-          <div className="flex items-center justify-between gap-2 border-b border-border/40 overflow-hidden">
+          {/* Row 2: Number + Set (left) | Label (right) */}
+          <div className="flex items-center justify-between gap-2 overflow-hidden">
             <div className="flex items-center gap-0.5 min-w-0 flex-1 text-[10px] text-muted-foreground">
               {item.number && <span className="shrink-0">{item.number}</span>}
               {item.number && meta.sourceSetName && <span className="shrink-0">·</span>}
@@ -97,8 +100,8 @@ export function MobileInventoryCard({
             </div>
           </div>
 
-          {/* Row 3: Game — 16px */}
-          <div className="flex items-center border-b border-border/40 overflow-hidden">
+          {/* Row 3: Game */}
+          <div className="flex items-center overflow-hidden">
             {item.game && (
               <span className="text-[10px] text-muted-foreground truncate">
                 {gameLabel(item.game)}
@@ -106,27 +109,29 @@ export function MobileInventoryCard({
             )}
           </div>
 
-          {/* Row 4: Pricing — 40px */}
-          <div className="flex items-center justify-between gap-1 overflow-hidden text-[8px]">
-            <div className="flex flex-col items-center gap-0.5">
+          {/* Row 4: Pricing — compact 2x2 layout */}
+          <div className="grid grid-cols-2 gap-x-1 gap-y-0.5 overflow-hidden text-[8px]">
+            <div className="flex items-center justify-between gap-1 min-w-0">
               <span className="text-muted-foreground/70 leading-none">Qty</span>
-              <span className="text-primary font-mono font-bold text-[9px]">{pricing.quantityLabel}</span>
+              <span className="text-primary font-mono font-bold text-[9px]">
+                {pricing.quantityLabel}
+              </span>
             </div>
-            <div className="flex flex-col items-center gap-0.5">
+            <div className="flex items-center justify-between gap-1 min-w-0">
               <span className="text-muted-foreground/70 leading-none">Mkt</span>
-              <span className="text-muted-foreground font-mono text-[9px]">
+              <span className="text-muted-foreground font-mono text-[9px] truncate">
                 {pricing.marketDisplay}
               </span>
             </div>
-            <div className="flex flex-col items-center gap-0.5">
+            <div className="flex items-center justify-between gap-1 min-w-0">
               <span className="text-muted-foreground/70 leading-none">Rec</span>
-              <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[9px]">
+              <span className="text-cyan-600 dark:text-cyan-400 font-mono text-[9px] truncate">
                 {pricing.rawMarketDisplay}
               </span>
             </div>
-            <div className="flex flex-col items-end gap-0.5">
+            <div className="flex items-center justify-between gap-1 min-w-0">
               <span className="text-muted-foreground/70 leading-none">Print</span>
-              <span className="text-primary font-mono font-bold text-xs">
+              <span className="text-primary font-mono font-bold text-xs truncate">
                 {pricing.printDisplay}
               </span>
             </div>
