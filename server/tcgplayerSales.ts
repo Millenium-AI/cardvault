@@ -79,26 +79,44 @@ export async function fetchLatestSales(productId: string, limit = FETCH_LIMIT): 
     });
 
     if (res.status === 401) {
-      // 401 may indicate TCGplayer has changed their authentication requirements
-      // or blocked our user agent. Try once more with a fresh request before failing.
-      console.warn(`[TCGsales] Got 401 from TCGplayer, will retry with different approach`);
-      throw Object.assign(new Error(`TCGplayer sales ${res.status}`), { status: res.status });
+      // 401: Unauthorized — TCGplayer may have blocked our user agent or changed auth requirements
+      const msg = `TCGplayer sales API returned 401 Unauthorized for product ${productId}`;
+      console.error(`[TCGsales] ${msg}`);
+      throw Object.assign(new Error(msg), { status: 401 });
     }
 
-    if (res.status === 403 || res.status === 429) {
+    if (res.status === 403) {
+      // 403: Forbidden — TCGplayer is explicitly blocking us
       consecutiveBlocks++;
-      if (consecutiveBlocks >= 3) tripBreaker(`HTTP ${res.status} x${consecutiveBlocks}`);
-      throw Object.assign(new Error(`TCGplayer sales ${res.status}`), { status: res.status });
+      const msg = `TCGplayer sales API returned 403 Forbidden for product ${productId} (${consecutiveBlocks} consecutive)`;
+      console.error(`[TCGsales] ${msg}`);
+      if (consecutiveBlocks >= 3) {
+        tripBreaker(`HTTP 403 Forbidden x${consecutiveBlocks} — TCGplayer is blocking requests`);
+      }
+      throw Object.assign(new Error(msg), { status: 403 });
+    }
+
+    if (res.status === 429) {
+      // 429: Too Many Requests — rate limit hit
+      consecutiveBlocks++;
+      const msg = `TCGplayer sales API returned 429 Too Many Requests (${consecutiveBlocks} consecutive)`;
+      console.warn(`[TCGsales] ${msg}`);
+      if (consecutiveBlocks >= 3) {
+        tripBreaker(`HTTP 429 Rate Limited x${consecutiveBlocks}`);
+      }
+      throw Object.assign(new Error(msg), { status: 429 });
     }
 
     if (!res.ok) {
-      throw Object.assign(new Error(`TCGplayer sales ${res.status}`), { status: res.status });
+      const msg = `TCGplayer sales API returned HTTP ${res.status} for product ${productId}`;
+      console.error(`[TCGsales] ${msg}`);
+      throw Object.assign(new Error(msg), { status: res.status });
     }
 
     consecutiveBlocks = 0;
     const json = await res.json();
 
-    return (json?.data ?? [])
+    const sales = (json?.data ?? [])
       .map((s: any) => ({
         condition: s.condition ?? null,
         variant: s.variant ?? null,
@@ -108,8 +126,13 @@ export async function fetchLatestSales(productId: string, limit = FETCH_LIMIT): 
         orderDate: s.orderDate,
       }))
       .filter((s: Sale) => Number.isFinite(s.purchasePrice) && s.purchasePrice > 0 && s.orderDate);
+
+    console.log(`[TCGsales] Successfully fetched ${sales.length} sales for product ${productId}`);
+    return sales;
   } catch (err: any) {
     // On network error or status error, just propagate
+    const status = err?.status ?? 'network-error';
+    console.error(`[TCGsales] fetchLatestSales error for product ${productId}: ${err.message} (${status})`);
     throw err;
   }
 }
@@ -460,9 +483,12 @@ async function storeSales(productId: string, sales: Sale[], outlierMap: Map<stri
   if (error) {
     if (error.message?.includes('duplicate key')) {
       // Expected on re-sweep; silently ignore
+      console.debug(`[TCGsales] Duplicate sales entries for ${productId} (already cached)`);
     } else {
-      console.warn(`[TCGsales] could not store sales for ${productId}: ${error.message}`);
+      console.warn(`[TCGsales] could not store ${rows.length} sales for ${productId}: ${error.message}`);
     }
+  } else {
+    console.log(`[TCGsales] Stored ${rows.length} sales for product ${productId}`);
   }
 }
 
@@ -794,15 +820,29 @@ async function purgeOldSales() {
  * data as-is. Safe to call from any route.
  */
 export async function ensureLiveSalesFetched(productId: string): Promise<void> {
-  if (await checkFreshSalesExist(productId)) return;
+  if (await checkFreshSalesExist(productId)) {
+    return; // Fresh data exists, skip fetch
+  }
+
+  if (Date.now() < breakerOpenUntil) {
+    console.warn(`[TCGsales] Circuit breaker is open until ${new Date(breakerOpenUntil).toISOString()} — skipping sales fetch for ${productId}`);
+    return;
+  }
 
   let sales: Sale[];
   try {
     sales = await fetchLatestSales(productId);
-  } catch {
+  } catch (err: any) {
+    const status = err?.status ?? 'unknown';
+    const message = err?.message ?? 'unknown error';
+    console.warn(`[TCGsales] Failed to fetch sales for product ${productId}: HTTP ${status} — ${message}`);
     return;
   }
-  if (!sales.length) return;
+
+  if (!sales.length) {
+    console.debug(`[TCGsales] No sales returned for product ${productId}`);
+    return;
+  }
 
   // Group by (condition, variant) and reject outliers per group, same as the
   // sweep loop's per-item grouping, but without an owning item context.

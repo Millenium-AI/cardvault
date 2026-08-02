@@ -19,16 +19,20 @@ const SETS_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 export function registerSearchRoutes(app: Express) {
 
   // Search cards across all games via JustTCG, with PokéWallet/BerryWallet fallback
+  // Optional v2 parameters: graded (exclude|only|include), grading_company (PSA|BGS|CGC|BCCG|BVG|SGC), grade (comma-separated)
   app.get("/api/search/cards", async (req: any, res) => {
     try {
-      const { q, game, set, limit } = req.query as Record<string, string>;
+      const { q, game, set, limit, graded, grading_company, grade } = req.query as Record<string, string>;
       const query = (q ?? "").trim();
       if (!query) return res.status(400).json({ error: "q (search query) is required" });
 
       const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 20, 20) : 20;
       const gameFilter = game && game !== "all" ? game : null;
       const setFilter = set?.trim() || null;
-      const key = cacheKey(query, gameFilter, setFilter);
+
+      // Cache key includes graded filters so different grading searches don't return cached raw-only results
+      const gradedCacheKey = [graded, grading_company, grade].filter(Boolean).join('|') || 'none';
+      const key = cacheKey(query, gameFilter, setFilter) + `|graded:${gradedCacheKey}`;
 
       const cached = searchCache.get(key);
       if (cached && cached.expiresAt > Date.now()) {
@@ -40,7 +44,15 @@ export function registerSearchRoutes(app: Express) {
       let justTcgRateLimited = false;
 
       try {
-        results = await searchCards({ query, game: gameFilter, set: setFilter, limit: parsedLimit });
+        results = await searchCards({
+          query,
+          game: gameFilter,
+          set: setFilter,
+          limit: parsedLimit,
+          graded: (graded as 'exclude' | 'only' | 'include') || 'exclude',
+          gradingCompany: grading_company || null,
+          grade: grade || null,
+        });
       } catch (err: any) {
         if (err?.status === 429) {
           justTcgRateLimited = true;
@@ -221,12 +233,14 @@ export function registerSearchRoutes(app: Express) {
       // Fetch all sales for this product (uses cached data if fresh data fetch failed)
       const rawSales = await storage.listProductSales(tcgplayerId);
       if (!rawSales || rawSales.length === 0) {
+        console.warn(`[search/sales] No sales data available for product ${tcgplayerId} (either fetch failed or no sales exist)`);
         return res.json({ sales: [], salePrices: [], avgPrice: null, priceCount: 0 });
       }
 
       // Match sales by condition (and printing if provided) using the canonical matching logic
       const { matched } = matchSalesToItem(rawSales, condition || null, printing || null);
       if (!matched.length) {
+        console.debug(`[search/sales] No sales matched condition=${condition}, printing=${printing} for product ${tcgplayerId}`);
         return res.json({ sales: [], salePrices: [], avgPrice: null, priceCount: 0, calculationMethod: 'No matching sales' });
       }
 
@@ -248,6 +262,7 @@ export function registerSearchRoutes(app: Express) {
         .filter(s => !s.isOutlier)
         .map(s => s.purchasePrice);
 
+      console.log(`[search/sales] Returning ${matchedWithOutlierFlag.length} sales (${priceCount} for pricing) for product ${tcgplayerId}`);
       res.json({
         sales: matchedWithOutlierFlag,
         salePrices,
@@ -256,9 +271,10 @@ export function registerSearchRoutes(app: Express) {
         calculationMethod,
       });
     } catch (e: any) {
-      console.error("[search/sales]", e);
+      console.error("[search/sales]", e.message);
       // Gracefully return empty sales without erroring
       // If TCGplayer is unavailable, client can still show UI without data
+      console.error("[search/sales] Returning empty sales due to error");
       res.json({ sales: [], salePrices: [], avgPrice: null, priceCount: 0 });
     }
   });

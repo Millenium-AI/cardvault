@@ -1,6 +1,7 @@
 import { supabaseAdmin } from './supabase.js';
 
-const BASE_URL = 'https://api.justtcg.com/v1';
+const BASE_URL_V1 = 'https://api.justtcg.com/v1';
+const BASE_URL_V2 = 'https://api.justtcg.com/v2';
 
 export const JUSTTCG_BATCH_SIZE = parseInt(process.env.JUSTTCG_BATCH_SIZE ?? '20', 10);
 
@@ -48,11 +49,30 @@ async function postBatchCards(
       : { tcgplayerId: req.tcgplayerId }
   );
 
-  const res = await fetch(`${BASE_URL}/cards`, {
+  const url = `${BASE_URL_V1}/cards`;
+  let res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey() },
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey(1) },
     body: JSON.stringify(body),
   });
+
+  // If primary API key fails with 401, try the secondary key
+  if (res.status === 401) {
+    console.warn('[JustTCG] API key 1 returned 401, trying key 2');
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey(2) },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        console.log('[JustTCG] API key 2 succeeded');
+      }
+    } catch (err: any) {
+      console.error('[JustTCG] API key 2 also failed:', err.message);
+      throw Object.assign(new Error('JustTCG API 401 — both keys failed'), { status: 401 });
+    }
+  }
 
   if (res.status === 429) throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
   if (!res.ok) {
@@ -115,46 +135,83 @@ export function extractPrice(
   const variants: any[] = card.variants || [];
 
   if (!variants.length) {
-    console.warn(`[JustTCG] No variants for card ${card.tcgplayerId ?? card.uuid}`);
+    const cardId = card.tcgplayerId ?? card.tcgplayer_id ?? card.uuid ?? card.id;
+    console.warn(`[JustTCG] No variants for card ${cardId}`);
     return null;
   }
 
   if (resolvedBySkuId) {
     const v = variants[0];
     if (!v?.price) return null;
+    const price = v.price ?? null;
+    const priceChange24hr = v.priceChange24hr ?? v.price_change_24hr ?? null;
+    const priceChange7d = v.priceChange7d ?? v.price_change_7d ?? null;
+    const uuid = v.uuid ?? v.variant_uuid ?? null;
+    const cardUuid = card.uuid ?? card.card_uuid ?? null;
+
     return {
-      price:           v.price,
-      priceChange24hr: v.priceChange24hr ?? null,
-      priceChange7d:   v.priceChange7d   ?? null,
-      variantUuid:     v.uuid            ?? null,
-      cardUuid:        card.uuid         ?? null,
+      price,
+      priceChange24hr,
+      priceChange7d,
+      variantUuid: uuid,
+      cardUuid,
     };
   }
 
   const jtCondition = condition || 'Near Mint';
   const jtPrinting  = printing ?? 'Normal';
 
-  let variant = variants.find((v: any) => v.condition === jtCondition && v.printing === jtPrinting);
+  // Filter to exclude graded variants (type: "graded") unless specifically requested
+  // For now, we prioritize raw cards in regular search
+  const rawVariants = variants.filter((v: any) => {
+    const type = v.type ?? 'raw';
+    return type === 'raw' || !v.type; // Include if type is missing (backward compatibility)
+  });
+
+  const availableVariants = rawVariants.length > 0 ? rawVariants : variants;
+
+  let variant = availableVariants.find((v: any) => {
+    const vCondition = v.condition ?? v.grade ?? null; // v2 graded cards use 'grade' instead of 'condition'
+    const vPrinting = v.printing ?? 'Normal';
+    return vCondition === jtCondition && vPrinting === jtPrinting;
+  });
 
   if (!variant?.price) {
-    variant = variants.find((v: any) => v.condition === jtCondition);
+    variant = availableVariants.find((v: any) => {
+      const vCondition = v.condition ?? v.grade ?? null;
+      return vCondition === jtCondition;
+    });
     if (variant?.price) {
-      console.warn(`[JustTCG] Printing mismatch for ${jtCondition}/${jtPrinting} on ${card.tcgplayerId} — using "${variant.printing}"`);
+      const vPrinting = variant.printing ?? 'Normal';
+      console.warn(`[JustTCG] Printing mismatch for ${jtCondition}/${jtPrinting} on ${card.tcgplayerId ?? card.tcgplayer_id} — using "${vPrinting}"`);
     }
   }
 
   if (!variant?.price) {
-    const available = variants.map((v: any) => `${v.condition}/${v.printing}`).join(', ');
-    console.warn(`[JustTCG] No variant for ${jtCondition}/${jtPrinting} on ${card.tcgplayerId}. Available: [${available}]`);
+    const cardId = card.tcgplayerId ?? card.tcgplayer_id ?? card.uuid ?? card.id;
+    const available = availableVariants
+      .map((v: any) => {
+        const cond = v.condition ?? v.grade ?? '?';
+        const print = v.printing ?? 'Normal';
+        return `${cond}/${print}`;
+      })
+      .join(', ');
+    console.warn(`[JustTCG] No variant for ${jtCondition}/${jtPrinting} on ${cardId}. Available: [${available}]`);
     return null;
   }
 
+  const price = variant.price ?? null;
+  const priceChange24hr = variant.priceChange24hr ?? variant.price_change_24hr ?? null;
+  const priceChange7d = variant.priceChange7d ?? variant.price_change_7d ?? null;
+  const variantUuid = variant.uuid ?? variant.variant_uuid ?? null;
+  const cardUuid = card.uuid ?? card.card_uuid ?? null;
+
   return {
-    price:           variant.price,
-    priceChange24hr: variant.priceChange24hr ?? null,
-    priceChange7d:   variant.priceChange7d   ?? null,
-    variantUuid:     variant.uuid            ?? null,
-    cardUuid:        card.uuid               ?? null,
+    price,
+    priceChange24hr,
+    priceChange7d,
+    variantUuid,
+    cardUuid,
   };
 }
 
@@ -162,22 +219,35 @@ async function cacheAllVariants(card: any, requestedSkuId?: string | null): Prom
   const variants: any[] = card?.variants ?? [];
   if (!variants.length) return;
 
+  const cardId = card.tcgplayerId ?? card.tcgplayer_id ?? '';
+  const cardUuid = card.uuid ?? card.card_uuid ?? null;
+
   const rows = variants
-    .filter(v => v?.price != null && v?.condition)
+    .filter(v => {
+      const price = v.price ?? null;
+      const condition = v.condition ?? v.grade ?? null;
+      return price != null && condition;
+    })
     .map(v => {
+      const price = v.price ?? null;
+      const condition = v.condition ?? v.grade ?? null;
+      const printing = v.printing ?? 'Normal';
+      const tcgplayerSkuId = v.tcgplayerSkuId ?? v.tcgplayer_sku_id ?? null;
+
       const isSkuMatch =
         requestedSkuId != null &&
-        v.tcgplayerSkuId != null &&
-        String(v.tcgplayerSkuId) === String(requestedSkuId);
+        tcgplayerSkuId != null &&
+        String(tcgplayerSkuId) === String(requestedSkuId);
+
       return {
-        cache_key:      buildPriceCacheKey(card.tcgplayerId ?? '', v.condition, v.printing, isSkuMatch ? requestedSkuId : null),
-        price:          v.price,
-        price_24hr_chg: v.priceChange24hr ?? null,
-        price_7d_chg:   v.priceChange7d   ?? null,
-        variant_uuid:   v.uuid            ?? null,
-        card_uuid:      card.uuid         ?? null,
+        cache_key:      buildPriceCacheKey(cardId, condition, printing, isSkuMatch ? requestedSkuId : null),
+        price,
+        price_24hr_chg: v.priceChange24hr ?? v.price_change_24hr ?? null,
+        price_7d_chg:   v.priceChange7d   ?? v.price_change_7d   ?? null,
+        variant_uuid:   v.uuid            ?? v.variant_uuid      ?? null,
+        card_uuid:      cardUuid,
         fetched_at:     new Date().toISOString(),
-        expires_at:     expiresAt(v.price),
+        expires_at:     expiresAt(price),
       };
     });
 
@@ -402,29 +472,47 @@ export interface SearchResultCard {
   variants:    SearchResultVariant[];
 }
 
-function mapJustTcgCardToSearchResult(card: any): SearchResultCard {
+function mapJustTcgCardToSearchResult(card: any, isV2: boolean = false): SearchResultCard {
   const variants: any[] = card.variants ?? [];
+
+  // v2 uses snake_case; v1 uses camelCase
+  const getField = (camelCase: string, snakeCase: string) =>
+    isV2 ? card[snakeCase] : card[camelCase];
+
+  const tcgplayerId = getField('tcgplayerId', 'tcgplayer_id');
+  const uuid = getField('uuid', 'uuid');
+  const name = getField('name', 'name');
+  const game = getField('game', 'game');
+  const setName = getField('set_name', 'set_name') ?? getField('set', 'set');
+  const number = getField('number', 'number');
+  const rarity = getField('rarity', 'rarity');
+
   return {
     source:      'justtcg',
-    cardUuid:    card.uuid         ?? null,
-    name:        card.name,
-    game:        card.game         ?? null,
-    setName:     card.set_name ?? card.set ?? null,
-    number:      card.number       ?? null,
-    rarity:      card.rarity       ?? null,
-    tcgplayerId: card.tcgplayerId  ?? null,
-    imageUrl:    card.tcgplayerId
-      ? `https://product-images.tcgplayer.com/fit-in/1000x1000/${card.tcgplayerId}.jpg`
+    cardUuid:    uuid ?? null,
+    name,
+    game: game ?? null,
+    setName: setName ?? null,
+    number: number ?? null,
+    rarity: rarity ?? null,
+    tcgplayerId: tcgplayerId ?? null,
+    imageUrl:    tcgplayerId
+      ? `https://product-images.tcgplayer.com/fit-in/1000x1000/${tcgplayerId}.jpg`
       : null,
-    variants: variants.map((v: any) => ({
-      variantUuid:     v.uuid            ?? null,
-      condition:       v.condition       ?? null,
-      printing:        v.printing        ?? null,
-      price:           v.price           ?? null,
-      priceChange24hr: v.priceChange24hr ?? null,
-      priceChange7d:   v.priceChange7d   ?? null,
-      tcgplayerSkuId:  v.tcgplayerSkuId  ?? null,
-    })),
+    variants: variants.map((v: any) => {
+      const getVField = (camelCase: string, snakeCase: string) =>
+        isV2 ? v[snakeCase] : v[camelCase];
+
+      return {
+        variantUuid:     getVField('uuid', 'uuid') ?? null,
+        condition:       getVField('condition', 'condition') ?? null,
+        printing:        getVField('printing', 'printing') ?? null,
+        price:           getVField('price', 'price') ?? null,
+        priceChange24hr: getVField('priceChange24hr', 'price_change_24hr') ?? null,
+        priceChange7d:   getVField('priceChange7d', 'price_change_7d') ?? null,
+        tcgplayerSkuId:  getVField('tcgplayerSkuId', 'tcgplayer_sku_id') ?? null,
+      };
+    }),
   };
 }
 
@@ -433,29 +521,47 @@ export interface SearchCardsParams {
   game?:  string | null;
   set?:   string | null;
   limit?: number;
+  graded?: 'exclude' | 'only' | 'include'; // v2 parameter: exclude (default), only, include
+  gradingCompany?: string | null; // v2 parameter: PSA, BGS, CGC, BCCG, BVG, SGC
+  grade?: string | null; // v2 parameter: comma-separated grades (e.g., "9.5,10")
 }
 
 export async function searchCards(params: SearchCardsParams): Promise<SearchResultCard[]> {
-  const { query, game, set, limit = 20 } = params;
+  const { query, game, set, limit = 20, graded = 'exclude', gradingCompany, grade } = params;
   if (!query?.trim()) return [];
 
+  // v1 is used for text search; v2 is lookup-only (by ID).
+  // For now, we search with v1, but could optionally enrich with v2 data if we have IDs.
   const search = new URLSearchParams({ q: query.trim(), limit: String(Math.min(limit, 20)) });
   const justTcgGame = toJustTcgGame(game);
   if (justTcgGame) search.set('game', justTcgGame);
   if (set?.trim()) search.set('set', set.trim());
 
-  let res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
+  const url = `${BASE_URL_V1}/cards?${search.toString()}`;
+  let res = await fetch(url, {
     headers: { 'x-api-key': apiKey(1) },
   });
 
-  // If first API key fails with 401, try the fallback key
+  // If primary API key fails with 401, try the secondary key
   if (res.status === 401) {
+    console.warn('[JustTCG] Search: API key 1 returned 401, trying key 2');
     try {
-      res = await fetch(`${BASE_URL}/cards?${search.toString()}`, {
+      res = await fetch(url, {
         headers: { 'x-api-key': apiKey(2) },
       });
-    } catch {
-      // Fallback key error — let route-level fallback (pokewallet/berry) handle it
+      if (res.status === 401) {
+        console.error('[JustTCG] Search: API key 2 also returned 401');
+        throw Object.assign(new Error('JustTCG search API 401 — both keys failed'), { status: 401 });
+      }
+      if (res.ok) {
+        console.log('[JustTCG] Search: API key 2 succeeded');
+      }
+    } catch (err: any) {
+      // Network error on fallback key
+      if (err?.status === 401) {
+        throw err;
+      }
+      console.error('[JustTCG] Search: Fallback key network error:', err.message);
       throw Object.assign(new Error('JustTCG search API 401'), { status: 401 });
     }
   }
@@ -467,7 +573,9 @@ export async function searchCards(params: SearchCardsParams): Promise<SearchResu
   }
 
   const json = await res.json();
-  return (json?.data ?? []).map(mapJustTcgCardToSearchResult);
+  console.log(`[JustTCG] Search: v1 endpoint returned ${json?.data?.length ?? 0} results`);
+  // v1 returns camelCase
+  return (json?.data ?? []).map((card: any) => mapJustTcgCardToSearchResult(card, false));
 }
 
 // Sets sync — upserts JustTCG set list into justtcg_sets cache table.
@@ -489,9 +597,33 @@ export async function syncSetsForGame(internalGame: string): Promise<void> {
   const justTcgGame = toJustTcgGame(internalGame);
   if (!justTcgGame) throw new Error(`No JustTCG game mapping for "${internalGame}"`);
 
-  const res = await fetch(`${BASE_URL}/sets?game=${encodeURIComponent(justTcgGame)}`, {
-    headers: { 'x-api-key': apiKey() },
+  const url = `${BASE_URL_V1}/sets?game=${encodeURIComponent(justTcgGame)}`;
+  let res = await fetch(url, {
+    headers: { 'x-api-key': apiKey(1) },
   });
+
+  // If primary API key fails with 401, try the secondary key
+  if (res.status === 401) {
+    console.warn('[JustTCG] Sync sets: API key 1 returned 401, trying key 2');
+    try {
+      res = await fetch(url, {
+        headers: { 'x-api-key': apiKey(2) },
+      });
+      if (res.status === 401) {
+        console.error('[JustTCG] Sync sets: API key 2 also returned 401');
+        throw Object.assign(new Error('JustTCG sets API 401 — both keys failed'), { status: 401 });
+      }
+      if (res.ok) {
+        console.log('[JustTCG] Sync sets: API key 2 succeeded');
+      }
+    } catch (err: any) {
+      if (err?.status === 401) {
+        throw err;
+      }
+      console.error('[JustTCG] Sync sets: Fallback key network error:', err.message);
+      throw Object.assign(new Error('JustTCG sets API 401'), { status: 401 });
+    }
+  }
 
   if (res.status === 429) throw Object.assign(new Error('JustTCG rate limit hit (429)'), { status: 429 });
   if (!res.ok) {
