@@ -83,7 +83,9 @@ export function registerInventoryRoutes(app: Express) {
       const items = await storage.listInventoryItems(userId, { game, condition, status, search });
       const bands = await getDivergenceBands(userId);
 
-      res.json(items.map(item => {
+      const filtered = items.filter(item => (item.currentQuantity ?? 0) > 0);
+
+      res.json(filtered.map(item => {
         const market = item.currentRawMarketPrice ?? 0;
         const delta = item.adjustedMarketPrice != null ? item.adjustedMarketPrice - market : 0;
         const verdict = evaluateDivergence(market, item.priceDivergencePct ?? null, delta, bands);
@@ -187,6 +189,24 @@ export function registerInventoryRoutes(app: Express) {
       res.json({ success: true });
     } catch (e: any) {
       console.error("[bulk delete inventory]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/inventory/cleanup/zero-quantity", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const items = await storage.listInventoryItems(userId);
+      const zeroQtyIds = items.filter(i => (i.currentQuantity ?? 0) <= 0).map(i => i.id);
+
+      if (!zeroQtyIds.length) {
+        return res.json({ removed: 0, message: "No zero-quantity items found" });
+      }
+
+      await storage.bulkDeleteInventoryItems(userId, zeroQtyIds);
+      res.json({ removed: zeroQtyIds.length });
+    } catch (e: any) {
+      console.error("[cleanup zero-quantity]", e);
       res.status(500).json({ error: e.message });
     }
   });

@@ -475,6 +475,12 @@ class SupabaseStorage {
     if (error) throw new Error(error.message);
   }
 
+  async bulkDeleteInventoryItems(userId: string, ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    const { error } = await supabaseAdmin.from('inventory_items').delete().eq('user_id', userId).in('id', ids);
+    if (error) throw new Error(error.message);
+  }
+
   // ── price snapshots ────────────────────────────────────────────────────────
   async createPriceSnapshot(userId: string, data: Omit<PriceSnapshot, 'id' | 'userId'>): Promise<PriceSnapshot> {
     return dbOp<PriceSnapshot>(
