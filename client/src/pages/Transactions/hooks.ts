@@ -90,3 +90,19 @@ export function useIncomingItemMutation() {
       toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 }
+
+export function useApproveAllIncoming() {
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: async (transactionId: string) => {
+      const res = await apiRequest("POST", `/api/transactions/${transactionId}/approve-all`);
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidateTransactions();
+      toast({ title: "All trade-ins approved" });
+    },
+    onError: (e: any) =>
+      toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+}

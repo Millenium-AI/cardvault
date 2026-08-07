@@ -12,7 +12,7 @@ import {
   fmtMoney, fmtDate, fmtPercent, channelLabel,
   txnTotalValue, txnItemCount, pendingIncomingCount,
 } from "./constants";
-import { useUpdateTransaction, useIncomingItemMutation } from "./hooks";
+import { useUpdateTransaction, useIncomingItemMutation, useApproveAllIncoming } from "./hooks";
 
 const statusColors: Record<string, string> = {
   pending: "text-primary bg-primary/10",
@@ -22,7 +22,9 @@ const statusColors: Record<string, string> = {
 
 function IncomingReview({ tx }: { tx: any }) {
   const incomingMut = useIncomingItemMutation();
+  const approveAllMut = useApproveAllIncoming();
   const rows: any[] = tx.incomingItems ?? [];
+  const pendingCount = rows.filter(r => r.status === "pending").length;
   if (!rows.length) return null;
 
   return (
@@ -30,6 +32,15 @@ function IncomingReview({ tx }: { tx: any }) {
       <div className="px-3 py-2 bg-muted/30 border-b border-border flex items-center gap-2">
         <span className="text-xs font-semibold text-foreground">Trade-ins</span>
         <span className="px-2 py-0.5 rounded-full text-xs font-semibold tabular-nums bg-primary/10 text-primary">{rows.length}</span>
+        {pendingCount > 0 && (
+          <button
+            onClick={() => approveAllMut.mutate(tx.id)}
+            disabled={approveAllMut.isPending}
+            className="ml-auto flex items-center gap-1 text-xs px-2 py-1 rounded border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-50"
+          >
+            <CheckCircle size={12} /> Approve all ({pendingCount})
+          </button>
+        )}
       </div>
       <div className="divide-y divide-border/50">
         {rows.map(row => (
