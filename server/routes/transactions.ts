@@ -272,7 +272,7 @@ export function registerTransactionsRoutes(app: Express) {
           currentRawMarketPrice: rawPrice,
           currentRoundedPrintPrice: rawPrice != null ? ceilPrice(rawPrice) : null,
           normalizedMatchKey: matchKey,
-          priceSource: rawPrice != null ? "trade_in" : "pending",
+          priceSource: "pending",
           firstSeenAt: now,
           lastSeenAt: now,
           status: "active",
