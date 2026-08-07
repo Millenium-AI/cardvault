@@ -217,7 +217,12 @@ async function dbOp<T>(
   query: PromiseLike<{ data: Record<string, any> | null; error: any }>
 ): Promise<T> {
   const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("[DBOp Error] Full error object:", JSON.stringify(error, null, 2));
+    console.error("[DBOp Error] Error code:", error.code);
+    console.error("[DBOp Error] Error details:", error.details);
+    throw new Error(error.message);
+  }
   return toCamel<T>(data!);
 }
 

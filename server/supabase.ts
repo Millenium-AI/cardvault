@@ -3,6 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+console.log("[SUPABASE INIT] URL:", SUPABASE_URL);
+console.log("[SUPABASE INIT] Key exists:", !!SUPABASE_SERVICE_ROLE_KEY);
+console.log("[SUPABASE INIT] Key starts with:", SUPABASE_SERVICE_ROLE_KEY?.substring(0, 20) + "...");
+
 // Disable Realtime WebSocket — this server only uses REST + Auth APIs.
 // On Node < 22, @supabase/realtime-js throws if no native WebSocket exists.
 class NoopWebSocket {
