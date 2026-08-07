@@ -292,6 +292,65 @@ export function registerTransactionsRoutes(app: Express) {
     }
   });
 
+  // ── POST /api/transactions/:id/approve-all ────────────────────────────────
+  // Approve all pending incoming items in a transaction with one action
+  app.post("/api/transactions/:id/approve-all", async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { id: transactionId } = req.params;
+
+      const incoming = await storage.listTransactionIncomingItems(userId, transactionId);
+      const pending = incoming.filter(item => item.status === "pending");
+
+      if (!pending.length) return res.json({ approved: [] });
+
+      const approved = [];
+      for (const item of pending) {
+        const condition = item.condition ? normalizeCondition(item.condition) : null;
+        const matchKey = buildMatchKey(item.productName, null, condition, null, null, item.game);
+        const now = new Date().toISOString();
+        const rawPrice = item.cachedMarketPrice ?? null;
+
+        const existing = await storage.getInventoryItemByMatchKey(userId, matchKey);
+        let inventoryItemId: string;
+
+        if (existing) {
+          inventoryItemId = existing.id;
+          await storage.updateInventoryItem(userId, existing.id, {
+            currentQuantity: (existing.currentQuantity ?? 0) + item.quantity,
+            lastSeenAt: now,
+          });
+        } else {
+          const created = await storage.createInventoryItem(userId, {
+            game: item.game,
+            productName: item.productName,
+            condition,
+            currentQuantity: item.quantity,
+            currentRawMarketPrice: rawPrice,
+            currentRoundedPrintPrice: rawPrice != null ? ceilPrice(rawPrice) : null,
+            normalizedMatchKey: matchKey,
+            priceSource: "pending",
+            firstSeenAt: now,
+            lastSeenAt: now,
+            status: "active",
+          });
+          inventoryItemId = created.id;
+        }
+
+        const updated = await storage.updateTransactionIncomingItem(userId, item.id, {
+          status: "approved",
+          linkedInventoryItemId: inventoryItemId,
+        });
+        approved.push(updated);
+      }
+
+      res.json({ approved, count: approved.length });
+    } catch (e: any) {
+      console.error("[transactions approve all]", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── POST /api/transactions/:id/incoming-items/:itemId/reject ───────────────
   app.post("/api/transactions/:id/incoming-items/:itemId/reject", async (req: any, res) => {
     try {
