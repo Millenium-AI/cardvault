@@ -293,7 +293,8 @@ export function registerTransactionsRoutes(app: Express) {
   });
 
   // ── POST /api/transactions/:id/approve-all ────────────────────────────────
-  // Approve all pending incoming items in a transaction with one action
+  // Approve all pending incoming items in a transaction with one action.
+  // Merges quantities into existing inventory; new items created without prices (set on next refresh).
   app.post("/api/transactions/:id/approve-all", async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -309,25 +310,26 @@ export function registerTransactionsRoutes(app: Express) {
         const condition = item.condition ? normalizeCondition(item.condition) : null;
         const matchKey = buildMatchKey(item.productName, null, condition, null, null, item.game);
         const now = new Date().toISOString();
-        const rawPrice = item.cachedMarketPrice ?? null;
 
         const existing = await storage.getInventoryItemByMatchKey(userId, matchKey);
         let inventoryItemId: string;
 
         if (existing) {
+          // Merge quantity into existing item
           inventoryItemId = existing.id;
           await storage.updateInventoryItem(userId, existing.id, {
             currentQuantity: (existing.currentQuantity ?? 0) + item.quantity,
             lastSeenAt: now,
           });
         } else {
+          // Create new item without prices (will be set on next price refresh)
           const created = await storage.createInventoryItem(userId, {
             game: item.game,
             productName: item.productName,
             condition,
             currentQuantity: item.quantity,
-            currentRawMarketPrice: rawPrice,
-            currentRoundedPrintPrice: rawPrice != null ? ceilPrice(rawPrice) : null,
+            currentRawMarketPrice: null,
+            currentRoundedPrintPrice: null,
             normalizedMatchKey: matchKey,
             priceSource: "pending",
             firstSeenAt: now,
